@@ -108,7 +108,11 @@ export interface RuntimeInput {
   readonly requestId?: string;
   readonly text?: string;
   readonly itemId?: string;
+  /** More items to attach to a send (five in all, with `itemId`); each gets the same checks. */
+  readonly itemIds?: readonly string[];
   readonly sharedText?: string;
+  /** With a send: the user message this turn replaces. It and everything after it is dropped. */
+  readonly replaceFromMessageId?: string;
   readonly model?: string;
   readonly workspaceAccess?: boolean;
   /** Limits this conversation to one item and its descendants. */
@@ -153,6 +157,8 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
       model: input.model ?? '',
       workspaceAccess: input.workspaceAccess ?? false,
       rootItemId: input.rootItemId ?? null,
+      itemIds: input.itemIds === undefined ? null : [...input.itemIds],
+      replaceFromMessageId: input.replaceFromMessageId ?? null,
       readOnly: input.readOnly ?? false,
       toolId: input.toolId ?? '',
       toolResult: input.toolResult ?? '',

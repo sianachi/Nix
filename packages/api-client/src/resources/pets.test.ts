@@ -35,6 +35,21 @@ describe('the pets resource', () => {
     );
   });
 
+  it('runtime carries the attached items and the turn a send replaces, null when unused', () => {
+    const replaced = '99999999-9999-4999-8999-999999999999';
+    expect(
+      runtime({
+        operation: 'send',
+        itemIds: [ROOT_ITEM_ID, PET_ID],
+        replaceFromMessageId: replaced,
+      }).body,
+    ).toMatchObject({ itemIds: [ROOT_ITEM_ID, PET_ID], replaceFromMessageId: replaced });
+    expect(runtime({ operation: 'send' }).body).toMatchObject({
+      itemIds: null,
+      replaceFromMessageId: null,
+    });
+  });
+
   it('runtime is a POST whose body never carries after; only watchRuntime reads it', () => {
     const built = runtime({ operation: 'read', workspaceId: WORKSPACE_ID, petId: PET_ID });
     expect(built).toMatchObject({

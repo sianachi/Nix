@@ -66,12 +66,20 @@ public sealed record PetWorkspaceMapEntry(Guid Id, string Title, string Type, IR
 /// calls is still checked against the caller's permissions.
 /// <c>RootItemId</c> scopes a conversation to one readable item and its children. <c>ReadOnly</c>
 /// limits the companion's tools; it never grants permission to read workspace data.
+/// <c>ItemIds</c> attaches up to <see cref="PetWorkerClient.MaxSharedItems"/> items to a send, alongside
+/// <c>ItemId</c>; the two are merged and de-duplicated, and each id gets the same checks. <c>SharedText</c>
+/// is text the person selected in those items. <c>ReplaceFromMessageId</c> (send only) names the user
+/// message the new turn replaces: the worker drops it and every message after it first.
 /// </remarks>
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",
     string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null,
     string Mode = "", string Today = "", string TimeZone = "", IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap = null,
-    bool ToolLockedContent = false, Guid? RootItemId = null, bool ReadOnly = false);
+    bool ToolLockedContent = false, Guid? RootItemId = null, bool ReadOnly = false,
+    IReadOnlyList<Guid>? ItemIds = null, Guid? ReplaceFromMessageId = null);
+
+/// <summary>One item attached to a turn: its id and the title Core read for it.</summary>
+internal sealed record PetWorkerItem(string Id, string Title);
 
 internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, string WorkspaceId,
     string PetId, string Operation, string RequestId, string Text, string Instructions,
@@ -80,6 +88,8 @@ internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, str
     string Today, string TimeZone, IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap, bool ToolLockedContent,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RootItemId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ReadOnly,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<PetWorkerItem>? Items,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReplaceFromMessageId,
     // The pet's provider and, for a key provider, the owner's key: forwarded on every request
     // over the internal channel and held by the worker in memory only. Never logged.
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Provider = null,

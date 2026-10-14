@@ -13,6 +13,7 @@ using Nix.Domain.Pets;
 using Nix.Domain.Primitives;
 using Nix.Domain.Tenancy;
 using Nix.Features.Items;
+using Nix.Features.Locks;
 using Nix.Features.Pets;
 using Nix.Features.Workspaces;
 using Nix.Messaging;
@@ -378,6 +379,135 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         Assert.Equal(0, handler.Calls);
     }
 
+    private static readonly Guid ItemA = new("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    private static readonly Guid ItemB = new("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    private static readonly Guid ItemC = new("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+
+    private static PetWorkerClient SendGateway(RecordingWorker handler, HttpClient http, Guid? unreadable = null, Guid? locked = null) =>
+        new(http, Configuration(), Session(), Dispatcher(unreadableItem: unreadable, lockedItem: locked), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
+
+    [Fact]
+    public async Task Several_attached_items_are_deduplicated_and_forwarded_with_the_first_as_the_current_item()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http);
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Compare",
+            ItemId: ItemA, ItemIds: [ItemA, ItemB, ItemC, ItemB], SharedText: "selected"), Cancellation);
+
+        Assert.True(result.IsSuccess);
+        using var body = JsonDocument.Parse(handler.Body);
+        Assert.Equal(ItemA.ToString(), body.RootElement.GetProperty("itemId").GetString());
+        var items = body.RootElement.GetProperty("items");
+        Assert.Equal([ItemA.ToString(), ItemB.ToString(), ItemC.ToString()], items.EnumerateArray().Select(item => item.GetProperty("id").GetString()!).ToArray());
+    }
+
+    [Fact]
+    public async Task One_item_in_the_list_alone_is_still_the_current_item()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http);
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Explain", ItemIds: [ItemB]), Cancellation);
+
+        Assert.True(result.IsSuccess);
+        using var body = JsonDocument.Parse(handler.Body);
+        Assert.Equal(ItemB.ToString(), body.RootElement.GetProperty("itemId").GetString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task One_unreadable_or_locked_item_rejects_the_whole_send(bool locked)
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http, unreadable: locked ? null : ItemB, locked: locked ? ItemB : null);
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Compare", ItemIds: [ItemA, ItemB]), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.not_found", result.Error.Code);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task More_than_the_cap_of_distinct_items_is_refused_but_duplicates_do_not_count()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http);
+        var many = Enumerable.Range(0, PetWorkerClient.MaxSharedItems + 1).Select(_ => Guid.NewGuid()).ToList();
+
+        var over = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Compare", ItemIds: many), Cancellation);
+        Assert.True(over.IsFailure);
+        Assert.Equal("pets.invalid_request", over.Error.Code);
+        Assert.Equal(0, handler.Calls);
+
+        var fit = many.Take(PetWorkerClient.MaxSharedItems).ToList();
+        var repeated = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Compare", ItemIds: [.. fit, .. fit]), Cancellation);
+        Assert.True(repeated.IsSuccess);
+    }
+
+    [Fact]
+    public async Task A_note_conversation_refuses_an_item_list_that_names_anything_but_its_root()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http);
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Explain", RootItemId: ItemA, ItemIds: [ItemA, ItemB]), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.invalid_request", result.Error.Code);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Replace_from_message_is_forwarded_on_a_send_and_refused_elsewhere()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http);
+        var replaced = Guid.NewGuid();
+
+        var sent = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Again", ReplaceFromMessageId: replaced), Cancellation);
+        Assert.True(sent.IsSuccess);
+        using (var body = JsonDocument.Parse(handler.Body))
+        {
+            Assert.Equal(replaced.ToString(), body.RootElement.GetProperty("replaceFromMessageId").GetString());
+        }
+
+        var calls = handler.Calls;
+        foreach (var request in new[]
+        {
+            new PetRuntimeRequest("read", WorkspaceGuid, PetGuid, ReplaceFromMessageId: replaced),
+            new PetRuntimeRequest("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Again", ReplaceFromMessageId: Guid.Empty),
+        })
+        {
+            var refused = await gateway.ExecuteAsync(request, Cancellation);
+            Assert.True(refused.IsFailure);
+            Assert.Equal("pets.invalid_request", refused.Error.Code);
+        }
+
+        Assert.Equal(calls, handler.Calls);
+    }
+
+    [Fact]
+    public async Task A_worker_400_for_a_replace_target_is_an_invalid_request_not_an_outage()
+    {
+        using var handler = new ProviderErrorWorker(HttpStatusCode.BadRequest, []);
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Again", ReplaceFromMessageId: Guid.NewGuid()), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.invalid_request", result.Error.Code);
+    }
+
     [Fact]
     public async Task Consult_is_forwarded_to_the_worker()
     {
@@ -605,12 +735,13 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         return session;
     }
 
-    private static NixDispatcher Dispatcher(string provider = PetProviders.ChatGpt, bool inlineWriting = false)
+    private static NixDispatcher Dispatcher(string provider = PetProviders.ChatGpt, bool inlineWriting = false, Guid? unreadableItem = null, Guid? lockedItem = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IQueryHandler<GetWorkspace, WorkspaceSnapshot?>>(new FakeGetWorkspaceHandler());
         services.AddSingleton<IQueryHandler<GetPetSettings, PetSettingsResponse>>(new FakeGetPetSettingsHandler(provider, inlineWriting));
-        services.AddSingleton<IQueryHandler<GetItem, Result<Item>>>(new FakeGetItemHandler());
+        services.AddSingleton<IQueryHandler<GetItem, Result<Item>>>(new FakeGetItemHandler(unreadableItem));
+        services.AddSingleton<IQueryHandler<GetItemLock, Result<ItemLockState>>>(new FakeGetItemLockHandler(lockedItem));
         return new NixDispatcher(services.BuildServiceProvider());
     }
 
@@ -629,21 +760,29 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
                     new(PetGuid, "Nix", "owl", "playful", "balanced", "Explain clearly.", Provider: provider)], inlineWriting)));
     }
 
-    private sealed class FakeGetItemHandler : IQueryHandler<GetItem, Result<Item>>
+    private sealed class FakeGetItemLockHandler(Guid? locked) : IQueryHandler<GetItemLock, Result<ItemLockState>>
     {
-        public ValueTask<Result<Item>> HandleAsync(GetItem query, CancellationToken cancellationToken) => ValueTask.FromResult(Result.Success(new Item
-        {
-            Id = query.ItemId,
-            TenantId = TenantId.Create(),
-            WorkspaceId = new(WorkspaceGuid),
-            Type = "note",
-            Seq = 1,
-            LifecycleState = ItemLifecycleState.Active,
-            CreatedBy = PrincipalId.Create(),
-            LastModifiedBy = PrincipalId.Create(),
-            CreatedAt = DateTimeOffset.UtcNow,
-            LastModifiedAt = DateTimeOffset.UtcNow,
-        }));
+        public ValueTask<Result<ItemLockState>> HandleAsync(GetItemLock query, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(Result.Success(new ItemLockState(query.ItemId.Value == locked, null, null, query.ItemId.Value == locked)));
+    }
+
+    private sealed class FakeGetItemHandler(Guid? unreadable = null) : IQueryHandler<GetItem, Result<Item>>
+    {
+        public ValueTask<Result<Item>> HandleAsync(GetItem query, CancellationToken cancellationToken) => query.ItemId.Value == unreadable
+            ? ValueTask.FromResult(Result.Failure<Item>(new("items.not_found", "Not found")))
+            : ValueTask.FromResult(Result.Success(new Item
+            {
+                Id = query.ItemId,
+                TenantId = TenantId.Create(),
+                WorkspaceId = new(WorkspaceGuid),
+                Type = "note",
+                Seq = 1,
+                LifecycleState = ItemLifecycleState.Active,
+                CreatedBy = PrincipalId.Create(),
+                LastModifiedBy = PrincipalId.Create(),
+                CreatedAt = DateTimeOffset.UtcNow,
+                LastModifiedAt = DateTimeOffset.UtcNow,
+            }));
     }
 
     private sealed class OpenLocks : IItemLocks
