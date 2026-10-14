@@ -4,6 +4,7 @@
 // sits on screen is the caller's `layout`; everything inside is the same in all of them.
 import {
   items,
+  locks,
   pets,
   type PetConnection,
   type PetProfile,
@@ -220,6 +221,11 @@ export function Conversation({
   const [readWithoutAsking, setReadWithoutAsking] = useState(() => readReadWithoutAsking());
   const [needsDecisionIds, setNeedsDecisionIds] = useState<readonly string[]>([]);
   const [currentItemTitle, setCurrentItemTitle] = useState<string | null>(null);
+  // The open note is known to be readable without an unlock. Core refuses a send that names a
+  // locked note, so the page is never offered to the model until this is known.
+  const [currentItemOpen, setCurrentItemOpen] = useState(false);
+  // The owner removed the automatic "This page" context: it stays off for this conversation.
+  const [autoPageOff, setAutoPageOff] = useState(false);
   // Editing the live conversation title, and why a save failed.
   const [renaming, setRenaming] = useState(false);
   const [renameBusy, setRenameBusy] = useState(false);
@@ -359,9 +365,20 @@ export function Conversation({
     // setting state synchronously in an effect body is the cascading render
     // `react-hooks/set-state-in-effect` exists to stop.
     queueMicrotask(() => {
-      if (!controller.signal.aborted) setCurrentItemTitle(null);
+      if (controller.signal.aborted) return;
+      setCurrentItemTitle(null);
+      setCurrentItemOpen(false);
     });
     if (!currentItem) return;
+    void client
+      .query(locks.getItemLock(currentItem), { signal: controller.signal, forceRefresh: true })
+      .then((lock) => {
+        if (!controller.signal.aborted)
+          setCurrentItemOpen(!lock.locked || lock.unlockedUntil !== null);
+      })
+      .catch(() => {
+        /* Unknown is treated as locked: nothing is attached. */
+      });
     void client
       .query(items.itemById(currentItem), { signal: controller.signal })
       .then((value) => {
@@ -491,6 +508,22 @@ export function Conversation({
     );
   }
 
+  /** The open note as a removable chip, sent as `itemId` with no text, when nothing else is chosen
+   * and the note is known to be readable. Not in a note conversation, which has its own scope. */
+  const autoPage: SharedContext | null =
+    currentItem &&
+    !noteScope &&
+    workspaceAccess &&
+    currentItemOpen &&
+    !autoPageOff &&
+    contexts.length === 0
+      ? {
+          itemId: currentItem,
+          sharedText: '',
+          label: `This page: ${currentItemTitle ?? 'Untitled'}`,
+        }
+      : null;
+
   /** Must-fix 5: "Summarize this page" attaches the open item as a removable chip, sent as
    * `itemId` with no `sharedText` - the worker already resolves the item's own content from
    * `currentItemId` in its prompt, so nothing here re-sends the page's text itself. */
@@ -507,6 +540,9 @@ export function Conversation({
    * them joined into one `sharedText` (the request has a single field for it). */
   function contextFields() {
     if (noteScope) return { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly };
+    // With nothing chosen, the open note goes along as its id alone. The model decides whether to
+    // read it; nothing of its text is sent from here.
+    if (autoPage) return { itemId: autoPage.itemId };
     if (contexts.length === 0) return {};
     return {
       itemIds: [...new Set(contexts.map((context) => context.itemId))],
@@ -624,6 +660,7 @@ export function Conversation({
       label: 'New conversation',
       disabled: busy || running,
       onSelect: () => {
+        setAutoPageOff(false);
         void reset();
       },
     },
@@ -711,6 +748,7 @@ export function Conversation({
         : '@container flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 min-w-0 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg outline-none';
 
   const needsWorkspaceAccessForChip = contexts.length > 0 && !workspaceAccess;
+  const chips = autoPage ? [autoPage] : contexts;
 
   if (noteScope && !runtime && error) {
     return (
@@ -1069,9 +1107,9 @@ export function Conversation({
             </div>
           ) : null}
           <div className="mx-auto flex min-w-0 w-full max-h-[50%] max-w-4xl shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-divider p-3">
-            {contexts.length > 0 ? (
+            {chips.length > 0 ? (
               <ul aria-label="Notes sent with your message" className="flex min-w-0 flex-col gap-2">
-                {contexts.map((context) => (
+                {chips.map((context) => (
                   <li
                     key={`${context.itemId}:${context.sharedText}`}
                     className="flex min-w-0 items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2"
@@ -1083,7 +1121,8 @@ export function Conversation({
                       variant="icon"
                       aria-label={`Remove ${context.label}`}
                       onClick={() => {
-                        setContexts((list) => list.filter((c) => c !== context));
+                        if (context === autoPage) setAutoPageOff(true);
+                        else setContexts((list) => list.filter((c) => c !== context));
                       }}
                     >
                       <Icon icon={X} size="sm" />

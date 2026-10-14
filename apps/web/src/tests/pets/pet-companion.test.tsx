@@ -754,6 +754,97 @@ describe('companion workflow', () => {
     });
   });
 
+  describe('the open note as automatic context', () => {
+    const note = '66666666-6666-4666-8666-666666666666';
+    const sends = () =>
+      client.execute.mock.calls
+        .map(([endpoint]) => (endpoint as { body?: Record<string, unknown> }).body)
+        .filter((body) => body?.operation === 'send');
+
+    function openNote(lock: { locked: boolean; unlockedUntil: string | null }) {
+      Object.assign(client, {
+        paginate: async function* () {
+          await Promise.resolve();
+          yield* [];
+        },
+        cache: { peek: vi.fn() },
+      });
+      client.query.mockImplementation((endpoint: { operation?: string }) =>
+        Promise.resolve(
+          endpoint.operation === 'locks.get'
+            ? lock
+            : endpoint.operation === 'items.get'
+              ? { id: note, title: 'Weekly plan' }
+              : connected,
+        ),
+      );
+      return render(
+        <MemoryRouter initialEntries={[`/w/33333333-3333-4333-8333-333333333333?item=${note}`]}>
+          <Routes>
+            <Route path="/w/:workspaceId" element={<PetCompanion />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    }
+
+    async function sendMessage(user: ReturnType<typeof userEvent.setup>, text: string) {
+      await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), text);
+      await user.click(screen.getByRole('button', { name: 'Send' }));
+    }
+
+    it('sends only its id while it is unlocked and workspace access is on, until the chip is removed', async () => {
+      const user = userEvent.setup();
+      const view = openNote({ locked: false, unlockedUntil: null });
+      await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+      await user.click(await screen.findByRole('button', { name: 'Workspace access' }));
+      expect(await screen.findByText('This page: Weekly plan')).toBeVisible();
+
+      await sendMessage(user, 'What is due?');
+      await waitFor(() => {
+        expect(sends()).toHaveLength(1);
+      });
+      expect(sends()[0]).toMatchObject({ itemId: note, sharedText: '' });
+      expect(sends()[0]?.itemIds ?? null).toBeNull();
+
+      await user.click(screen.getByRole('button', { name: 'Remove This page: Weekly plan' }));
+      expect(screen.queryByText('This page: Weekly plan')).not.toBeInTheDocument();
+      await sendMessage(user, 'And tomorrow?');
+      await waitFor(() => {
+        expect(sends()).toHaveLength(2);
+      });
+      expect(sends()[1]?.itemId ?? null).toBeNull();
+      view.unmount();
+    });
+
+    it('sends nothing about a locked note', async () => {
+      const user = userEvent.setup();
+      const view = openNote({ locked: true, unlockedUntil: null });
+      await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+      await user.click(await screen.findByRole('button', { name: 'Workspace access' }));
+      await sendMessage(user, 'What is due?');
+      await waitFor(() => {
+        expect(sends()).toHaveLength(1);
+      });
+      expect(screen.queryByText('This page: Weekly plan')).not.toBeInTheDocument();
+      expect(sends()[0]?.itemId ?? null).toBeNull();
+      view.unmount();
+    });
+
+    it('sends nothing while workspace access is off', async () => {
+      const user = userEvent.setup();
+      const view = openNote({ locked: false, unlockedUntil: null });
+      await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+      await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+      await sendMessage(user, 'What is due?');
+      await waitFor(() => {
+        expect(sends()).toHaveLength(1);
+      });
+      expect(screen.queryByText('This page: Weekly plan')).not.toBeInTheDocument();
+      expect(sends()[0]?.itemId ?? null).toBeNull();
+      view.unmount();
+    });
+  });
+
   it('renders no second runtime while a pane shows the workspace conversation', async () => {
     const note = '66666666-6666-4666-8666-666666666666';
     const render_ = (search: string) =>
