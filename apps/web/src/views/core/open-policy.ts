@@ -1,16 +1,17 @@
 import type { View } from './container-model';
 
 /** How an item activated from a view is presented. */
-export type OpenMode = 'page' | 'dialog' | 'beside';
+export type OpenMode = 'page' | 'dialog' | 'beside' | 'tab';
 
 /** What a view may store in `open`; null stands for Auto. */
-export const OPEN_MODES: readonly OpenMode[] = ['page', 'dialog', 'beside'];
+export const OPEN_MODES: readonly OpenMode[] = ['page', 'dialog', 'beside', 'tab'];
 
 export const OPEN_MODE_LABELS: Readonly<Record<OpenMode | 'auto', string>> = {
   auto: 'Auto',
   page: 'Full page',
   dialog: 'Dialog',
   beside: 'Beside',
+  tab: 'New tab',
 };
 
 /** Kinds whose rows are a hierarchy to navigate, which Auto opens as a page. */
@@ -36,7 +37,7 @@ export function resolveOpenMode({ view, narrow, canOpenBeside }: OpenContext): O
   if (narrow) return 'page';
   const stored = view?.open ?? null;
   if (stored === 'beside') return canOpenBeside ? 'beside' : 'dialog';
-  if (stored === 'page' || stored === 'dialog') return stored;
+  if (stored === 'page' || stored === 'dialog' || stored === 'tab') return stored;
   // Unknown tokens from a newer build and null both mean Auto.
   if (view === null) return 'dialog';
   return HIERARCHY_KINDS.has(view.kind) ? 'page' : 'dialog';

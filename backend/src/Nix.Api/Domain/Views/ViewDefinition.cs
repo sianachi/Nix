@@ -420,13 +420,17 @@ public static class ViewOpenModes
     /// <summary>The item opens in another pane next to the view.</summary>
     public const string Beside = "beside";
 
+    /// <summary>The item opens as its own pinned document tab.</summary>
+    public const string Tab = "tab";
+
     /// <summary>Whether a stored or requested value names a mode this build defines.</summary>
     /// <param name="value">The value.</param>
-    /// <returns><see langword="true"/> when it is one of the three modes.</returns>
+    /// <returns><see langword="true"/> when it is one of the four modes.</returns>
     public static bool IsValid(string value) =>
         string.Equals(value, Page, StringComparison.Ordinal)
         || string.Equals(value, Dialog, StringComparison.Ordinal)
-        || string.Equals(value, Beside, StringComparison.Ordinal);
+        || string.Equals(value, Beside, StringComparison.Ordinal)
+        || string.Equals(value, Tab, StringComparison.Ordinal);
 }
 
 public static class GalleryCardSizes

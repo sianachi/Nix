@@ -37,6 +37,9 @@ export interface ContainerViewProps {
 
   /** Opens in another pane, when the screen around this view offers one. */
   readonly onOpenBeside?: ((itemId: string) => void) | undefined;
+
+  /** Opens as a pinned document tab, for views set to open in a new tab. */
+  readonly onOpenPinned?: ((itemId: string) => void) | undefined;
 }
 
 export function ContainerView({
@@ -44,6 +47,7 @@ export function ContainerView({
   view,
   onOpen,
   onOpenBeside,
+  onOpenPinned,
 }: ContainerViewProps): ReactNode {
   const openDialog = useItemDialog();
   const narrow = useNarrowViewport();
@@ -57,9 +61,11 @@ export function ContainerView({
   const open =
     mode === 'beside' && onOpenBeside !== undefined
       ? onOpenBeside
-      : mode === 'dialog'
-        ? (openDialog ?? onOpen)
-        : onOpen;
+      : mode === 'tab' && onOpenPinned !== undefined
+        ? onOpenPinned
+        : mode === 'dialog'
+          ? (openDialog ?? onOpen)
+          : onOpen;
   const [grid, setGrid] = useState(false);
   const viewState = useViewState();
   const descriptor = view === null ? null : findViewKind(view.kind);
