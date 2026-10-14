@@ -12,10 +12,14 @@ import {
   type ContextMenuTargetProps,
   type MenuEntry,
   type TableColumn,
+  type TableRowDrag,
   type TableSort,
 } from '@nix/ui';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
+
+import { dropRefusal } from '../../items/bulk-move';
+import { useOptionalItemCommands } from '../../items/item-commands-context';
 
 import { PartialNotice } from '../../components/states/status-panels';
 
@@ -41,6 +45,7 @@ import { ListCell } from './list-cell';
 import type { ContainerData } from '../core/use-container';
 import { drawable, useViewChrome, ViewSettingsLink } from '../core/view-chrome';
 import { viewConfigureHref } from '../core/view-configure-route';
+import { capabilitiesOf } from '../core/view-capabilities';
 import { useViewState, type SortDirection } from '../core/view-state';
 import { useVirtualWindow } from '../core/use-virtual-window';
 import { virtualSpacers } from '../core/virtual-window';
@@ -106,6 +111,10 @@ export function ListView(props: ListViewProps): ReactNode {
   const itemActions = useItemContextActions(onOpen);
   const rowContextMenu = (item: Item): MenuEntry[] => itemActions(item.id, item.title);
   const selection = useOptionalItemSelection();
+  const commands = useOptionalItemCommands();
+  // The rows being dragged and the row a drop would land on; null when nothing is mid-drag.
+  const [dragging, setDragging] = useState<readonly string[] | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const viewId = view?.id ?? null;
   const columnWidths = useColumnWidths(viewId);
 
@@ -194,9 +203,52 @@ export function ListView(props: ListViewProps): ReactNode {
     selection.toggle(item.id, orderIds);
     return true;
   };
+  // Dropping a row on another puts it inside (capabilities `drag: 'parent'`). A selected row drags
+  // the whole selection. An invalid target is still a drop target so the refusal is said, but it is
+  // never outlined as one. The keyboard path is "Move to…" in the row menu and the selection tray:
+  // Alt+Arrow here already moves between cells.
+  const rowDrag = (item: Item): TableRowDrag => {
+    const alone = dragging?.length === 1 && dragging[0] === item.id;
+    return {
+      draggable: true,
+      onDragStart: (event) => {
+        const ids = selection?.selected.has(item.id) === true ? [...selection.selected] : [item.id];
+        setDragging(ids);
+        event.dataTransfer.effectAllowed = 'move';
+        // Set, though nothing reads it: without data attached, Firefox refuses to start the drag.
+        event.dataTransfer.setData('text/plain', ids.join(','));
+      },
+      onDragOver: (event) => {
+        if (dragging === null || alone || commands === null) return;
+        event.preventDefault();
+        setOverId(dropRefusal(dragging, item.id, commands.tree.find) === null ? item.id : null);
+      },
+      onDragLeave: () => {
+        setOverId(null);
+      },
+      onDragEnd: () => {
+        setDragging(null);
+        setOverId(null);
+      },
+      onDrop: (event) => {
+        event.preventDefault();
+        const ids = dragging;
+        setDragging(null);
+        setOverId(null);
+        if (ids === null || alone || commands === null) return;
+        // Rows that left this list are gone from the next read, with the destination named.
+        void commands
+          .dropItems(ids, item.id)
+          .then((moved) => (moved.length > 0 ? container.reload() : undefined));
+      },
+      dropTarget: overId === item.id,
+    };
+  };
   const rowSelection: RowSelection = {
     selected: (item) => selection?.selected.has(item.id) === true,
     longPress: selection === null ? undefined : longPress,
+    drag:
+      commands === null || container.locked || !capabilitiesOf('list').move ? undefined : rowDrag,
   };
   const columns = [
     // A box per row while the container selects (requirement 7): a plain toggle, Shift extends.
@@ -463,6 +515,7 @@ interface ListRowsProps {
 interface RowSelection {
   readonly selected: (item: Item) => boolean;
   readonly longPress: ((item: Item) => boolean) | undefined;
+  readonly drag: ((item: Item) => TableRowDrag) | undefined;
 }
 
 type RowGestures = ReturnType<typeof rowGestures>;
@@ -493,6 +546,7 @@ function ListRows(props: ListRowsProps): ReactNode {
         {...(widths ?? {})}
         onSortChange={onSortChange}
         rowSelected={rowSelection.selected}
+        {...(rowSelection.drag === undefined ? {} : { rowDrag: rowSelection.drag })}
         {...(rowSelection.longPress === undefined ? {} : { rowLongPress: rowSelection.longPress })}
         {...(rowContextMenu === undefined
           ? {}
@@ -530,6 +584,7 @@ function VirtualListRows(props: ListRowsProps): ReactNode {
       {...(sort === undefined ? {} : { sort })}
       onSortChange={onSortChange}
       rowSelected={rowSelection.selected}
+      {...(rowSelection.drag === undefined ? {} : { rowDrag: rowSelection.drag })}
       {...(rowSelection.longPress === undefined ? {} : { rowLongPress: rowSelection.longPress })}
       {...(rowContextMenu === undefined
         ? {}
