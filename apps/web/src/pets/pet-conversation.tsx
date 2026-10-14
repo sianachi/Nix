@@ -15,7 +15,18 @@ import {
   focusRing,
   type MenuEntry,
 } from '@nix/ui';
-import { ArrowLeft, ArrowUp, Maximize2, MoreHorizontal, Square, TextQuote, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowUp,
+  Maximize2,
+  MoreHorizontal,
+  Pencil,
+  RefreshCw,
+  Square,
+  TextQuote,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -193,6 +204,10 @@ export function Conversation({
   const [needsDecisionIds, setNeedsDecisionIds] = useState<readonly string[]>([]);
   const [currentItemTitle, setCurrentItemTitle] = useState<string | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
+  // The last user message, being edited in place: its id pins the edit to that message.
+  const [editing, setEditing] = useState<{ readonly id: string; readonly text: string } | null>(
+    null,
+  );
   const input = useRef<HTMLTextAreaElement | null>(null);
   const dialog = useRef<HTMLDivElement | null>(null);
   // Must-fix 7: `Text` deliberately takes no `ref`/`tabIndex` (its own contract refuses an open
@@ -465,15 +480,13 @@ export function Conversation({
     }
   }
 
-  /** Must-fix 4: a failed turn (the worker reports `state: 'error'`, not a client-side request
-   * failure) offers its own "Try again" that resends the *last user message*, as a new request -
-   * unlike a failed `send`, which retries the exact same one. */
-  function retryLastTurn() {
-    const lastUser = [...messages].reverse().find((message) => message.role === 'user');
-    if (!lastUser) return;
+  /** Sends `text` as a new turn with the conversation's current context. Backs "Try again",
+   * "Regenerate" and an edited last message; each is a new request, unlike a failed `send`'s
+   * retry, which resends the exact same one. */
+  function resendTurn(text: string) {
     regenerateRequestId();
-    void send({
-      text: lastUser.text,
+    return send({
+      text,
       model,
       workspaceAccess,
       ...(noteScope
@@ -482,6 +495,13 @@ export function Conversation({
           ? { itemId: shared.itemId, sharedText: shared.sharedText }
           : {}),
     });
+  }
+
+  /** Must-fix 4: a failed turn (the worker reports `state: 'error'`, not a client-side request
+   * failure) offers its own "Try again" that resends the *last user message*. */
+  function retryLastTurn() {
+    const lastUser = [...messages].reverse().find((message) => message.role === 'user');
+    if (lastUser) void resendTurn(lastUser.text);
   }
 
   /** Must-fix 4: the label a hook-level `error` offers, keyed by `errorKind` - `send` and
@@ -802,15 +822,63 @@ export function Conversation({
             ) : (
               (() => {
                 const splitAt = toolInsertIndex(messages);
-                const row = (message: (typeof messages)[number], index: number) => (
-                  <PetMessageRow
-                    key={message.id}
-                    message={message}
-                    petName={pet.name}
-                    workspaceId={workspaceId}
-                    latest={index === messages.length - 1}
-                  />
+                // Only the last turn can be redone: its user message and the reply after it.
+                const lastUserIndex = messages.map((message) => message.role).lastIndexOf('user');
+                const lastReplyIndex = messages.findIndex(
+                  (message, index) =>
+                    index > lastUserIndex &&
+                    message.id === `${messages[lastUserIndex]?.id ?? ''}:assistant`,
                 );
+                const idle = !running && !busy;
+                const row = (message: (typeof messages)[number], index: number) => {
+                  const edit = editing?.id === message.id ? editing : null;
+                  return (
+                    <PetMessageRow
+                      key={message.id}
+                      message={message}
+                      petName={pet.name}
+                      workspaceId={workspaceId}
+                      latest={index === messages.length - 1}
+                      editor={
+                        edit ? (
+                          <PetMessageEditor
+                            text={edit.text}
+                            enterToSend={!touchLikeComposer}
+                            onChange={(text) => {
+                              setEditing({ id: message.id, text });
+                            }}
+                            onSend={() => {
+                              setEditing(null);
+                              void resendTurn(edit.text);
+                            }}
+                            onCancel={() => {
+                              setEditing(null);
+                            }}
+                          />
+                        ) : undefined
+                      }
+                      action={
+                        !idle || edit
+                          ? undefined
+                          : index === lastUserIndex
+                            ? {
+                                label: 'Edit',
+                                icon: Pencil,
+                                onClick: () => {
+                                  setEditing({ id: message.id, text: message.text });
+                                },
+                              }
+                            : index === lastReplyIndex
+                              ? {
+                                  label: 'Regenerate',
+                                  icon: RefreshCw,
+                                  onClick: retryLastTurn,
+                                }
+                              : undefined
+                      }
+                    />
+                  );
+                };
                 return (
                   <>
                     {messages.slice(0, splitAt).map((message, index) => row(message, index))}
@@ -1039,11 +1107,18 @@ function PetMessageRow({
   petName,
   workspaceId,
   latest,
+  editor,
+  action,
 }: {
   readonly message: NonNullable<PetConnection['messages']>[number];
   readonly petName: string;
   readonly workspaceId: string;
   readonly latest: boolean;
+  /** Replaces the message text while the message is being edited. */
+  readonly editor?: ReactElement | undefined;
+  /** The one thing the last turn offers: "Edit" on the user message, "Regenerate" on the reply. */
+  readonly action?:
+    { readonly label: string; readonly icon: LucideIcon; readonly onClick: () => void } | undefined;
 }): ReactElement {
   if (message.role === 'system')
     return (
@@ -1077,17 +1152,82 @@ function PetMessageRow({
             : 'min-w-0 w-full'
         }
       >
-        <PetMessageText
-          text={message.text}
-          workspaceId={workspaceId}
-          format={fromUser ? 'plain' : 'markdown'}
-        />
+        {editor ?? (
+          <PetMessageText
+            text={message.text}
+            workspaceId={workspaceId}
+            format={fromUser ? 'plain' : 'markdown'}
+          />
+        )}
         {isDraft ? (
           <span
             aria-hidden="true"
             className="ml-0.5 inline-block h-4 w-0.5 align-middle bg-foreground motion-safe:animate-pulse"
           />
         ) : null}
+      </div>
+      {action ? (
+        <Button variant="ghost" onClick={action.onClick}>
+          <Icon icon={action.icon} size="sm" />
+          {action.label}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/** The last user message, edited where it sits. Enter sends (Shift+Enter breaks the line on a
+ * keyboard), Escape cancels; focus lands in the field when it opens. */
+function PetMessageEditor({
+  text,
+  enterToSend,
+  onChange,
+  onSend,
+  onCancel,
+}: {
+  readonly text: string;
+  readonly enterToSend: boolean;
+  readonly onChange: (text: string) => void;
+  readonly onSend: () => void;
+  readonly onCancel: () => void;
+}): ReactElement {
+  const field = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    field.current?.focus();
+  }, []);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <Textarea
+        ref={field}
+        aria-label="Edit your message"
+        rows={composerRows(text)}
+        maxLength={8000}
+        value={text}
+        resize="none"
+        onChange={(event) => {
+          onChange(event.currentTarget.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            onCancel();
+            return;
+          }
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === 'Enter' && enterToSend && !event.shiftKey && text.trim()) {
+            event.preventDefault();
+            onSend();
+          }
+        }}
+      />
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="secondary" disabled={!text.trim()} onClick={onSend}>
+          Resend
+        </Button>
       </div>
     </div>
   );

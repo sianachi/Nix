@@ -260,4 +260,38 @@ describe('companion live wiring', () => {
     expect(await screen.findByRole('button', { name: 'Close Cat' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /new reply/ })).not.toBeInTheDocument();
   });
+
+  it('offers Regenerate and Edit on the last turn only, and resends as a new turn', async () => {
+    const thread = {
+      ...base,
+      state: 'success',
+      messages: [
+        { id: 'turn-1', role: 'user', text: 'First request' },
+        { id: 'turn-1:assistant', role: 'assistant', text: 'First reply' },
+        { id: 'turn-2', role: 'user', text: 'Second request' },
+        { id: 'turn-2:assistant', role: 'assistant', text: 'Second reply' },
+      ],
+      tools: [],
+    };
+    client.query.mockResolvedValue(thread);
+    client.execute.mockResolvedValue(thread);
+    const user = await openCompanion();
+
+    expect(await screen.findAllByRole('button', { name: 'Regenerate' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'Regenerate' }));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const editor = screen.getByRole('textbox', { name: 'Edit your message' });
+    expect(editor).toHaveValue('Second request');
+    await user.clear(editor);
+    await user.type(editor, 'Better request');
+    await user.click(screen.getByRole('button', { name: 'Resend' }));
+
+    const sent = client.execute.mock.calls
+      .map(([endpoint]) => (endpoint as { body?: { operation?: string; text?: string } }).body)
+      .filter((body) => body?.operation === 'send')
+      .map((body) => body?.text);
+    expect(sent).toEqual(['Second request', 'Better request']);
+  });
 });
