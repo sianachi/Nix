@@ -2,7 +2,8 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 
 import { announce } from '../a11y/announcer';
 import { planBulkDelete, type BulkDeletePlan } from './bulk-delete';
-import { describeBulkMove, executeBulkMove, planBulkMove } from './bulk-move';
+import { publishNotice } from '../lib/notices';
+import { describeBulkMove, dropRefusal, executeBulkMove, planBulkMove } from './bulk-move';
 import { DeleteItemsDialog } from './delete-items-dialog';
 import { MoveItemsDialog } from './move-items-dialog';
 import { RenameItemDialog } from './rename-item-dialog';
@@ -17,6 +18,11 @@ export interface ItemCommands {
   readonly tree: WorkspaceTree;
   /** Opens the destination picker for these ids and moves them; refusals are reported, not hidden. */
   readonly moveItems: (ids: readonly string[]) => void;
+  /**
+   * Moves these ids into `targetId` after a drag and says what happened in a notice. Settles with
+   * the ids that moved (or were carried along), so the view they left can reload.
+   */
+  readonly dropItems: (ids: readonly string[], targetId: string) => Promise<readonly string[]>;
   readonly renameItem: (itemId: string) => void;
   /** Deletes with the shell's undo window. */
   readonly deleteItem: (item: Pick<TreeItem, 'id' | 'title' | 'hasChildren'>) => void;
@@ -60,6 +66,28 @@ export function ItemCommandsProvider({
     tree,
     moveItems: (ids) => {
       if (ids.length > 0) setMoving(ids);
+    },
+    dropItems: async (ids, targetId) => {
+      const name = (tree.find(targetId)?.title ?? '') || 'Untitled';
+      const refusal = dropRefusal(ids, targetId, tree.find);
+      if (refusal !== null) {
+        publishNotice({ key: 'move-refused', message: refusal });
+        return [];
+      }
+      const plan = planBulkMove(ids, tree.find);
+      const outcome = await executeBulkMove(tree, plan.ids, targetId);
+      const total = outcome.moved.length + outcome.refused.length;
+      // A clean move names where the items went, so a row leaving the list is not a mystery.
+      publishNotice({
+        key: 'move-done',
+        message:
+          outcome.refused.length === 0
+            ? `${String(total)} ${total === 1 ? 'item' : 'items'} moved into ${name}.`
+            : describeBulkMove(outcome, plan.carried.length),
+      });
+      const moved = [...outcome.moved, ...plan.carried];
+      onMoved?.(moved);
+      return moved;
     },
     renameItem: setRenaming,
     deleteItem: onDeleteItem,
