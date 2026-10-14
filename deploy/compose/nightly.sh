@@ -83,13 +83,15 @@ nightly_dirs() {
   find "$NIX_BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'nightly-*' 2>/dev/null | sort
 }
 step='local backup'
+local_started=$(now)
 before=$(nightly_dirs)
 log 'taking the local backup'
 bash "$here/backup.sh" --nightly
 dir=$(comm -13 <(printf '%s\n' "$before") <(nightly_dirs))
 [[ -n $dir && $dir != *$'\n'* ]] || die 'could not identify the new nightly backup directory'
 # shortcut: disk usage in KiB, not an exact byte count (portable du); upgrade if exact sizes matter.
-bytes=$(( $(du -sk "$dir" | cut -f1) * 1024 ))
+kb=$(du -sk "$dir" 2>/dev/null | cut -f1) || kb= # sizing never fails the nightly
+bytes=$(( ${kb:-0} * 1024 ))
 record local succeeded "$local_started" '' "$bytes" ''
 
 step='off-host push'
