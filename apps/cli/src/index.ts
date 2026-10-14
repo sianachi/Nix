@@ -225,8 +225,9 @@ export function buildProgram(): Command {
     .option('--allow-edits', 'allow approval-gated edits within --root-item', false)
     .option(
       '--history-id <id>',
-      'archived conversation identity for read_history or delete_history',
+      'archived conversation identity for read_history, delete_history or resume_history; with rename, renames that archive instead of the live conversation',
     )
+    .option('--title <text>', 'the new conversation title for rename')
     .option('--message <text>', 'message to send')
     .option('--model <id>', 'model from pet models')
     .option(
@@ -282,7 +283,7 @@ export function buildProgram(): Command {
     .description('Run a scripted companion evaluation against the connected provider.')
     .requiredOption('--suite <name>', 'evaluation suite: design or chat')
     .option('--scenario <id>', 'design: run one scenario')
-    .option('--case <id>', 'chat: run one case')
+    .option('--case <id>', 'chat: run one case, or a group by prefix such as context-*')
     .option('--runs <count>', 'chat: repeat the suite this many times', '1')
     .option(
       '--allow-writes',

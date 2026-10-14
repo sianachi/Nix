@@ -301,6 +301,37 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         }
     }
 
+    [Theory]
+    [InlineData("rename", "  Sprint review ", true, true)]
+    [InlineData("rename", "Sprint review", false, true)]
+    [InlineData("resume_history", "", true, true)]
+    [InlineData("rename", "   ", true, false)]
+    [InlineData("rename", "a\nb", true, false)]
+    [InlineData("resume_history", "", false, false)]
+    public async Task Rename_and_resume_history_forward_text_and_archive_or_are_refused_before_the_worker(string operation, string text, bool withHistoryId, bool allowed)
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
+        var archive = Guid.NewGuid();
+
+        var result = await gateway.ExecuteAsync(new(operation, WorkspaceGuid, PetGuid, Text: text, HistoryId: withHistoryId ? archive : null), Cancellation);
+
+        if (!allowed)
+        {
+            Assert.True(result.IsFailure);
+            Assert.Equal("pets.invalid_request", result.Error.Code);
+            Assert.Equal(0, handler.Calls);
+            return;
+        }
+
+        Assert.True(result.IsSuccess);
+        using var body = JsonDocument.Parse(handler.Body);
+        Assert.Equal(operation, body.RootElement.GetProperty("operation").GetString());
+        Assert.Equal(text, body.RootElement.GetProperty("text").GetString());
+        Assert.Equal(withHistoryId ? archive.ToString() : "", body.RootElement.GetProperty("historyId").GetString());
+    }
+
     [Fact]
     public async Task The_note_runtime_route_requires_a_root_before_contacting_worker()
     {

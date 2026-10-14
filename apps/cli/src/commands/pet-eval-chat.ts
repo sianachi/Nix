@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   items,
   pets,
+  references,
   views,
   type Item,
   type PetConnection,
@@ -88,6 +89,9 @@ export interface ChatCaseResult {
   /** Replies are scored in memory; unrestricted reads can contain private workspace content. */
   readonly answer: null;
   readonly answerLength: number;
+  /** Nix links in the reply that resolve to a readable item of the eval workspace, and those that
+   * do not. Counts only: the reply itself is never kept. */
+  readonly citations: { readonly valid: number; readonly invalid: number };
   /** Allowlisted case-defined gap codes and failed operation names; no raw tool output. */
   readonly feedback: {
     readonly code: string;
@@ -153,6 +157,35 @@ async function readJson(relative: string): Promise<unknown> {
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
+const wait = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+/** Links the hub note to the meeting note, then waits for the backlink to be indexed: references
+ * are published when a snapshot is taken, so reading them straight away is a race. The
+ * backlinks case depends on it, so a link that never shows fails the build rather than the case. */
+export async function seedFixtureLinks(
+  ports: CompanionPorts,
+  session: Session,
+  fixture: ChatFixture,
+  sleep: (milliseconds: number) => Promise<void>,
+): Promise<void> {
+  const meeting = resolveNode(fixture, 'meeting-note');
+  const hub = resolveNode(fixture, 'hub-note');
+  await ports.bodies.append(
+    hub,
+    `[Planning meeting](nix://item/${meeting})`,
+    AbortSignal.timeout(30_000),
+  );
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await sleep(POLL_INTERVAL_MS);
+    const { backlinks } = await session.client.query(references.listBacklinks(meeting), {
+      forceRefresh: true,
+    });
+    if (backlinks.some((entry) => entry.source.id === hub)) return;
+  }
+  throw new Error('The fixture link was not indexed as a backlink in time.');
+}
+
 /** Builds the fixture under a fresh container at the workspace root, so teardown is one trash
  * and "inside the fixture" is one ancestry walk. */
 async function buildFixture(
@@ -185,6 +218,12 @@ async function buildFixture(
   for (const entry of built.ledger)
     if (entry.itemId && !nodes.has(entry.nodeId)) nodes.set(entry.nodeId, entry.itemId);
   const fixture = { rootId: container.id, nodes };
+  try {
+    await seedFixtureLinks(ports, session, fixture, wait);
+  } catch (reason) {
+    await session.client.execute(items.deleteItem(workspaceId, container.id));
+    throw reason;
+  }
   const queryNodes: string[] = [];
   const collect = (node: typeof blueprint.root) => {
     if (node.views?.some((view) => view.kind === 'query')) queryNodes.push(node.id);
@@ -721,12 +760,14 @@ export async function runChatCase(
   let answer = '';
   let retained = false;
   const prompt = await replaceNodeTitles(chatCase.prompt, fixture, session);
+  const openItem = chatCase.currentItem ? resolveNode(fixture, chatCase.currentItem) : undefined;
   await runtime(session, options.workspace, options.pet, 'reset');
   try {
     await runtime(session, options.workspace, options.pet, 'send', {
       text: prompt,
       workspaceAccess: chatCase.workspaceAccess,
       requestId: crypto.randomUUID(),
+      ...(openItem === undefined ? {} : { itemId: openItem }),
       ...(options.model === undefined ? {} : { model: options.model }),
     });
     while (Date.now() - started < CASE_TIMEOUT_MS) {
@@ -901,7 +942,13 @@ export async function runChatCase(
       if (!answer.toLowerCase().includes(title.toLowerCase()) && !answer.includes(id))
         failures.push(`answer does not reference fixture item '${ref}'`);
     }
+    for (const ref of checks.cites)
+      if (!citationPattern(options.workspace, resolveNode(fixture, ref)).test(answer))
+        failures.push(`answer does not link fixture item '${ref}'`);
   }
+  const citations = await scoreCitations(session, options.workspace, answer);
+  if (citations.invalid > 0)
+    failures.push('answer links an item that is not readable or does not exist');
   const feedback: ChatCaseResult['feedback'] = [
     ...chatCase.feedbackChecks
       .filter((check) => new RegExp(check.matches, 'i').test(answer))
@@ -934,9 +981,41 @@ export async function runChatCase(
     tools,
     answer: null,
     answerLength: answer.length,
+    citations,
     feedback,
     durationMs: Date.now() - started,
   };
+}
+
+/** The Nix link a reply uses for an item: `/w/{workspaceId}?item={itemId}`, as the instructions
+ * ask and `pet-message-text.tsx` renders. */
+function citationPattern(workspaceId: string, itemId: string): RegExp {
+  return new RegExp(`/w/${workspaceId}/?\\?item=${itemId}`, 'i');
+}
+
+/** Counts the reply's Nix links that name this workspace and an item the owner can read. An
+ * invented id, or a link into another workspace, is invalid. */
+async function scoreCitations(
+  session: Session,
+  workspaceId: string,
+  answer: string,
+): Promise<{ valid: number; invalid: number }> {
+  const links = new Set(
+    [...answer.matchAll(/\/w\/([0-9a-f-]{36})\/?\?item=([0-9a-f-]{36})/gi)].map(
+      (match) => `${(match[1] ?? '').toLowerCase()} ${(match[2] ?? '').toLowerCase()}`,
+    ),
+  );
+  let valid = 0;
+  for (const link of links) {
+    const [workspace, id] = link.split(' ');
+    try {
+      const item = await session.client.query(items.itemById(id ?? ''), { forceRefresh: true });
+      if (workspace === workspaceId.toLowerCase() && item.workspaceId === workspaceId) valid += 1;
+    } catch {
+      /* Unreadable and missing look the same to the owner. */
+    }
+  }
+  return { valid, invalid: links.size - valid };
 }
 
 async function replaceNodeTitles(
@@ -957,7 +1036,10 @@ async function replaceNodeTitles(
 export async function readChatCases(id: string | undefined): Promise<ChatCase[]> {
   const all = chatSuiteSchema.parse(await readJson('cases.json'));
   if (!id) return all;
-  const selected = all.filter((entry) => entry.id === id);
+  // A trailing `*` selects a group by prefix: `context-*`.
+  const selected = all.filter((entry) =>
+    id.endsWith('*') ? entry.id.startsWith(id.slice(0, -1)) : entry.id === id,
+  );
   if (selected.length === 0)
     throw new Error(
       `Unknown chat case '${id}'. Choose: ${all.map((entry) => entry.id).join(', ')}.`,
@@ -1045,7 +1127,7 @@ export async function petEvalChat(
   if (output.json || !output.isTty) printResult(results, output);
   else {
     printTable(
-      ['Case', 'Run', 'Outcome', 'Pass', 'Tools', 'Declined', 'Feedback', 'Seconds'],
+      ['Case', 'Run', 'Outcome', 'Pass', 'Tools', 'Declined', 'Links', 'Feedback', 'Seconds'],
       results.map((result) => [
         result.id,
         String(result.run),
@@ -1053,6 +1135,7 @@ export async function petEvalChat(
         result.pass ? 'pass' : 'fail',
         String(result.tools.length),
         String(result.tools.filter((tool) => tool.decision === 'declined').length),
+        `${String(result.citations.valid)}/${String(result.citations.invalid)}`,
         String(result.feedback.length),
         (result.durationMs / 1000).toFixed(1),
       ]),

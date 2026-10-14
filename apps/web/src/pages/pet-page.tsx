@@ -1,12 +1,15 @@
 import { items, locks, type Item, type PetProfile, type PetSettings } from '@nix/api-client';
 import { Text, focusRing } from '@nix/ui';
 import { useEffect, useState, type ReactElement } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, Navigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { useApiClient } from '../api/api-client-provider';
 
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/states/status-panels';
+import { useNarrowViewport } from '../layout/viewport';
 import { paneColumn } from '../layout/regions';
+import { useZenActive } from '../lib/zen-mode';
+import { chatTabId, useTabStore } from '../tabs/tab-store';
 import { Conversation } from '../pets/pet-conversation';
 import { usePetRuntime } from '../pets/use-pet-runtime';
 import { usePetSettings } from '../pets/use-pet-settings';
@@ -23,11 +26,53 @@ function ignoreDecisions(): void {
  * The conversation lives on the server, so this is not a second chat but a second place to see
  * the one that exists. `PetCompanion` renders nothing while this route is current, which is what
  * keeps a single runtime (and a single `PetWorkTools`) alive at a time.
+ *
+ * A note's conversation (`?root=`) belongs in a tab where tabs are drawn, so on a wide window this
+ * hands it to the editor; a narrow window or Zen keeps it here.
  */
 export function PetPage(): ReactElement {
   const { workspaceId } = useWorkspace();
   const [search] = useSearchParams();
   const rootItemId = search.get('root');
+  const narrow = useNarrowViewport();
+  const zen = useZenActive();
+  const tabsDrawn = !narrow && !zen;
+  if (tabsDrawn && rootItemId !== null && z.uuid().safeParse(rootItemId).success) {
+    return <ChatTabRedirect workspaceId={workspaceId} rootItemId={rootItemId} />;
+  }
+  return <PetConversationPane workspaceId={workspaceId} rootItemId={rootItemId} />;
+}
+
+/** Opens the note conversation as the only pane's chat tab, replacing the page in history. */
+function ChatTabRedirect({
+  workspaceId,
+  rootItemId,
+}: {
+  readonly workspaceId: string;
+  readonly rootItemId: string;
+}): ReactElement {
+  const itemOpenedAlone = useTabStore((state) => state.itemOpenedAlone);
+  const tabPinned = useTabStore((state) => state.tabPinned);
+  useEffect(() => {
+    itemOpenedAlone(rootItemId, true);
+    tabPinned(0, chatTabId(rootItemId));
+  }, [itemOpenedAlone, tabPinned, rootItemId]);
+  return (
+    <Navigate
+      replace
+      to={`/w/${encodeURIComponent(workspaceId)}?item=${rootItemId}&chat=${rootItemId}`}
+    />
+  );
+}
+
+/** One conversation - the workspace's, or a note's - with the checks that it can be had at all. */
+export function PetConversationPane({
+  workspaceId,
+  rootItemId,
+}: {
+  readonly workspaceId: string;
+  readonly rootItemId: string | null;
+}): ReactElement {
   const { saved, loading, error } = usePetSettings();
   const pet = saved?.settings.profiles.find((profile) => profile.id === saved.settings.activePetId);
   if (!saved) {
@@ -51,7 +96,7 @@ export function PetPage(): ReactElement {
     );
   }
   return (
-    <PetConversationPane
+    <ConversationScope
       key={`${workspaceId}:${pet.id}:${pet.provider}:${rootItemId ?? ''}`}
       workspaceId={workspaceId}
       pet={pet}
@@ -61,7 +106,7 @@ export function PetPage(): ReactElement {
   );
 }
 
-function PetConversationPane({
+function ConversationScope({
   workspaceId,
   pet,
   settings,

@@ -113,6 +113,9 @@ export const chatCaseSchema = z
     id: z.string().regex(/^[a-z][a-z0-9-]*$/),
     /** Sent as the owner's message. `{node:<id>}` is replaced by that fixture item's title. */
     prompt: z.string().min(1),
+    /** The note the owner has open: sent as `itemId` with the message, which is what the web does
+     * with the "This page" chip. Nothing in the prompt names it, so passing needs context use. */
+    currentItem: nodeRef.optional(),
     /** Captures this deterministic synthetic fixture leaf before template cases. */
     templateSource: nodeRef.optional(),
     tools: chatToolExpectationsSchema.default({
@@ -134,6 +137,8 @@ export const chatCaseSchema = z
         absent: z.array(pattern).max(8).default([]),
         /** The reply names or links these known fixture items as supporting evidence. */
         references: z.array(nodeRef).max(8).default([]),
+        /** The reply carries a Nix link, `/w/<workspace>?item=<id>`, to each of these fixture items. */
+        cites: z.array(nodeRef).max(8).default([]),
       })
       .strict()
       .optional(),

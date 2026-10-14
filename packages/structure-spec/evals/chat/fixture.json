@@ -154,16 +154,6 @@
               "unit": "km"
             },
             "sample": true
-          },
-          {
-            "id": "habit-read",
-            "title": "Read",
-            "habit": {
-              "frequency": "daily",
-              "target": 20,
-              "unit": "minutes"
-            },
-            "sample": true
           }
         ]
       },
@@ -176,6 +166,12 @@
         "id": "books-note",
         "title": "Books to read",
         "markdown": "# Books to read\n\n- Piranesi\n- The Left Hand of Darkness\n- A Memory Called Empire\n"
+      },
+      {
+        "id": "hub-note",
+        "title": "Project hub",
+        "markdown": "# Project hub\n\nAgenda and links.\n",
+        "sample": true
       },
       {
         "id": "review-calendar",

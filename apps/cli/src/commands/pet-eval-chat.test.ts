@@ -11,9 +11,11 @@ import { prosemirrorJSONToYDoc } from 'y-prosemirror';
 import { nixSchema } from '@nix/editor-schema';
 import {
   declineReason,
+  readChatCases,
   runChatCase,
   runChatSuite,
   scopeFixtureQueryViews,
+  seedFixtureLinks,
   substituteDates,
   type ChatEvalRuntime,
   type ChatFixture,
@@ -1663,5 +1665,148 @@ describe('pet eval chat', () => {
     );
     expect(result).toMatchObject({ outcome: 'tool_limit', pass: false });
     expect(result?.failures).toContain('outcome tool_limit');
+  });
+
+  describe('context and citations', () => {
+    const OTHER_WORKSPACE = '99999999-9999-4999-8999-999999999999';
+    const INVENTED = '88888888-8888-4888-8888-888888888888';
+    const link = (workspace: string, id: string) => `/w/${workspace}?item=${id}`;
+
+    async function answerWith(answer: string, extra: Record<string, unknown> = {}) {
+      const calls = scriptedRuntime([], answer);
+      server.use(
+        http.get(`${CORE}/api/v1/items/${TASKS}`, () =>
+          HttpResponse.json(item(TASKS, ROOT, 'Tasks')),
+        ),
+        http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+          HttpResponse.json(item(DENTIST, TASKS, 'Call dentist')),
+        ),
+        http.get(`${CORE}/api/v1/items/${INVENTED}`, () =>
+          HttpResponse.json({ title: 'Not found', status: 404 }, { status: 404 }),
+        ),
+      );
+      const chatCase = chatCaseSchema.parse({
+        id: 'context-case',
+        prompt: 'What is due?',
+        noWrites: true,
+        ...extra,
+      });
+      const [result] = await runChatSuite(
+        [chatCase],
+        { suite: 'chat', workspace: WORKSPACE, pet: PET },
+        runner(),
+      );
+      return { result, calls };
+    }
+
+    it('sends the open note as itemId, and nothing when the case names none', async () => {
+      const open = await answerWith('Fine.', { currentItem: 'tasks' });
+      expect(open.calls.find((call) => call.operation === 'send')).toMatchObject({ itemId: TASKS });
+      const none = await answerWith('Fine.');
+      expect(none.calls.find((call) => call.operation === 'send')).not.toHaveProperty('itemId');
+    });
+
+    it('passes a cited fixture item and counts its link as valid', async () => {
+      const { result } = await answerWith(`Due. Sources: ${link(WORKSPACE, DENTIST)}`, {
+        answerChecks: { cites: ['task-dentist'] },
+      });
+      expect(result).toMatchObject({ pass: true, citations: { valid: 1, invalid: 0 } });
+    });
+
+    it('fails a case whose answer does not link the item it should cite', async () => {
+      const { result } = await answerWith('Due: Call dentist.', {
+        answerChecks: { cites: ['task-dentist'] },
+      });
+      expect(result?.pass).toBe(false);
+      expect(result?.failures).toContain("answer does not link fixture item 'task-dentist'");
+      expect(result?.citations).toEqual({ valid: 0, invalid: 0 });
+    });
+
+    it('fails every case that links an invented item or an item in another workspace', async () => {
+      const invented = await answerWith(`See ${link(WORKSPACE, INVENTED)}`);
+      expect(invented.result).toMatchObject({ pass: false, citations: { valid: 0, invalid: 1 } });
+      expect(invented.result?.failures).toContain(
+        'answer links an item that is not readable or does not exist',
+      );
+      const foreign = await answerWith(`See ${link(OTHER_WORKSPACE, DENTIST)}`);
+      expect(foreign.result).toMatchObject({ pass: false, citations: { valid: 0, invalid: 1 } });
+    });
+
+    it('selects a group of cases by a trailing star', async () => {
+      const group = await readChatCases('context-*');
+      expect(group.map((entry) => entry.id)).toEqual([
+        'context-current-note',
+        'context-current-irrelevant',
+        'context-search',
+        'context-backlinks',
+        'context-multi-step',
+      ]);
+      expect(await readChatCases('overdue')).toHaveLength(1);
+      await expect(readChatCases('nothing-*')).rejects.toThrow('Unknown chat case');
+    });
+  });
+
+  describe('fixture links', () => {
+    const MEETING = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const HUB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const linked: ChatFixture = {
+      rootId: ROOT,
+      nodes: new Map([
+        ['meeting-note', MEETING],
+        ['hub-note', HUB],
+      ]),
+    };
+
+    function backlinks(sourceId: string | null) {
+      let reads = 0;
+      server.use(
+        http.get(`${CORE}/api/v1/items/${MEETING}/backlinks`, () => {
+          reads += 1;
+          const rows =
+            sourceId === null || reads < 3
+              ? []
+              : [
+                  {
+                    source: {
+                      id: sourceId,
+                      workspaceId: WORKSPACE,
+                      type: 'note',
+                      title: 'Project hub',
+                      parentId: ROOT,
+                      updatedAt: '2026-10-08T00:00:00.000Z',
+                    },
+                    occurrences: 1,
+                  },
+                ];
+          return HttpResponse.json({ backlinks: rows, limit: 50, truncated: false });
+        }),
+      );
+      return () => reads;
+    }
+
+    it('links the hub to the meeting note and waits until the backlink is indexed', async () => {
+      const reads = backlinks(HUB);
+      const append = vi.fn(() => Promise.resolve({}));
+      const ports = { bodies: { append } } as unknown as CompanionPorts;
+
+      await seedFixtureLinks(ports, runner().session, linked, () => Promise.resolve());
+
+      expect(append).toHaveBeenCalledWith(
+        HUB,
+        `[Planning meeting](nix://item/${MEETING})`,
+        expect.any(AbortSignal),
+      );
+      expect(reads()).toBe(3);
+    });
+
+    it('fails the build when the backlink never appears', async () => {
+      const reads = backlinks(null);
+      const ports = { bodies: { append: () => Promise.resolve({}) } } as unknown as CompanionPorts;
+
+      await expect(
+        seedFixtureLinks(ports, runner().session, linked, () => Promise.resolve()),
+      ).rejects.toThrow('not indexed as a backlink');
+      expect(reads()).toBe(5);
+    });
   });
 });

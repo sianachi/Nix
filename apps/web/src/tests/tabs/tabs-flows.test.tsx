@@ -596,3 +596,48 @@ describe('choosing horizontal or vertical tabs', () => {
     });
   });
 });
+
+describe('the conversation as a tab', () => {
+  it('shows beside the note, switches with it, and leaves the note when closed', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO] });
+    const user = userEvent.setup();
+    renderAt(
+      <>
+        <App />
+        <HistoryControls />
+      </>,
+      `/?item=${ALPHA.id}&chat=workspace`,
+    );
+
+    expect(await screen.findByRole('tab', { name: 'Chat' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(await screen.findByRole('tab', { name: 'Alpha' })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'Alpha' }));
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Alpha');
+    expect(screen.getByRole('tab', { name: 'Alpha' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'false');
+
+    await user.click(screen.getByRole('tab', { name: 'Chat' }));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    // Choosing a note replaces the conversation in the pane; Back returns to it.
+    await user.click(screen.getByRole('button', { name: 'Open Bravo' }));
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Bravo');
+    await user.click(screen.getByRole('button', { name: 'Browser back' }));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    await user.click(screen.getByTitle('Close Chat (Delete)'));
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
+  });
+});

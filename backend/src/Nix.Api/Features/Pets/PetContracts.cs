@@ -29,13 +29,14 @@ public sealed record SavePetSettingsRequest(long ExpectedRevision, PetSettings S
 /// <remarks>
 /// <c>LockedRead</c> says the conversation's model thread holds a tool result read from under a
 /// lock. The client holds every write for the owner while it is set; only a new thread clears it.
+/// <c>Title</c> names the live conversation (the owner's rename, else its first message).
 /// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1054", Justification = "The wire contract uses an empty string when no device login is pending; clients allowlist the provider URL.")]
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1056", Justification = "The wire contract uses an empty string when no device login is pending; clients allowlist the provider URL.")]
 public sealed record PetConnectionResponse(string Provider, string Status, string Reason, bool CanConnect,
     string VerificationUrl = "", string UserCode = "", string State = "idle", IReadOnlyList<PetMessage>? Messages = null,
     IReadOnlyList<PetModel>? Models = null, IReadOnlyList<PetToolCall>? Tools = null, IReadOnlyList<PetHistoryEntry>? History = null,
-    long Revision = 0, bool LockedRead = false);
+    long Revision = 0, bool LockedRead = false, string Title = "");
 
 /// <summary>A private archived conversation in this workspace and pet.</summary>
 public sealed record PetHistoryEntry(string Id, string Title, string CreatedAt);
@@ -70,6 +71,9 @@ public sealed record PetWorkspaceMapEntry(Guid Id, string Title, string Type, IR
 /// <c>ItemId</c>; the two are merged and de-duplicated, and each id gets the same checks. <c>SharedText</c>
 /// is text the person selected in those items. <c>ReplaceFromMessageId</c> (send only) names the user
 /// message the new turn replaces: the worker drops it and every message after it first.
+/// <c>Text</c> is the new title for <c>rename</c>. <c>HistoryId</c> names the archive for <c>read_history</c>,
+/// <c>delete_history</c> and <c>resume_history</c>, and for <c>rename</c> when it renames an archive rather
+/// than the live conversation.
 /// </remarks>
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",

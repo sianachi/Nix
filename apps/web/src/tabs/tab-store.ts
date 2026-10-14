@@ -41,7 +41,33 @@ export interface OpenTab {
   readonly pinned: boolean;
 }
 
-const OPEN_TAB_SCHEMA = z.object({ itemId: z.string(), pinned: z.boolean() });
+/**
+ * A chat tab is keyed by its conversation scope, `chat:workspace` or `chat:<note id>`, and lives in
+ * the same strips as document tabs: its id never equals an item id, so every equality-based helper
+ * below treats it as one more tab, and a note's tab and the chat about that note never collide.
+ * Chat tabs are always pinned.
+ */
+const CHAT_TAB_ID =
+  /^chat:(workspace|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+export function chatTabId(scope: string): string {
+  return `chat:${scope}`;
+}
+
+export function isChatTabId(id: string): boolean {
+  return id.startsWith('chat:');
+}
+
+/** The scope a chat tab id names (`workspace` or a note id), or null for a document tab. */
+export function chatScopeOfTab(id: string): string | null {
+  return isChatTabId(id) ? id.slice('chat:'.length) : null;
+}
+
+// A `chat:` id that is not a well-formed scope drops the whole stored payload, like any bad shape.
+const OPEN_TAB_SCHEMA = z.object({
+  itemId: z.string().refine((id) => !isChatTabId(id) || CHAT_TAB_ID.test(id)),
+  pinned: z.boolean(),
+});
 const STORED_TABS_SCHEMA = z.object({
   workspaceId: z.string(),
   byPane: z.record(z.string(), z.array(OPEN_TAB_SCHEMA)),

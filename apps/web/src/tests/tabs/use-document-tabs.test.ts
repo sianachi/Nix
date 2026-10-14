@@ -70,4 +70,31 @@ describe('the tab strip a pane draws', () => {
     expect(firstPane.result.current.tabs).toEqual([{ itemId: first, pinned: true }]);
     expect(secondPane.result.current.tabs).toEqual([{ itemId: second, pinned: true }]);
   });
+
+  it('draws the pane’s open conversation beside its item, pinned', () => {
+    const first = '00000000-0000-4000-8000-000000000001';
+
+    const { result } = renderTabs(0, first, `item=${first}&chat=workspace`);
+
+    expect(result.current.tabs).toEqual([
+      { itemId: first, pinned: false },
+      { itemId: 'chat:workspace', pinned: true },
+    ]);
+  });
+
+  it('gives a conversation to one pane only', () => {
+    const first = '00000000-0000-4000-8000-000000000001';
+    const second = '00000000-0000-4000-8000-000000000002';
+    const search = `item=${first}&chat=workspace&item2=${second}`;
+    useTabStore.setState({ byPane: { 1: [{ itemId: 'chat:workspace', pinned: true }] } });
+
+    const firstPane = renderTabs(0, first, search);
+    const secondPane = renderTabs(1, second, search);
+
+    expect(firstPane.result.current.tabs.map((tab) => tab.itemId)).toEqual([
+      first,
+      'chat:workspace',
+    ]);
+    expect(secondPane.result.current.tabs.map((tab) => tab.itemId)).toEqual([second]);
+  });
 });

@@ -29,6 +29,8 @@ describe('chat review evaluation contract', () => {
       for (const match of entry.prompt.matchAll(/\{node:([^}]+)\}/g))
         expect(nodes.has(match[1] ?? '')).toBe(true);
       for (const ref of entry.answerChecks?.references ?? []) expect(nodes.has(ref)).toBe(true);
+      for (const ref of entry.answerChecks?.cites ?? []) expect(nodes.has(ref)).toBe(true);
+      if (entry.currentItem !== undefined) expect(nodes.has(entry.currentItem)).toBe(true);
       for (const assertion of entry.asserts) {
         if ('item' in assertion) expect(nodes.has(assertion.item)).toBe(true);
         if ('parent' in assertion) expect(nodes.has(assertion.parent)).toBe(true);
@@ -36,6 +38,22 @@ describe('chat review evaluation contract', () => {
           expect(nodes.has(match[1] ?? '')).toBe(true);
       }
     }
+  });
+
+  it('accepts an open note and cited items, and refuses ones that are not node names', () => {
+    const parsed = chatCaseSchema.parse({
+      id: 'context',
+      prompt: 'What did we decide here?',
+      currentItem: 'meeting-note',
+      answerChecks: { cites: ['meeting-note'] },
+    });
+    expect(parsed.currentItem).toBe('meeting-note');
+    expect(parsed.answerChecks?.cites).toEqual(['meeting-note']);
+    expect(
+      chatCaseSchema.parse({ id: 'plain', prompt: 'Hello', answerChecks: {} }).answerChecks?.cites,
+    ).toEqual([]);
+    for (const bad of [{ currentItem: 'Meeting Note' }, { answerChecks: { cites: ['/w/x'] } }])
+      expect(chatCaseSchema.safeParse({ id: 'bad', prompt: 'Hello', ...bad }).success).toBe(false);
   });
 
   it('rejects contradictory review approvals and malformed bounded patterns', () => {
