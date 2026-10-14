@@ -28,7 +28,7 @@ describe('editor preferences', () => {
     render(<EditorPreferencesSection />);
 
     expect(screen.getByRole('combobox', { name: 'Keyboard mode' })).toHaveValue('standard');
-    expect(screen.getByText(/stored only in this browser/i)).toBeVisible();
+    expect(screen.getByText(/follow your account across devices/i)).toBeVisible();
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Standard',
       'Vim basics',
@@ -93,6 +93,27 @@ describe('editor preferences', () => {
     render(<EditorPreferencesSection />);
 
     expect(screen.getByRole('status')).toHaveTextContent(/Vim basics may reset/i);
+  });
+});
+
+describe('device-only rows', () => {
+  it('say so on the offline and mobile toolbar toggles and nowhere else', () => {
+    render(<EditorPreferencesSection />);
+
+    const captions = screen.getAllByText('This device only');
+    expect(captions).toHaveLength(2);
+    expect(
+      screen.getByRole('checkbox', { name: 'Keep notes on this device' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('This device only', { selector: 'label *' })).toBeNull();
+  });
+});
+
+describe('device-only rows', () => {
+  it('say so on the offline and mobile toolbar toggles and nowhere else', () => {
+    render(<EditorPreferencesSection />);
+
+    expect(screen.getAllByText('This device only')).toHaveLength(2);
   });
 });
 

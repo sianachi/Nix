@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { create } from 'zustand';
 
 import { browserStorage } from '../lib/browser-storage';
+import { registerSyncedSetting, settingChanged } from '../lib/ui-settings-sync';
 
 export const KeyboardModeSchema = z.enum(['standard', 'vim', 'emacs']);
 export type KeyboardMode = z.infer<typeof KeyboardModeSchema>;
@@ -71,6 +72,15 @@ export const useKeyboardModeStore = create<KeyboardModeState>((set) => {
     keyboardModeSelected: (mode) => {
       const stored = storeKeyboardMode(browserStorage(), mode);
       set({ mode, persistence: stored ? 'stored' : 'session-only' });
+      settingChanged('editor.keyboardMode', mode);
     },
   };
+});
+
+registerSyncedSetting('editor.keyboardMode', {
+  get: () => useKeyboardModeStore.getState().mode,
+  set: (mode) => {
+    useKeyboardModeStore.getState().keyboardModeSelected(mode);
+  },
+  defaultValue: DEFAULT_KEYBOARD_MODE,
 });

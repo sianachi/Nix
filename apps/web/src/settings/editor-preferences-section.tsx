@@ -65,8 +65,9 @@ export function EditorPreferencesSection(): ReactElement {
         Editor
       </Text>
       <Text variant="note" tone="muted">
-        Personal note-body preferences. They are stored only in this browser, do not sync to your
-        account, and never change the shared document.
+        Personal note-body preferences. They follow your account across devices, apply at once on
+        this one even offline, and never change the shared document. Rows marked This device only
+        stay in this browser.
       </Text>
 
       <Text
@@ -94,6 +95,7 @@ export function EditorPreferencesSection(): ReactElement {
       </Field>
       <PreferenceToggle
         label="Keep notes on this device"
+        deviceOnly
         checked={offlineEnabled}
         onChange={(checked) => {
           setOfflineEnabled(checked);
@@ -110,6 +112,7 @@ export function EditorPreferencesSection(): ReactElement {
       />
       <PreferenceToggle
         label="Hide mobile tools while writing"
+        deviceOnly
         checked={toolbarVisibility === 'while-writing'}
         onChange={(checked) => {
           setToolbarVisibility(checked ? 'while-writing' : 'always');
@@ -232,6 +235,8 @@ function PreferenceToggle(props: {
   readonly onChange: (checked: boolean) => void;
   readonly description: string;
   readonly unsaved: string | null;
+  /** True for a setting that never leaves this browser. */
+  readonly deviceOnly?: boolean;
 }): ReactElement {
   const descriptionId = useId();
   return (
@@ -252,6 +257,11 @@ function PreferenceToggle(props: {
       <Text as="p" id={descriptionId} variant="note" tone="muted">
         {props.description}
       </Text>
+      {props.deviceOnly === true ? (
+        <Text as="p" variant="caption" tone="muted">
+          This device only
+        </Text>
+      ) : null}
       {props.unsaved === null ? null : (
         <Text as="p" variant="note" role="alert">
           {props.unsaved}

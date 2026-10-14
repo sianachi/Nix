@@ -267,7 +267,7 @@ function DeviceSettings(): ReactElement {
       )}
     >
       <Text variant="bodySmall" as="h3">
-        On this device
+        Your preference
       </Text>
       <Checkbox
         label="Open today’s note when Nix starts"
@@ -280,8 +280,7 @@ function DeviceSettings(): ReactElement {
         }}
       />
       <Text id={hintId} variant="note" tone="muted">
-        Remembered by this browser only. It does not change anything for other people or other
-        devices.
+        Follows your account across your devices. It does not change anything for other people.
       </Text>
     </div>
   );

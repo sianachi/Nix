@@ -29,6 +29,7 @@ import { useBookmarksLoader, useBookmarksStore, useIsKept } from '../bookmarks/u
 import { MiniPlayer } from '../audio/mini-player';
 import { useOpenItem } from '../tabs/use-open-item';
 import { useOpenDailyOnLaunch } from '../launch/use-open-daily-on-launch';
+import { useUiSettingsSync } from '../settings/use-ui-settings-sync';
 import { DailyCaptureDialog } from '../daily-notes/daily-capture-dialog';
 import { useSessionStore } from '../auth/session-store';
 import { CapabilitiesProvider } from '../session/capabilities-context';
@@ -109,6 +110,7 @@ export function AppShell(): ReactNode {
   const { workspaceId, workspace } = useWorkspace();
   useRememberLocation(workspaceId);
   useOpenDailyOnLaunch();
+  useUiSettingsSync();
   const [dailyCaptureOpen, setDailyCaptureOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const { getAccessToken } = useAuth();
