@@ -45,6 +45,7 @@ export {
   Table,
   type TableColumn,
   type TableProps,
+  type TableRowDrag,
   type TableSort,
   type TableSortDirection,
 } from './Table';

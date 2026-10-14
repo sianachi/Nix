@@ -5,7 +5,7 @@
  * capability matrix in the docs all read it, so a kind added here gains or loses an action in every
  * surface at once. `drag` names what a drop changes so the view can say it before it happens.
  */
-export type DragEffect = 'parent-order' | 'group-value' | 'row-col-values' | 'date';
+export type DragEffect = 'parent-order' | 'parent' | 'group-value' | 'row-col-values' | 'date';
 
 export interface ViewCapabilities {
   readonly select: boolean;
@@ -31,7 +31,7 @@ const NONE: ViewCapabilities = {
 };
 
 export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
-  list: ACTIONS,
+  list: { ...ACTIONS, drag: 'parent' },
   gallery: ACTIONS,
   checklist: ACTIONS,
   board: { ...ACTIONS, drag: 'group-value' },
@@ -53,6 +53,7 @@ export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
 
 export const DRAG_EFFECT_COPY: Readonly<Record<DragEffect, string>> = {
   'parent-order': 'Dropping moves the item under the target and changes its order.',
+  parent: 'Drag a row onto another to put it inside.',
   'group-value': 'Dropping changes the grouping property, not the order.',
   'row-col-values': 'Dropping sets both the row and the column property.',
   date: 'Dropping changes the date property.',
