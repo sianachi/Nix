@@ -9,22 +9,29 @@ import { registerSyncedSetting, settingChanged } from '../lib/ui-settings-sync';
  * graph is not a saved view, so this stands in for a view's `open`; the default is the dialog the
  * graph has always used. `none` is a view-only mode and is not offered here.
  */
-export const GraphOpenModeSchema = z.enum(['page', 'dialog', 'beside', 'tab']);
+export const GraphOpenModeSchema = z.enum(['page', 'dialog', 'tab']);
 export type GraphOpenMode = z.infer<typeof GraphOpenModeSchema>;
 
 export const GRAPH_OPEN_MODE_LABELS: Readonly<Record<GraphOpenMode, string>> = {
   page: 'Page',
   dialog: 'Dialog',
-  beside: 'Beside',
   tab: 'New tab',
 };
+
+/**
+ * The account may still hold `beside` (the server accepts it), but the graph route has no pane to
+ * open beside, so it would only ever act as a dialog; read it as one.
+ */
+const StoredGraphOpenModeSchema = z
+  .enum(['page', 'dialog', 'beside', 'tab'])
+  .transform((mode): GraphOpenMode => (mode === 'beside' ? 'dialog' : mode));
 
 export const DEFAULT_GRAPH_OPEN_MODE: GraphOpenMode = 'dialog';
 const KEY = 'nix.graph-open-mode';
 
 function read(): GraphOpenMode {
   try {
-    const parsed = GraphOpenModeSchema.safeParse(browserStorage()?.getItem(KEY));
+    const parsed = StoredGraphOpenModeSchema.safeParse(browserStorage()?.getItem(KEY));
     return parsed.success ? parsed.data : DEFAULT_GRAPH_OPEN_MODE;
   } catch {
     return DEFAULT_GRAPH_OPEN_MODE;
@@ -33,10 +40,11 @@ function read(): GraphOpenMode {
 
 export const useGraphOpenPreference = create<{
   readonly mode: GraphOpenMode;
-  readonly setMode: (mode: GraphOpenMode) => void;
+  readonly setMode: (mode: GraphOpenMode | 'beside') => void;
 }>((set) => ({
   mode: read(),
-  setMode: (mode) => {
+  setMode: (requested) => {
+    const mode = StoredGraphOpenModeSchema.parse(requested);
     try {
       if (mode === DEFAULT_GRAPH_OPEN_MODE) browserStorage()?.removeItem(KEY);
       else browserStorage()?.setItem(KEY, mode);
