@@ -50,21 +50,21 @@ describe('checkMarkers', () => {
 
 describe('guardTarget', () => {
   it('allows loopback targets silently', () => {
-    expect(() =>
-      guardTarget(endpoints('http://localhost:5014', 'http://127.0.0.1:8100')),
-    ).not.toThrow();
+    expect(() => {
+      guardTarget(endpoints('http://localhost:5014', 'http://127.0.0.1:8100'));
+    }).not.toThrow();
   });
 
   it('refuses a remote api or collab host', () => {
-    expect(() =>
-      guardTarget(endpoints('https://nix.example.com', 'http://localhost:8100')),
-    ).toThrow(/local stack/);
-    expect(() =>
-      guardTarget(endpoints('http://localhost:5014', 'https://nix.example.com/collab')),
-    ).toThrow(/local stack/);
-    expect(() =>
-      guardTarget(endpoints('http://localhost.:5014', 'http://localhost.:8100')),
-    ).toThrow(/local stack/);
+    expect(() => {
+      guardTarget(endpoints('https://nix.example.com', 'http://localhost:8100'));
+    }).toThrow(/local stack/);
+    expect(() => {
+      guardTarget(endpoints('http://localhost:5014', 'https://nix.example.com/collab'));
+    }).toThrow(/local stack/);
+    expect(() => {
+      guardTarget(endpoints('http://localhost.:5014', 'http://localhost.:8100'));
+    }).toThrow(/local stack/);
   });
 });
 
