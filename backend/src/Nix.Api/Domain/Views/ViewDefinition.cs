@@ -423,14 +423,13 @@ public static class ViewOpenModes
     /// <summary>The item opens as its own pinned document tab.</summary>
     public const string Tab = "tab";
 
+    /// <summary>Every mode this build defines; a new mode is one more entry here.</summary>
+    public static readonly IReadOnlyList<string> All = [Page, Dialog, Beside, Tab];
+
     /// <summary>Whether a stored or requested value names a mode this build defines.</summary>
     /// <param name="value">The value.</param>
-    /// <returns><see langword="true"/> when it is one of the four modes.</returns>
-    public static bool IsValid(string value) =>
-        string.Equals(value, Page, StringComparison.Ordinal)
-        || string.Equals(value, Dialog, StringComparison.Ordinal)
-        || string.Equals(value, Beside, StringComparison.Ordinal)
-        || string.Equals(value, Tab, StringComparison.Ordinal);
+    /// <returns><see langword="true"/> when it is one of <see cref="All"/>.</returns>
+    public static bool IsValid(string value) => All.Contains(value, StringComparer.Ordinal);
 }
 
 public static class GalleryCardSizes
@@ -641,7 +640,7 @@ public sealed record ViewDefinition(
     ChartOptions? Chart = null,
 
     // Last and defaulted like every field added since the record was cut. For every kind: how an
-    // item activated from this view opens - `page`, `dialog` or `beside`. Null means the client's
+    // item activated from this view opens - `page`, `dialog`, `beside` or `tab`. Null means the client's
     // own context-aware default, which is what every view stored before the field existed did; the
     // set is closed and policed on write, see ViewOpenModes.
     string? Open = null)

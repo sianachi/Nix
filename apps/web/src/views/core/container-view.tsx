@@ -58,14 +58,13 @@ export function ContainerView({
     narrow,
     canOpenBeside: roomForPane && onOpenBeside !== undefined,
   });
-  const open =
-    mode === 'beside' && onOpenBeside !== undefined
-      ? onOpenBeside
-      : mode === 'tab' && onOpenPinned !== undefined
-        ? onOpenPinned
-        : mode === 'dialog'
-          ? (openDialog ?? onOpen)
-          : onOpen;
+  // A mode whose host is absent (`tab` inside a dialog, say) falls back to `onOpen`.
+  const open = {
+    page: onOpen,
+    dialog: openDialog ?? onOpen,
+    beside: onOpenBeside ?? onOpen,
+    tab: onOpenPinned ?? onOpen,
+  }[mode];
   const [grid, setGrid] = useState(false);
   const viewState = useViewState();
   const descriptor = view === null ? null : findViewKind(view.kind);

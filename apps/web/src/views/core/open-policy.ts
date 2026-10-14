@@ -29,7 +29,8 @@ export interface OpenContext {
  * The one place that decides how an activated item opens (requirements 13 and 15).
  *
  * Narrow screens always navigate: a dialog over a phone-width view is a worse page. An explicit
- * per-view choice wins next, degrading `beside` to `dialog` when there is no room for another pane.
+ * per-view choice wins next, degrading `beside` to `dialog` when there is no room for another pane;
+ * `tab` needs no room, and the container falls back to a plain open when its host cannot pin one.
  * Auto favours a dialog for dense browsing views, which keep their filters and scroll underneath,
  * and a page for hierarchy views, where the row is the destination.
  */
