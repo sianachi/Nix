@@ -246,6 +246,7 @@ public sealed class AccessTokenScopePolicyTests
         ["VerifySiteHostname"] = Requirement.Admin,
         ["RequestSiteApproval"] = Requirement.Admin,
         ["ListSiteApprovals"] = Requirement.Read,
+        ["ListBackupRuns"] = Requirement.Read,
         ["ApproveSitePublish"] = Requirement.Admin,
         ["RejectSitePublish"] = Requirement.Admin,
         ["BeginPluginComponentUpload"] = Requirement.Admin,

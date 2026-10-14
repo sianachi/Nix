@@ -69,7 +69,33 @@ type Request struct {
 	// conversation's first message. It reaches the prompt only on a turn that starts a new
 	// thread; later turns rely on the thread's own history.
 	WorkspaceMap []WorkspaceMapEntry `json:"workspaceMap"`
+	// Items are the notes attached to a send, first one being ItemID. Core has already checked
+	// each for the caller. ReplaceFromMessageID names the user message a send replaces: it and
+	// everything after it is dropped first.
+	Items                []SharedItem `json:"items"`
+	ReplaceFromMessageID string       `json:"replaceFromMessageId"`
+	// earlier is the retained transcript a replacing send gives its fresh thread; set by send.
+	earlier string
 }
+
+// SharedItem is one attached note: its identity and the title Core read for it.
+type SharedItem struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// maxSharedItems bounds Items; Core enforces the same bound on the way in.
+const maxSharedItems = 5
+
+// maxEarlierRunes bounds the transcript a replacing send hands its fresh thread.
+const maxEarlierRunes = 8000
+
+var (
+	// errReplaceTarget: ReplaceFromMessageID is not a user message in this conversation.
+	errReplaceTarget = errors.New("replace target is not a user message")
+	// errReplaceBusy: a replacing send arrived while a turn is running.
+	errReplaceBusy = errors.New("turn already running")
+)
 
 // WorkspaceMapEntry is one container the owner can see: its identity, title, body type and the
 // kinds of view it offers. ViewKinds is empty when the client did not know them.
@@ -382,7 +408,14 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		a.record(conversationKey(request), slog.LevelWarn, "request.failed", []any{"operation", request.Operation, "error", logSafeError(err)}, nil)
 		a.mu.Unlock()
-		writeProviderFailure(w, err)
+		switch {
+		case errors.Is(err, errReplaceTarget):
+			http.Error(w, "Invalid companion request", http.StatusBadRequest)
+		case errors.Is(err, errReplaceBusy):
+			http.Error(w, "Companion is busy", http.StatusConflict)
+		default:
+			writeProviderFailure(w, err)
+		}
 		return
 	}
 	_ = json.NewEncoder(w).Encode(response)
@@ -430,7 +463,15 @@ func validTurnContext(r Request) bool {
 	if r.TimeZone != "" && !timeZoneName.MatchString(r.TimeZone) {
 		return false
 	}
-	if len(r.WorkspaceMap) > maxWorkspaceMapEntries {
+	if len(r.WorkspaceMap) > maxWorkspaceMapEntries || len(r.Items) > maxSharedItems {
+		return false
+	}
+	for _, item := range r.Items {
+		if !uuid.MatchString(item.ID) || utf16Len(item.Title) > 240 {
+			return false
+		}
+	}
+	if r.ReplaceFromMessageID != "" && (r.Operation != "send" || !uuid.MatchString(r.ReplaceFromMessageID)) {
 		return false
 	}
 	for _, entry := range r.WorkspaceMap {
@@ -576,7 +617,18 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 			duplicate := c.RequestID == r.RequestID
 			a.mu.Unlock()
 			if state == "thinking" && !duplicate {
+				if r.ReplaceFromMessageID != "" {
+					return Response{}, errReplaceBusy
+				}
 				return Response{}, errors.New("turn already running")
+			}
+			if !duplicate && r.ReplaceFromMessageID != "" {
+				a.mu.Lock()
+				cut := replaceIndex(c.Messages, r.ReplaceFromMessageID)
+				a.mu.Unlock()
+				if cut < 0 {
+					return Response{}, errReplaceTarget
+				}
 			}
 			if !duplicate {
 				if err := a.send(ctx, key, r); err != nil {
@@ -714,6 +766,12 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	if c.ToolVersion != toolVersion || c.ReadOnly != r.ReadOnly {
 		thread = ""
 	}
+	if r.ReplaceFromMessageID != "" {
+		// The provider thread still holds the replaced turn, so the model starts a fresh one and
+		// is given the visible messages that stay.
+		thread = ""
+		r.earlier = earlierTranscript(c.Messages[:max(replaceIndex(c.Messages, r.ReplaceFromMessageID), 0)])
+	}
 	a.mu.Unlock()
 	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": instructions() + noteScopeRules(r), "developerInstructions": r.Instructions}
 	supportsTools := true
@@ -797,6 +855,11 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.ReadOnly = r.ReadOnly
 	c.Tools = []ToolCall{}
 	c.timing.start(r.Model, "")
+	if r.ReplaceFromMessageID != "" {
+		if cut := replaceIndex(c.Messages, r.ReplaceFromMessageID); cut >= 0 {
+			c.Messages = c.Messages[:cut]
+		}
+	}
 	c.Messages = append(c.Messages, Message{ID: r.RequestID, Role: "user", Text: r.Text})
 	c.Messages = trimMessages(c.Messages, 16)
 	err = a.saveLocked(key)
@@ -849,6 +912,12 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 // it in its history and resending it every turn would only spend context.
 func turnPrompt(r Request, newThread bool) map[string]any {
 	prompt := map[string]any{"message": r.Text, "workspaceId": r.WorkspaceID, "currentItemId": r.ItemID, "currentItemTitle": r.ItemTitle, "sharedText": r.SharedText, "workspaceAccess": r.WorkspaceAccess, "today": r.Today, "timeZone": r.TimeZone}
+	if len(r.Items) > 1 {
+		prompt["sharedItems"] = r.Items
+	}
+	if r.earlier != "" && newThread {
+		prompt["earlierMessages"] = r.earlier
+	}
 	if r.RootItemID != "" {
 		prompt["rootItemId"] = r.RootItemID
 		prompt["readOnly"] = r.ReadOnly
@@ -1013,4 +1082,44 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			}
 		}
 	}
+}
+
+// replaceIndex is where the message with this id sits when it is the conversation's last user
+// message - only the last turn can be replaced - else -1.
+func replaceIndex(messages []Message, id string) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			if messages[i].ID == id {
+				return i
+			}
+			return -1
+		}
+	}
+	return -1
+}
+
+// earlierTranscript renders the final user and assistant messages as plain text. When it is over
+// maxEarlierRunes the oldest whole messages go first, so it never starts mid-message. Commentary,
+// drafts and system notices are left out.
+func earlierTranscript(messages []Message) string {
+	var lines []string
+	for _, m := range messages {
+		if m.Role == "system" || strings.Contains(m.ID, ":commentary:") || strings.Contains(m.ID, ":draft:") {
+			continue
+		}
+		speaker := "User"
+		if m.Role == "assistant" {
+			speaker = "Assistant"
+		}
+		lines = append(lines, speaker+": "+m.Text)
+	}
+	kept, used := 0, 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		used += len([]rune(lines[i])) + 2
+		if used-2 > maxEarlierRunes {
+			break
+		}
+		kept++
+	}
+	return strings.Join(lines[len(lines)-kept:], "\n\n")
 }

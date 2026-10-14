@@ -83,6 +83,18 @@ describe('renderProse', () => {
     expect(loss.map((entry) => entry.kind)).toContain('image-not-embedded');
   });
 
+  it('renders a fence named after an Object property as escaped text', () => {
+    for (const language of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      const { html } = render({
+        type: 'codeBlock',
+        attrs: { language },
+        content: [text('const a = "<b>";')],
+      });
+      expect(html).toContain('const a = &quot;&lt;b&gt;&quot;;');
+      expect(html).not.toContain('hljs-keyword');
+    }
+  });
+
   it('publishes a captured Mermaid picture with its source, and falls back when stale', () => {
     const block = (source: string, renderFileId: string | null) => ({
       type: 'codeBlock',

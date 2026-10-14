@@ -44,6 +44,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/admin/backups': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Recent nightly backup results
+     * @description Newest first. Instance-wide, so only the principals in Nix:Sites:Operators may read it; an empty list means nobody.
+     */
+    get: operations['ListBackupRuns'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/structured-items': {
     parameters: {
       query?: never;
@@ -3075,6 +3095,23 @@ export interface components {
       limit: number | string;
       truncated: boolean;
     };
+    BackupRunListResponse: {
+      runs: components['schemas']['BackupRunResponse'][];
+    };
+    BackupRunResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: date-time */
+      startedAt: string;
+      /** Format: date-time */
+      finishedAt: string;
+      step: string;
+      status: string;
+      snapshotId: null | string;
+      /** Format: int64 */
+      bytes: null | number | string;
+      error: null | string;
+    };
     BeginDocumentImportRequest: {
       /** Format: uuid */
       workspaceId: string;
@@ -3528,6 +3565,7 @@ export interface components {
     CurrentPrincipalFeatures: {
       sites: boolean;
       mcpUrl: null | string;
+      operator: boolean;
     };
     CurrentPrincipalResponse: {
       /** Format: uuid */
@@ -4535,6 +4573,9 @@ export interface components {
       rootItemId?: null | string;
       /** @default false */
       readOnly: boolean;
+      itemIds?: null | string[];
+      /** Format: uuid */
+      replaceFromMessageId?: null | string;
     };
     PetSettings: {
       enabled: boolean;
@@ -5788,6 +5829,46 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListBackupRuns: {
+    parameters: {
+      query?: {
+        limit?: number | string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BackupRunListResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
         headers: {
           [name: string]: unknown;
         };

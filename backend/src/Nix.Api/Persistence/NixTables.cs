@@ -14,9 +14,10 @@ namespace Nix.Persistence;
 /// </para>
 /// <para>
 /// <see cref="TenantScoped"/> is the list the tenant isolation tests iterate. Customer state belongs
-/// in it. <see cref="CapabilityOnly"/> is the narrow pre-authentication exception: anonymous login
-/// challenges have no tenant until a person approves them, so only exact secret-hash functions can
-/// reach these tables. They have forced RLS, no ordinary policies and no runtime or PUBLIC DML.
+/// in it. <see cref="CapabilityOnly"/> is the narrow pre-authentication or instance-wide operational
+/// exception: anonymous login challenges have no tenant until a person approves them, and backup
+/// results belong to no tenant, so only exact security-definer functions can reach these tables.
+/// They have forced RLS, no ordinary policies and no runtime or PUBLIC DML.
 /// An exhaustive database test checks both classes; a new table cannot silently escape scrutiny.
 /// </para>
 /// </remarks>
@@ -42,6 +43,9 @@ public static class NixTables
 
     /// <summary>CLI-to-browser revocation links, accessed only inside session capability functions.</summary>
     public const string CliSessionLink = "cli_session_link";
+
+    /// <summary>Instance-wide nightly backup results, written and read only through definer functions.</summary>
+    public const string BackupRuns = "backup_runs";
 
     /// <summary>Identities provisioned from an issuer.</summary>
     public const string Principal = "principal";
@@ -323,7 +327,7 @@ public static class NixTables
     /// browser. Exact security-definer functions derive identity from a standing source session;
     /// they never accept a caller-supplied tenant or principal. Both tables force RLS with no policies.
     /// </remarks>
-    public static ImmutableArray<string> CapabilityOnly { get; } = [CliLoginPairing, CliSessionLink];
+    public static ImmutableArray<string> CapabilityOnly { get; } = [CliLoginPairing, CliSessionLink, BackupRuns];
 
     /// <summary>
     /// Read and write, sorted the way <c>information_schema.table_privileges</c> reports them.
@@ -375,6 +379,7 @@ public static class NixTables
             [BrowserSession] = ["INSERT", "SELECT", "UPDATE"],
             [CliLoginPairing] = [],
             [CliSessionLink] = [],
+            [BackupRuns] = [],
             [Principal] = FullDml,
             [PrincipalGroup] = FullDml,
             [GroupMembership] = FullDml,

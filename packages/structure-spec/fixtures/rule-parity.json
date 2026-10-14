@@ -5518,6 +5518,150 @@
       "viewsScope": "parity"
     },
     {
+      "id": "views-accepts-the-page-open-mode",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "open": "page"
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-the-dialog-open-mode",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "open": "dialog"
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-the-beside-open-mode",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "open": "beside"
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-an-unknown-open-mode",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "open": "popup"
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
       "id": "views-refuses-an-invalid-layout",
       "schema": {
         "properties": [],

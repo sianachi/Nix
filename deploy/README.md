@@ -270,6 +270,19 @@ Every complete nightly run rewrites `~/nix-production/last-nightly-success` (ove
 stopping, when no nightly has succeeded or the last success is older than
 `NIX_NIGHTLY_MAX_AGE_HOURS` (default 36), so a silently failing timer surfaces at the next release.
 
+Backup status lives in the database. Each nightly run records a local and an off-host row in
+`backup_runs` (timestamps, the local size, the restic snapshot id, and on failure a fixed phrase
+with an exit code, never tool output), written through `nix_record_backup_run` as the `nix_backup`
+role. That role cannot log in; the backup jobs already run as the Postgres superuser and
+`SET ROLE` to it, so there is no new secret. `deploy/seed/seed.sql` creates the role (k3s runs it on
+every deploy), and Compose `deploy.sh` creates it idempotently before migrating; never run
+`seed.sql` on a Compose production host, because it resets role passwords. On an existing
+development volume, re-run `deploy/seed/seed.sh` once. Operators read the rows in Settings, on the
+Backups tab, which warns when a step has not succeeded in 26 hours. The Backups tab appears only for
+principals listed in `Nix:Sites:Operators` (`Nix__Sites__Operators__0=<principal-id>`); with the list
+empty nobody sees it, tenant administrators included. Only the nightly run is recorded, not the
+`pre-<sha>` release backups.
+
 Inspect with `offsite.sh snapshots`, and sample stored data periodically with
 `offsite.sh check --read-data-subset=5%`. To restore, extract a snapshot into an empty directory,
 verify it, then follow the same isolated restore steps as for a local backup (roles, then the dump,

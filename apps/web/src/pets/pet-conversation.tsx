@@ -8,14 +8,28 @@ import {
   Checkbox,
   ContextMenu,
   Icon,
+  Listbox,
   Menu,
   Select,
   Text,
   Textarea,
   focusRing,
+  useListbox,
   type MenuEntry,
 } from '@nix/ui';
-import { ArrowLeft, ArrowUp, Maximize2, MoreHorizontal, Square, TextQuote, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowUp,
+  FilePlus,
+  Maximize2,
+  MoreHorizontal,
+  Pencil,
+  RefreshCw,
+  Square,
+  TextQuote,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -104,6 +118,9 @@ function toolInsertIndex(
   return index;
 }
 
+/** The most notes one message carries; the server refuses more. */
+const MAX_CONTEXTS = 5;
+
 type ConversationPanel = 'chat' | 'settings' | 'history';
 
 interface SharedContext {
@@ -181,7 +198,8 @@ export function Conversation({
   // The draft lives in a small in-memory store rather than here so it survives the
   // conversation moving between the floating panel and its page.
   const [draft, setDraft] = usePetDraft(workspaceId, pet.id, noteScope?.rootItemId);
-  const [shared, setShared] = useState<SharedContext | null>(null);
+  // The notes attached to the conversation: all go with every turn until removed.
+  const [contexts, setContexts] = useState<readonly SharedContext[]>([]);
   const [model, setModel] = useState(() =>
     readConversationModel(workspaceId, pet.id, pet.provider),
   );
@@ -193,6 +211,10 @@ export function Conversation({
   const [needsDecisionIds, setNeedsDecisionIds] = useState<readonly string[]>([]);
   const [currentItemTitle, setCurrentItemTitle] = useState<string | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
+  // The last user message, being edited in place: its id pins the edit to that message.
+  const [editing, setEditing] = useState<{ readonly id: string; readonly text: string } | null>(
+    null,
+  );
   const input = useRef<HTMLTextAreaElement | null>(null);
   const dialog = useRef<HTMLDivElement | null>(null);
   // Must-fix 7: `Text` deliberately takes no `ref`/`tabIndex` (its own contract refuses an open
@@ -417,7 +439,20 @@ export function Conversation({
     const text = window.getSelection()?.toString().trim() ?? '';
     if (!currentItem || !text) return;
     const trimmed = text.slice(0, 16000);
-    setShared({ itemId: currentItem, sharedText: trimmed, label: trimmed.slice(0, 120) });
+    addContext({ itemId: currentItem, sharedText: trimmed, label: trimmed.slice(0, 120) });
+  }
+
+  /** Adds `entry` to the attached notes; the same note or selection twice stays one entry, and
+   * a full list takes no more (the buttons are disabled then). */
+  function addContext(entry: SharedContext) {
+    setContexts((list) =>
+      list.length >= MAX_CONTEXTS
+        ? list
+        : [
+            ...list.filter((c) => c.itemId !== entry.itemId || c.sharedText !== entry.sharedText),
+            entry,
+          ],
+    );
   }
 
   /** Must-fix 5: "Summarize this page" attaches the open item as a removable chip, sent as
@@ -425,11 +460,26 @@ export function Conversation({
    * `currentItemId` in its prompt, so nothing here re-sends the page's text itself. */
   function attachPageContext() {
     if (!currentItem) return;
-    setShared({
+    addContext({
       itemId: currentItem,
       sharedText: '',
       label: `This page: ${currentItemTitle ?? 'Untitled'}`,
     });
+  }
+
+  /** What a turn sends as its context: the attached notes, with the text selected in any of
+   * them joined into one `sharedText` (the request has a single field for it). */
+  function contextFields() {
+    if (noteScope) return { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly };
+    if (contexts.length === 0) return {};
+    return {
+      itemIds: [...new Set(contexts.map((context) => context.itemId))],
+      sharedText: contexts
+        .map((context) => context.sharedText)
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, 16000),
+    };
   }
 
   async function submit() {
@@ -448,40 +498,40 @@ export function Conversation({
         preparing.current = false;
       }
     }
+    setEditing(null);
     const ok = await send({
       text: draft,
       model,
       workspaceAccess,
-      ...(noteScope
-        ? { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly }
-        : shared
-          ? { itemId: shared.itemId, sharedText: shared.sharedText }
-          : {}),
+      ...contextFields(),
       ...(workspaceMap?.length ? { workspaceMap } : {}),
     });
     if (ok) {
       setDraft('');
-      setShared(null);
     }
   }
 
-  /** Must-fix 4: a failed turn (the worker reports `state: 'error'`, not a client-side request
-   * failure) offers its own "Try again" that resends the *last user message*, as a new request -
-   * unlike a failed `send`, which retries the exact same one. */
-  function retryLastTurn() {
-    const lastUser = [...messages].reverse().find((message) => message.role === 'user');
-    if (!lastUser) return;
+  /** Sends `text` as a new turn that replaces the user message `replaceFromMessageId` and
+   * everything after it, with the conversation's current context. Backs "Try again",
+   * "Regenerate" and an edited last message; each is a new request, unlike a failed `send`'s
+   * retry, which resends the exact same one. */
+  function resendTurn(text: string, replaceFromMessageId: string) {
+    setEditing(null);
     regenerateRequestId();
-    void send({
-      text: lastUser.text,
+    return send({
+      text,
       model,
       workspaceAccess,
-      ...(noteScope
-        ? { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly }
-        : shared
-          ? { itemId: shared.itemId, sharedText: shared.sharedText }
-          : {}),
+      replaceFromMessageId,
+      ...contextFields(),
     });
+  }
+
+  /** Must-fix 4: a failed turn (the worker reports `state: 'error'`, not a client-side request
+   * failure) offers its own "Try again" that resends the *last user message*. */
+  function retryLastTurn() {
+    const lastUser = [...messages].reverse().find((message) => message.role === 'user');
+    if (lastUser) void resendTurn(lastUser.text, lastUser.id);
   }
 
   /** Must-fix 4: the label a hook-level `error` offers, keyed by `errorKind` - `send` and
@@ -502,6 +552,25 @@ export function Conversation({
   const loadErrorMessage = `Lost connection to ${pet.name}. Retrying…`;
 
   function onComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    // An IME's confirming Enter or arrow is the IME's, not the menu's.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const composing = event.nativeEvent.isComposing || event.keyCode === 229;
+    if (slashOptions.length > 0 && !composing) {
+      if (event.key === 'Tab') {
+        // Hide the menu before focus moves, so Tab leaves the field instead of entering the list.
+        setSlashDismissed(true);
+        return;
+      }
+      if (event.key === 'Escape') {
+        // The menu is the innermost layer, so the conversation behind it stays open.
+        event.preventDefault();
+        event.stopPropagation();
+        setSlashDismissed(true);
+        return;
+      }
+      slashListbox.onKeyDown(event);
+      if (event.defaultPrevented) return;
+    }
     // Must-fix 18: an IME composition's confirming Enter arrives as `keyCode === 229` on some
     // browsers without `isComposing` also being set - both are checked so it is never mistaken
     // for a real submit.
@@ -564,6 +633,31 @@ export function Conversation({
     ? ['Summarize this page', 'Find my notes about...', 'Add a status field to this list']
     : ['Find my notes about...', 'Plan my reading', 'Track a job hunt'];
 
+  // Typing `/` at the start of the composer offers the same actions as the empty state's
+  // buttons, filtered by what follows the slash. Escape or leaving the field hides it until the
+  // draft stops being a slash command.
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const slashQuery = /^\/(\S*)$/.exec(draft)?.[1]?.toLowerCase();
+  if (slashQuery === undefined && slashDismissed) setSlashDismissed(false);
+  const slashOptions =
+    slashQuery === undefined || slashDismissed
+      ? []
+      : suggestions
+          .filter((suggestion) => suggestion.toLowerCase().includes(slashQuery))
+          .map((suggestion) => ({ id: suggestion, label: suggestion }));
+  const slashListbox = useListbox(slashOptions, (option) => {
+    pickSuggestion(option.id);
+  });
+
+  /** An action from the empty state or the slash menu: it fills the composer, and "Summarize
+   * this page" also attaches the open page. */
+  function pickSuggestion(suggestion: string) {
+    setDraft(suggestion);
+    if (suggestion === 'Summarize this page') attachPageContext();
+    regenerateRequestId();
+    input.current?.focus();
+  }
+
   const dialogClass =
     layout === 'fullscreen'
       ? '@container fixed inset-x-0 top-[var(--phone-dialog-top,0)] z-40 flex h-[var(--phone-dialog-height,100dvh)] min-w-0 w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground outline-none'
@@ -571,7 +665,7 @@ export function Conversation({
         ? '@container flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden bg-background text-foreground outline-none'
         : '@container flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 min-w-0 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg outline-none';
 
-  const needsWorkspaceAccessForChip = Boolean(shared) && !workspaceAccess;
+  const needsWorkspaceAccessForChip = contexts.length > 0 && !workspaceAccess;
 
   if (noteScope && !runtime && error) {
     return (
@@ -779,12 +873,7 @@ export function Conversation({
                   petName={pet.name}
                   workspaceAccess={workspaceAccess}
                   suggestions={suggestions}
-                  onPick={(suggestion) => {
-                    setDraft(suggestion);
-                    if (suggestion === 'Summarize this page') attachPageContext();
-                    regenerateRequestId();
-                    input.current?.focus();
-                  }}
+                  onPick={pickSuggestion}
                 />
                 <PetWorkTools
                   client={client}
@@ -802,15 +891,64 @@ export function Conversation({
             ) : (
               (() => {
                 const splitAt = toolInsertIndex(messages);
-                const row = (message: (typeof messages)[number], index: number) => (
-                  <PetMessageRow
-                    key={message.id}
-                    message={message}
-                    petName={pet.name}
-                    workspaceId={workspaceId}
-                    latest={index === messages.length - 1}
-                  />
+                // Only the last turn can be redone: its user message and the reply after it.
+                const lastUserIndex = messages.map((message) => message.role).lastIndexOf('user');
+                const lastReplyIndex = messages.findIndex(
+                  (message, index) =>
+                    index > lastUserIndex &&
+                    message.id === `${messages[lastUserIndex]?.id ?? ''}:assistant`,
                 );
+                const idle = !running && !busy;
+                const row = (message: (typeof messages)[number], index: number) => {
+                  const edit = editing?.id === message.id ? editing : null;
+                  return (
+                    <PetMessageRow
+                      key={message.id}
+                      message={message}
+                      petName={pet.name}
+                      workspaceId={workspaceId}
+                      latest={index === messages.length - 1}
+                      editor={
+                        edit ? (
+                          <PetMessageEditor
+                            text={edit.text}
+                            enterToSend={!touchLikeComposer}
+                            busy={running || busy}
+                            onChange={(text) => {
+                              setEditing({ id: message.id, text });
+                            }}
+                            onSend={() => {
+                              setEditing(null);
+                              void resendTurn(edit.text, message.id);
+                            }}
+                            onCancel={() => {
+                              setEditing(null);
+                            }}
+                          />
+                        ) : undefined
+                      }
+                      action={
+                        !idle || edit
+                          ? undefined
+                          : index === lastUserIndex
+                            ? {
+                                label: 'Edit',
+                                icon: Pencil,
+                                onClick: () => {
+                                  setEditing({ id: message.id, text: message.text });
+                                },
+                              }
+                            : index === lastReplyIndex
+                              ? {
+                                  label: 'Regenerate',
+                                  icon: RefreshCw,
+                                  onClick: retryLastTurn,
+                                }
+                              : undefined
+                      }
+                    />
+                  );
+                };
                 return (
                   <>
                     {messages.slice(0, splitAt).map((message, index) => row(message, index))}
@@ -834,15 +972,19 @@ export function Conversation({
               })()
             )}
             {running && !hasDraft && !approvalPending ? (
-              <div className="flex items-center gap-1" aria-hidden="true">
+              // The pet itself, in its thinking pose: the avatar owns the motion preference and
+              // shows a still frame under reduced motion. The header status carries the label.
+              <div className="flex items-center gap-2" aria-hidden="true">
+                <PetAvatar
+                  appearance={pet.appearance}
+                  motion={settings.motion}
+                  state="thinking"
+                  label={`${pet.name}: thinking`}
+                  size="compact"
+                />
                 <Text variant="note" tone="muted">
                   {pet.name} is thinking
                 </Text>
-                <span className="flex gap-0.5">
-                  <span className="motion-safe:animate-pulse">.</span>
-                  <span className="motion-safe:animate-pulse [animation-delay:150ms]">.</span>
-                  <span className="motion-safe:animate-pulse [animation-delay:300ms]">.</span>
-                </span>
               </div>
             ) : null}
           </PetChatViewport>
@@ -857,21 +999,28 @@ export function Conversation({
             </div>
           ) : null}
           <div className="mx-auto flex min-w-0 w-full max-h-[50%] max-w-4xl shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-divider p-3">
-            {shared ? (
-              <div className="flex min-w-0 items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
-                <Text variant="note" className="truncate">
-                  {shared.label}
-                </Text>
-                <Button
-                  variant="icon"
-                  aria-label="Remove shared selection"
-                  onClick={() => {
-                    setShared(null);
-                  }}
-                >
-                  <Icon icon={X} size="sm" />
-                </Button>
-              </div>
+            {contexts.length > 0 ? (
+              <ul aria-label="Notes sent with your message" className="flex min-w-0 flex-col gap-2">
+                {contexts.map((context) => (
+                  <li
+                    key={`${context.itemId}:${context.sharedText}`}
+                    className="flex min-w-0 items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2"
+                  >
+                    <Text variant="note" className="truncate">
+                      {context.label}
+                    </Text>
+                    <Button
+                      variant="icon"
+                      aria-label={`Remove ${context.label}`}
+                      onClick={() => {
+                        setContexts((list) => list.filter((c) => c !== context));
+                      }}
+                    >
+                      <Icon icon={X} size="sm" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             ) : null}
             {needsWorkspaceAccessForChip ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
@@ -907,6 +1056,16 @@ export function Conversation({
                 </Button>
               </div>
             ) : null}
+            {slashOptions.length > 0 ? (
+              <div className="flex max-h-48 shrink-0 flex-col overflow-y-auto rounded border border-divider bg-background">
+                <Listbox
+                  label="Actions"
+                  options={slashOptions}
+                  controller={slashListbox}
+                  emptyMessage="No matching actions"
+                />
+              </div>
+            ) : null}
             <label htmlFor="pet-message" className="sr-only">
               Message {pet.name}
             </label>
@@ -924,6 +1083,13 @@ export function Conversation({
                 onChange={(event) => {
                   setDraft(event.currentTarget.value);
                   regenerateRequestId();
+                }}
+                aria-controls={slashOptions.length > 0 ? slashListbox.id : undefined}
+                aria-activedescendant={
+                  slashOptions.length > 0 ? slashListbox.activeOptionId : undefined
+                }
+                onBlur={() => {
+                  if (slashOptions.length > 0) setSlashDismissed(true);
                 }}
                 onKeyDown={onComposerKeyDown}
               />
@@ -1001,8 +1167,17 @@ export function Conversation({
               <Button
                 variant="icon"
                 className="shrink-0"
+                aria-label="Add this page to the message"
+                disabled={!currentItem || contexts.length >= MAX_CONTEXTS}
+                onClick={attachPageContext}
+              >
+                <Icon icon={FilePlus} size="sm" />
+              </Button>
+              <Button
+                variant="icon"
+                className="shrink-0"
                 aria-label={hasSelection ? 'Share selected text' : 'Select text on the page first'}
-                disabled={!currentItem || !hasSelection}
+                disabled={!currentItem || !hasSelection || contexts.length >= MAX_CONTEXTS}
                 onMouseDown={(event) => {
                   event.preventDefault();
                 }}
@@ -1035,11 +1210,18 @@ function PetMessageRow({
   petName,
   workspaceId,
   latest,
+  editor,
+  action,
 }: {
   readonly message: NonNullable<PetConnection['messages']>[number];
   readonly petName: string;
   readonly workspaceId: string;
   readonly latest: boolean;
+  /** Replaces the message text while the message is being edited. */
+  readonly editor?: ReactElement | undefined;
+  /** The one thing the last turn offers: "Edit" on the user message, "Regenerate" on the reply. */
+  readonly action?:
+    { readonly label: string; readonly icon: LucideIcon; readonly onClick: () => void } | undefined;
 }): ReactElement {
   if (message.role === 'system')
     return (
@@ -1073,17 +1255,85 @@ function PetMessageRow({
             : 'min-w-0 w-full'
         }
       >
-        <PetMessageText
-          text={message.text}
-          workspaceId={workspaceId}
-          format={fromUser ? 'plain' : 'markdown'}
-        />
+        {editor ?? (
+          <PetMessageText
+            text={message.text}
+            workspaceId={workspaceId}
+            format={fromUser ? 'plain' : 'markdown'}
+          />
+        )}
         {isDraft ? (
           <span
             aria-hidden="true"
             className="ml-0.5 inline-block h-4 w-0.5 align-middle bg-foreground motion-safe:animate-pulse"
           />
         ) : null}
+      </div>
+      {action ? (
+        <Button variant="ghost" onClick={action.onClick}>
+          <Icon icon={action.icon} size="sm" />
+          {action.label}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/** The last user message, edited where it sits. Enter sends (Shift+Enter breaks the line on a
+ * keyboard), Escape cancels; focus lands in the field when it opens. */
+function PetMessageEditor({
+  text,
+  enterToSend,
+  busy,
+  onChange,
+  onSend,
+  onCancel,
+}: {
+  readonly text: string;
+  readonly enterToSend: boolean;
+  /** A turn is running: sending is off until it ends. */
+  readonly busy: boolean;
+  readonly onChange: (text: string) => void;
+  readonly onSend: () => void;
+  readonly onCancel: () => void;
+}): ReactElement {
+  const field = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    field.current?.focus();
+  }, []);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <Textarea
+        ref={field}
+        aria-label="Edit your message"
+        rows={composerRows(text)}
+        maxLength={8000}
+        value={text}
+        resize="none"
+        onChange={(event) => {
+          onChange(event.currentTarget.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            onCancel();
+            return;
+          }
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (event.key === 'Enter' && enterToSend && !event.shiftKey && text.trim() && !busy) {
+            event.preventDefault();
+            onSend();
+          }
+        }}
+      />
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="secondary" disabled={!text.trim() || busy} onClick={onSend}>
+          Resend
+        </Button>
       </div>
     </div>
   );

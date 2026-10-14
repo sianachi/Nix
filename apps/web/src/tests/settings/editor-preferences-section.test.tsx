@@ -8,6 +8,7 @@ import { usePageGuidePreference } from '../../editor/page-guide-preference';
 import { readDismissals, rememberDismissal } from '../../lib/suggestion-dismissals';
 import { memoryStorage } from '../views/suggest/suggest-fixtures';
 import { EditorPreferencesSection } from '../../settings/editor-preferences-section';
+import { PublishingSection } from '../../settings/publishing-section';
 import { usePublishingPreference, useSitesVisible } from '../../settings/publishing-preference';
 import { CapabilitiesProvider } from '../../session/capabilities-context';
 import {
@@ -107,9 +108,9 @@ describe('publishing', () => {
     usePublishingPreference.setState({ enabled: false });
   });
 
-  it('has no row on a deployment without sites', () => {
+  it('is not an editor preference; it has its own section', () => {
     render(
-      <CapabilitiesProvider value={{ sites: false, mcpUrl: null }}>
+      <CapabilitiesProvider value={{ sites: true, mcpUrl: null, operator: false }}>
         <EditorPreferencesSection />
       </CapabilitiesProvider>,
     );
@@ -120,8 +121,8 @@ describe('publishing', () => {
   it('is off by default, and switching it on and off shows and hides the site entry', async () => {
     const user = userEvent.setup();
     render(
-      <CapabilitiesProvider value={{ sites: true, mcpUrl: null }}>
-        <EditorPreferencesSection />
+      <CapabilitiesProvider value={{ sites: true, mcpUrl: null, operator: false }}>
+        <PublishingSection />
         <SiteEntryProbe />
       </CapabilitiesProvider>,
     );
@@ -141,7 +142,7 @@ describe('publishing', () => {
   it('shows nothing when publishing is on but the deployment has no sites', () => {
     usePublishingPreference.setState({ enabled: true });
     render(
-      <CapabilitiesProvider value={{ sites: false, mcpUrl: null }}>
+      <CapabilitiesProvider value={{ sites: false, mcpUrl: null, operator: false }}>
         <SiteEntryProbe />
       </CapabilitiesProvider>,
     );
@@ -159,13 +160,12 @@ describe('device-only rows', () => {
     expect(screen.getByRole('checkbox', { name: 'Keep notes on this device' })).toBeInTheDocument();
     expect(screen.queryByText('This device only', { selector: 'label *' })).toBeNull();
   });
-});
 
-describe('device-only rows', () => {
-  it('say so on the offline and mobile toolbar toggles and nowhere else', () => {
-    render(<EditorPreferencesSection />);
+  it('is absent from a synced setting', () => {
+    render(<PublishingSection />);
 
-    expect(screen.getAllByText('This device only')).toHaveLength(2);
+    expect(screen.getByRole('checkbox', { name: 'Publishing' })).toBeInTheDocument();
+    expect(screen.queryByText('This device only')).not.toBeInTheDocument();
   });
 });
 

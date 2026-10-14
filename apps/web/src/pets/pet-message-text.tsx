@@ -1,8 +1,9 @@
 import { nixSchema } from '@nix/editor-schema';
 import { markdownToDocument } from '@nix/markdown';
-import { Text } from '@nix/ui';
+import { Button, Icon, Text } from '@nix/ui';
 import type { Node as DocumentNode } from '@tiptap/pm/model';
-import { Fragment, type ReactElement, type ReactNode } from 'react';
+import { Check, Copy, X } from 'lucide-react';
+import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 function workspaceHref(href: string, workspaceId: string): boolean {
@@ -30,6 +31,69 @@ function plainText(text: string, workspaceId: string): ReactNode {
       {parts}
       {text.slice(start)}
     </>
+  );
+}
+
+/** Fenced code with a copy button, highlighted once the highlighter has loaded. The HTML is
+ * highlight.js output, which escapes the code and emits only class spans; their colours are text
+ * roles (accent and muted), so they keep the contrast of the code block's background. The
+ * highlighter is a separate chunk, so the code shows as plain text until it arrives. */
+function CodeBlock({
+  code,
+  language,
+}: {
+  readonly code: string;
+  readonly language: string | null;
+}) {
+  const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [html, setHtml] = useState<{ readonly code: string; readonly html: string } | null>(null);
+  useEffect(() => {
+    if (copy === 'idle') return;
+    const timer = setTimeout(() => {
+      setCopy('idle');
+    }, 1500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [copy]);
+  useEffect(() => {
+    let live = true;
+    void import('@nix/site-render/highlight').then((module) => {
+      if (live) setHtml({ code, html: module.highlightCode(code, language) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [code, language]);
+  return (
+    <div className="relative">
+      <pre className="max-w-full overflow-x-auto rounded-sm border border-divider bg-surface p-3 pr-12 [&_.hljs-built_in]:text-accent-text [&_.hljs-comment]:text-muted [&_.hljs-keyword]:text-accent-text [&_.hljs-literal]:text-accent-text [&_.hljs-title]:text-accent-text [&_.hljs-type]:text-accent-text">
+        <Text as="span" className="font-mono">
+          {html?.code === code ? (
+            <code dangerouslySetInnerHTML={{ __html: html.html }} />
+          ) : (
+            <code>{code}</code>
+          )}
+        </Text>
+      </pre>
+      <Button
+        variant="icon"
+        className="absolute right-1 top-1"
+        aria-label={copy === 'copied' ? 'Copied' : copy === 'failed' ? 'Copy failed' : 'Copy code'}
+        onClick={() => {
+          navigator.clipboard.writeText(code).then(
+            () => {
+              setCopy('copied');
+            },
+            () => {
+              setCopy('failed');
+            },
+          );
+        }}
+      >
+        <Icon icon={copy === 'copied' ? Check : copy === 'failed' ? X : Copy} size="sm" />
+      </Button>
+    </div>
   );
 }
 
@@ -123,11 +187,10 @@ function messageNode(
       );
     case 'codeBlock':
       return (
-        <pre className="max-w-full overflow-x-auto rounded-sm border border-divider bg-surface p-3">
-          <Text as="span" className="font-mono">
-            <code>{node.textContent}</code>
-          </Text>
-        </pre>
+        <CodeBlock
+          code={node.textContent}
+          language={typeof node.attrs.language === 'string' ? node.attrs.language : null}
+        />
       );
     case 'hardBreak':
       return <br />;

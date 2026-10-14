@@ -5,6 +5,8 @@ import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react
 
 import { PartialNotice } from '../../components/states/status-panels';
 import { useItemOpenProps } from '../core/item-open-click';
+import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { SelectCheckbox } from '../core/select-checkbox';
 import {
   UNSET_LABEL,
   UNSET_VALUE,
@@ -199,6 +201,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col gap-3">
+      <ShownItems ids={visibleColumns.flatMap((column) => column.items.map((card) => card.id))} />
       {moveError === null ? null : (
         <div role="alert" className="flex items-start gap-2 border border-divider p-3">
           <Icon icon={CircleAlert} size="sm" className="text-accent-text" />
@@ -580,6 +583,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
   } = props;
   const itemActions = useItemContextActions(onOpen);
   const openProps = useItemOpenProps(onOpen);
+  const isSelected = useOptionalItemSelection()?.selected.has(item.id) === true;
 
   const current = readSelectValue(item, property.key);
   const titleRef = useRef<HTMLButtonElement>(null);
@@ -604,34 +608,43 @@ function BoardCard(props: BoardCardProps): ReactNode {
           aria-posinset={position}
           aria-setsize={setSize}
           data-virtual-index={virtualIndex}
-          className="min-w-0"
+          className="group min-w-0"
         >
           <Blueprint
-            className={cn('flex flex-col gap-1.5 bg-background p-3', dragging ? 'opacity-45' : '')}
+            className={cn(
+              'flex flex-col gap-1.5 bg-background p-3',
+              dragging ? 'opacity-45' : '',
+              isSelected && 'bg-accent/10 outline-2 -outline-offset-2 outline-accent',
+            )}
           >
-            <div
-              draggable
-              onDragStart={(event) => {
-                setDragged(item.id);
-                event.dataTransfer.effectAllowed = 'move';
-                // Set, though the drop handler prefers its own state: without data attached, Firefox
-                // refuses to start the drag at all.
-                event.dataTransfer.setData('text/plain', item.id);
-              }}
-              onDragEnd={() => {
-                setDragged(null);
-              }}
-            >
-              <button
-                ref={titleRef}
-                type="button"
-                {...openProps(item.id)}
-                className={cn('w-full text-left', focusRing)}
+            <div className="flex items-start gap-2">
+              {/* Beside the draggable title, not inside it, so pressing the box never starts a drag. */}
+              <SelectCheckbox item={item} />
+              <div
+                className="min-w-0 flex-1"
+                draggable
+                onDragStart={(event) => {
+                  setDragged(item.id);
+                  event.dataTransfer.effectAllowed = 'move';
+                  // Set, though the drop handler prefers its own state: without data attached, Firefox
+                  // refuses to start the drag at all.
+                  event.dataTransfer.setData('text/plain', item.id);
+                }}
+                onDragEnd={() => {
+                  setDragged(null);
+                }}
               >
-                <Text variant="h5" as="span" lines={2}>
-                  {item.title || 'Untitled'}
-                </Text>
-              </button>
+                <button
+                  ref={titleRef}
+                  type="button"
+                  {...openProps(item.id)}
+                  className={cn('w-full text-left', focusRing)}
+                >
+                  <Text variant="h5" as="span" lines={2}>
+                    {item.title || 'Untitled'}
+                  </Text>
+                </button>
+              </div>
             </div>
 
             {stale === undefined ? null : (

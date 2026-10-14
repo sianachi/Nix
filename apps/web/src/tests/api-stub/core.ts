@@ -137,6 +137,12 @@ export interface StubOptions {
   readonly siteFeature?: boolean;
   /** The remote MCP endpoint `/me` advertises, or null. */
   readonly mcpUrl?: string | null;
+  /** Whether `/me` says the caller is a deployment operator (may read backup status). */
+  readonly operator?: boolean;
+  /** The runs `GET /api/v1/admin/backups` returns, newest first. */
+  readonly backupRuns?: readonly Record<string, unknown>[];
+  /** Makes the backups read fail. */
+  readonly backupsFail?: boolean;
   readonly displayName?: string;
   readonly email?: string | null;
   readonly items?: readonly StubItem[];
@@ -572,6 +578,9 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     isTenantAdministrator = false,
     siteFeature = false,
     mcpUrl = null,
+    operator = false,
+    backupRuns = [],
+    backupsFail = false,
     displayName = 'Test Person',
     email = 'test@example.test',
     items = [],
@@ -1688,6 +1697,12 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         );
       }
 
+      if (url.includes('/api/v1/admin/backups') && method === 'GET') {
+        return Promise.resolve(
+          backupsFail ? json({ code: 'admin.operator_required' }, 403) : json({ runs: backupRuns }),
+        );
+      }
+
       if (url.includes('/api/v1/me')) {
         return Promise.resolve(
           profileFails
@@ -1698,7 +1713,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 displayName,
                 email,
                 isTenantAdministrator,
-                features: { sites: siteFeature, mcpUrl },
+                features: { sites: siteFeature, mcpUrl, operator },
               }),
         );
       }
@@ -2357,6 +2372,20 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         }
         const found = known.find((candidate) => candidate.id === restoreFor[1]);
         return Promise.resolve(found === undefined ? json({}, 404) : json(found));
+      }
+
+      // Moving re-parents the item in `known`, so the listings that follow show where it went.
+      const moveFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/move$/.exec(url);
+      if (moveFor !== null && method === 'POST') {
+        const at = known.findIndex((candidate) => candidate.id === moveFor[1]);
+        const target = known[at];
+        if (target === undefined) return Promise.resolve(json({}, 404));
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+          parentId?: string | null;
+        };
+        const moved = { ...target, parentId: body.parentId ?? null };
+        known[at] = moved;
+        return Promise.resolve(json(moved));
       }
 
       // A single item by id, which is what revealing a deep link walks up through and what a

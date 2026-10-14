@@ -55,6 +55,15 @@ BEGIN
     ELSE
         RAISE NOTICE 'role nix_collab already present';
     END IF;
+
+    -- The nightly backup writer's identity. NOLOGIN: the backup jobs already run as the superuser
+    -- and SET ROLE to it, so there is no password to leak. It may only execute nix_record_backup_run.
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nix_backup') THEN
+        CREATE ROLE nix_backup NOLOGIN NOINHERIT;
+        RAISE NOTICE 'created role nix_backup';
+    ELSE
+        RAISE NOTICE 'role nix_backup already present';
+    END IF;
 END
 $$;
 
@@ -68,6 +77,7 @@ ALTER ROLE nix_collab WITH PASSWORD :'collab_password';
 ALTER ROLE nix_migrator WITH BYPASSRLS;
 ALTER ROLE nix_app WITH NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
 ALTER ROLE nix_collab WITH NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+ALTER ROLE nix_backup WITH NOLOGIN NOINHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
 DO $$
 BEGIN
@@ -79,6 +89,10 @@ BEGIN
         RAISE EXCEPTION
             'nix_collab has BYPASSRLS; row-level security would not isolate tenants';
     END IF;
-    RAISE NOTICE 'verified nix_app and nix_collab cannot bypass row-level security';
+    IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'nix_backup') THEN
+        RAISE EXCEPTION
+            'nix_backup has BYPASSRLS; row-level security would not isolate tenants';
+    END IF;
+    RAISE NOTICE 'verified nix_app, nix_collab and nix_backup cannot bypass row-level security';
 END
 $$;

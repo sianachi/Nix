@@ -126,6 +126,7 @@ internal static class GetCurrentPrincipalEndpoint
         HttpContext httpContext,
         [FromServices] NixDispatcher dispatcher,
         [FromServices] SiteOptions sites,
+        [FromServices] SiteOperators operators,
         [FromServices] IConfiguration configuration)
     {
         var result = await dispatcher
@@ -134,6 +135,8 @@ internal static class GetCurrentPrincipalEndpoint
                 httpContext.RequestAborted)
             .ConfigureAwait(false);
 
+        // Display only; the backups route checks the same list for itself.
+        var isOperator = operators.IsInstanceOperator();
         return result.Match<Results<Ok<CurrentPrincipalResponse>, ProblemHttpResult>>(
             principal => TypedResults.Ok(
                 new CurrentPrincipalResponse(
@@ -146,7 +149,8 @@ internal static class GetCurrentPrincipalEndpoint
                         sites.IsEnabled,
                         // Display only: the address people paste into an MCP client. Absent means
                         // the deployment serves MCP on stdio through nixctl alone.
-                        Uri.TryCreate(configuration["Nix:Mcp:PublicUrl"], UriKind.Absolute, out var mcp) ? mcp.ToString() : null))),
+                        Uri.TryCreate(configuration["Nix:Mcp:PublicUrl"], UriKind.Absolute, out var mcp) ? mcp.ToString() : null,
+                        isOperator))),
             error => TypedResults.Problem(MeEndpoints.Problem(httpContext, error)));
     }
 }
