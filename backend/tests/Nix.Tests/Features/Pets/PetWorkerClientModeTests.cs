@@ -383,8 +383,8 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     private static readonly Guid ItemB = new("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     private static readonly Guid ItemC = new("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
 
-    private static PetWorkerClient SendGateway(RecordingWorker handler, HttpClient http, Guid? unreadable = null, Guid? locked = null) =>
-        new(http, Configuration(), Session(), Dispatcher(unreadableItem: unreadable, lockedItem: locked), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
+    private static PetWorkerClient SendGateway(RecordingWorker handler, HttpClient http, Guid? unreadable = null, Guid? locked = null, string? title = null) =>
+        new(http, Configuration(), Session(), Dispatcher(unreadableItem: unreadable, lockedItem: locked, itemTitle: title), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
     [Fact]
     public async Task Several_attached_items_are_deduplicated_and_forwarded_with_the_first_as_the_current_item()
@@ -401,6 +401,28 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         Assert.Equal(ItemA.ToString(), body.RootElement.GetProperty("itemId").GetString());
         var items = body.RootElement.GetProperty("items");
         Assert.Equal([ItemA.ToString(), ItemB.ToString(), ItemC.ToString()], items.EnumerateArray().Select(item => item.GetProperty("id").GetString()!).ToArray());
+    }
+
+    [Theory]
+    [InlineData(300, false)]
+    [InlineData(239, true)]
+    public async Task A_long_item_title_is_clipped_to_the_workers_limit_without_splitting_an_emoji(int length, bool emojiStraddles)
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        // 239 letters then a surrogate pair puts the pair across the 240-unit limit.
+        var title = new string('a', length) + (emojiStraddles ? "\U0001F600tail" : string.Empty);
+        var gateway = SendGateway(handler, http, title: title);
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Explain", ItemIds: [ItemA]), Cancellation);
+
+        Assert.True(result.IsSuccess);
+        using var body = JsonDocument.Parse(handler.Body);
+        var sent = body.RootElement.GetProperty("items")[0].GetProperty("title").GetString()!;
+        Assert.True(sent.Length <= 240);
+        Assert.False(char.IsHighSurrogate(sent[^1]));
+        Assert.Equal(emojiStraddles ? 239 : 240, sent.Length);
+        Assert.Equal(sent, body.RootElement.GetProperty("itemTitle").GetString());
     }
 
     [Fact]
@@ -735,12 +757,12 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         return session;
     }
 
-    private static NixDispatcher Dispatcher(string provider = PetProviders.ChatGpt, bool inlineWriting = false, Guid? unreadableItem = null, Guid? lockedItem = null)
+    private static NixDispatcher Dispatcher(string provider = PetProviders.ChatGpt, bool inlineWriting = false, Guid? unreadableItem = null, Guid? lockedItem = null, string? itemTitle = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IQueryHandler<GetWorkspace, WorkspaceSnapshot?>>(new FakeGetWorkspaceHandler());
         services.AddSingleton<IQueryHandler<GetPetSettings, PetSettingsResponse>>(new FakeGetPetSettingsHandler(provider, inlineWriting));
-        services.AddSingleton<IQueryHandler<GetItem, Result<Item>>>(new FakeGetItemHandler(unreadableItem));
+        services.AddSingleton<IQueryHandler<GetItem, Result<Item>>>(new FakeGetItemHandler(unreadableItem, itemTitle));
         services.AddSingleton<IQueryHandler<GetItemLock, Result<ItemLockState>>>(new FakeGetItemLockHandler(lockedItem));
         return new NixDispatcher(services.BuildServiceProvider());
     }
@@ -766,7 +788,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
             ValueTask.FromResult(Result.Success(new ItemLockState(query.ItemId.Value == locked, null, null, query.ItemId.Value == locked)));
     }
 
-    private sealed class FakeGetItemHandler(Guid? unreadable = null) : IQueryHandler<GetItem, Result<Item>>
+    private sealed class FakeGetItemHandler(Guid? unreadable = null, string? title = null) : IQueryHandler<GetItem, Result<Item>>
     {
         public ValueTask<Result<Item>> HandleAsync(GetItem query, CancellationToken cancellationToken) => query.ItemId.Value == unreadable
             ? ValueTask.FromResult(Result.Failure<Item>(new("items.not_found", "Not found")))
@@ -782,6 +804,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
                 LastModifiedBy = PrincipalId.Create(),
                 CreatedAt = DateTimeOffset.UtcNow,
                 LastModifiedAt = DateTimeOffset.UtcNow,
+                Properties = title is null ? null : JsonSerializer.Serialize(new Dictionary<string, string> { [ItemProperties.TitleKey] = title }),
             }));
     }
 

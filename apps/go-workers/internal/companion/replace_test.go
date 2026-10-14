@@ -77,6 +77,39 @@ func TestReplaceFromMessageRefusesNonUserTargetsAndRunningTurns(t *testing.T) {
 	}
 }
 
+func TestOnlyTheLastUserMessageCanBeReplaced(t *testing.T) {
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+	a := &account{transport: &fakeTransport{}, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	a.conversations[key] = &conversation{ToolVersion: toolVersion, ThreadID: "t", State: "idle", Messages: []Message{
+		{ID: "u1", Role: "user", Text: "First"}, {ID: "u1:assistant", Role: "assistant", Text: "Reply"},
+		{ID: "u2", Role: "user", Text: "Second"}, {ID: "u2:assistant", Role: "assistant", Text: "Reply"},
+	}}
+	r.ReplaceFromMessageID = "u1"
+	if _, err := a.handle(context.Background(), r); !errors.Is(err, errReplaceTarget) {
+		t.Fatalf("an earlier turn was replaceable: %v", err)
+	}
+	if len(a.snapshot(key).Messages) != 4 {
+		t.Fatal("a refused replace changed the conversation")
+	}
+}
+
+func TestEarlierTranscriptDropsWholeOldestMessagesToFit(t *testing.T) {
+	old := Message{ID: "a", Role: "user", Text: "OLDEST " + strings.Repeat("x", 5000)}
+	mid := Message{ID: "b", Role: "assistant", Text: "MIDDLE " + strings.Repeat("y", 5000)}
+	last := Message{ID: "c", Role: "user", Text: "NEWEST"}
+	got := earlierTranscript([]Message{old, mid, last, {ID: "d:commentary:1", Role: "assistant", Text: "skip"}})
+	if strings.Contains(got, "OLDEST") || !strings.HasPrefix(got, "Assistant: MIDDLE ") || !strings.HasSuffix(got, "User: NEWEST") {
+		t.Fatalf("transcript did not drop the oldest whole message: %q", got[:40])
+	}
+	if len([]rune(got)) > maxEarlierRunes {
+		t.Fatalf("transcript is %d runes, over the budget", len([]rune(got)))
+	}
+	if strings.Contains(got, "skip") {
+		t.Fatal("commentary leaked into the transcript")
+	}
+}
+
 func TestSharedItemsAreBoundedAndReachThePrompt(t *testing.T) {
 	r := request()
 	item := func(id string) SharedItem { return SharedItem{ID: id, Title: "Title " + id[:1]} }
