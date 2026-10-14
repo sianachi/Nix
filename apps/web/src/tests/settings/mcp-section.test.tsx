@@ -25,8 +25,9 @@ describe('Settings > MCP', () => {
     stubCoreApi({ mcpUrl: 'https://nix.example.test/mcp' });
     renderAt(<App />, '/settings?tab=mcp');
     const section = await screen.findByRole('region', { name: 'MCP' });
+    // The endpoint comes from its own request and can render after the section does.
     expect(
-      within(section).getByText(
+      await within(section).findByText(
         /claude mcp add --transport http nix https:\/\/nix.example.test\/mcp/,
       ),
     ).toBeVisible();
