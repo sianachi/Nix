@@ -24,6 +24,7 @@ import {
 import { parseScalar } from '@nix/markdown/front-matter';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
+import type { CollabEditOptions } from './collab-stress.ts';
 
 /** The override to name when the seed meets the write rate limit, so a person can raise it. */
 const WRITES_LIMIT_OVERRIDE = 'Nix__RateLimits__WritesPerMinute';
@@ -176,12 +177,16 @@ export const KNOWN_SCENARIOS = [
   'query-storm',
   'list-storm',
   'chart-storm',
+  'collab-edit',
 ] as const;
 export type Scenario = (typeof KNOWN_SCENARIOS)[number];
 
 export interface RunOptions {
   readonly scenario: string;
-  readonly iterations: number;
+  /** The storms' read count; collab-edit does not use it. */
+  readonly iterations?: number | undefined;
+  /** collab-edit: the flags that scenario takes (see `CollabEditOptions`). */
+  readonly collab?: Omit<CollabEditOptions, 'workspaceId'> | undefined;
   /** list-storm: the workspace the container lives in. */
   readonly workspaceId?: string | undefined;
   /** read-storm and query-storm: the item to read (a container, for query-storm). */
@@ -261,10 +266,26 @@ export async function stressRun(
       `Unknown scenario '${options.scenario}'. Available: ${KNOWN_SCENARIOS.join(', ')}.`,
     );
   }
-  if (!Number.isInteger(options.iterations) || options.iterations < 1) {
-    throw new Error(
-      `--iterations must be a positive integer, got '${String(options.iterations)}'.`,
+  if (options.scenario === 'collab-edit') {
+    const { collabEdit } = await import('./collab-stress.ts');
+    await collabEdit(
+      profileName,
+      {
+        create: false,
+        clients: 2,
+        edits: 50,
+        intervalMs: 20,
+        ...options.collab,
+        workspaceId: options.workspaceId,
+      },
+      output,
+      deps,
     );
+    return;
+  }
+  const iterations = options.iterations;
+  if (iterations === undefined || !Number.isInteger(iterations) || iterations < 1) {
+    throw new Error(`--iterations must be a positive integer, got '${String(iterations)}'.`);
   }
 
   const session = await resolveSession(profileName, deps);
@@ -339,13 +360,13 @@ export async function stressRun(
     target = `${itemId}#${viewId}`;
   }
 
-  const tally = await storm(readOnce, options.iterations, now);
+  const tally = await storm(readOnce, iterations, now);
   const sorted = [...tally.durations].sort((left, right) => left - right);
   printResult(
     {
       scenario: options.scenario,
       target,
-      iterations: options.iterations,
+      iterations,
       ok: tally.ok,
       errors: tally.errors,
       errorsByCode: tally.errorsByCode,
