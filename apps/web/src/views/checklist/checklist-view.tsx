@@ -1,6 +1,7 @@
 import { Button, Checkbox, ContextMenu, Input, Text, cn, focusRing } from '@nix/ui';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
+import { useItemOpenProps } from '../core/item-open-click';
 import {
   readPropertyText,
   type Item,
@@ -287,6 +288,7 @@ interface ChecklistLineProps {
 function ChecklistLine(props: ChecklistLineProps): ReactNode {
   const { item, done, boxRef, secondary, refusal, onTick, onOpen } = props;
   const itemActions = useItemContextActions(onOpen);
+  const openProps = useItemOpenProps(onOpen);
   const title = item.title.length > 0 ? item.title : 'Untitled';
   const detail = secondary === null ? '' : readPropertyText(item, secondary.key);
 
@@ -321,9 +323,7 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
             <button
               type="button"
               aria-label={`Open ${title}`}
-              onClick={() => {
-                onOpen(item.id);
-              }}
+              {...openProps(item.id)}
               className={cn(
                 'min-w-0 flex-1 text-left pointer-coarse:min-h-(--control-lg)',
                 focusRing,

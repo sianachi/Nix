@@ -35,6 +35,7 @@ import { suggestSourceOf } from '../suggest/suggest-source';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import { resetColumnWidth, setColumnWidth, useColumnWidths } from '../core/column-widths';
 import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { useClickSelects } from '../core/item-open-click';
 import { rowGestures } from '../core/use-item-selection';
 import { cellFor, isCellMoveKey, moveFocusedCell } from './cell-nav';
 import { ListCell } from './list-cell';
@@ -106,6 +107,7 @@ export function ListView(props: ListViewProps): ReactNode {
   const itemActions = useItemContextActions(onOpen);
   const rowContextMenu = (item: Item): MenuEntry[] => itemActions(item.id, item.title);
   const selection = useOptionalItemSelection();
+  const clickSelects = useClickSelects();
   const viewId = view?.id ?? null;
   const columnWidths = useColumnWidths(viewId);
 
@@ -187,6 +189,7 @@ export function ListView(props: ListViewProps): ReactNode {
         : () => {
             besideOf(item.id);
           },
+      clickSelects,
     );
   // A touch long-press starts a selection; once one exists it opens the row menu as before.
   const longPress = (item: Item): boolean => {

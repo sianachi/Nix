@@ -2,6 +2,7 @@ import { Button, Checkbox, ContextMenu, cn, Field, focusRing, Input, Select, Tex
 import { items } from '@nix/api-client';
 import { Check, CheckCircle2, Circle, CircleAlert, Clock3 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useItemOpenProps } from '../core/item-open-click';
 import type { ContainerData } from '../core/use-container';
 import type { View } from '../core/container-model';
 import { useItemContextActions } from '../core/use-item-context-actions';
@@ -588,6 +589,7 @@ function HabitRow({
   ) => Promise<string | null>;
 }): ReactNode {
   const itemActions = useItemContextActions(onOpen);
+  const openProps = useItemOpenProps(onOpen);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [statusPending, setStatusPending] = useState(false);
@@ -649,9 +651,7 @@ function HabitRow({
                   variant="ghost"
                   className="max-w-full justify-start truncate px-0 text-left text-lg font-semibold"
                   aria-label={`Open ${title || 'Untitled habit'}`}
-                  onClick={() => {
-                    onOpen(itemId);
-                  }}
+                  {...openProps(itemId)}
                 >
                   {title || 'Untitled habit'}
                 </Button>

@@ -9,6 +9,7 @@ import type { View } from './container-model';
 import { ListView } from '../list/list-view';
 import type { ContainerData } from './use-container';
 import { VIEW_GUTTER } from './view-gutter';
+import { ClickSelectsContext } from './item-open-click';
 import { ItemSelectionContext } from './item-selection-context';
 import { resolveOpenMode } from './open-policy';
 import { SelectionBar } from './selection-bar';
@@ -64,6 +65,8 @@ export function ContainerView({
     dialog: openDialog ?? onOpen,
     beside: onOpenBeside ?? onOpen,
     tab: onOpenPinned ?? onOpen,
+    // Not what a click does (it selects); the double-click, Enter and menu Open target.
+    none: onOpen,
   }[mode];
   const [grid, setGrid] = useState(false);
   const viewState = useViewState();
@@ -186,16 +189,18 @@ export function ContainerView({
       </div>
     );
   return (
-    <ItemSelectionContext value={selecting ? selectionValue : null}>
-      <div ref={paneRef} className={VIEW_GUTTER}>
-        {tools}
-        {dragHint}
-        <ViewItemVisibility container={container} view={view}>
-          {(visible) => renderContent(visible, view, open)}
-        </ViewItemVisibility>
-        {selectionBar}
-      </div>
-    </ItemSelectionContext>
+    <ClickSelectsContext value={mode === 'none'}>
+      <ItemSelectionContext value={selecting ? selectionValue : null}>
+        <div ref={paneRef} className={VIEW_GUTTER}>
+          {tools}
+          {dragHint}
+          <ViewItemVisibility container={container} view={view}>
+            {(visible) => renderContent(visible, view, open)}
+          </ViewItemVisibility>
+          {selectionBar}
+        </div>
+      </ItemSelectionContext>
+    </ClickSelectsContext>
   );
 }
 
