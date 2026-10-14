@@ -733,7 +733,7 @@ describe('where a graph node opens', () => {
       within(control)
         .getAllByRole('option')
         .map((option) => option.textContent),
-    ).toEqual(['Page', 'Dialog', 'Beside', 'New tab']);
+    ).toEqual(['Page', 'Dialog', 'New tab']);
   });
 
   it('stores the chosen mode in the preference', async () => {
@@ -760,10 +760,12 @@ describe('where a graph node opens', () => {
     expect(pinnedFlag()).toBe(true);
   });
 
-  it('falls back to the dialog in beside mode, since the graph has no pane to open beside', async () => {
-    useGraphOpenPreference.setState({ mode: 'beside' });
+  it('reads a synced beside as a dialog, since the graph has no pane to open beside', async () => {
+    useGraphOpenPreference.getState().setMode('beside');
+    expect(useGraphOpenPreference.getState().mode).toBe('dialog');
     await clickRoadmap();
     expect(await screen.findByRole('dialog', { name: 'Roadmap' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Open items in' })).toHaveValue('dialog');
   });
 
   it('opens a page on a phone whatever the mode', async () => {

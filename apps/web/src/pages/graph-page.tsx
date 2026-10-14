@@ -20,7 +20,7 @@ import {
 import { useItemDialog } from '../items/item-dialog-context';
 import { useWorkspaceGraph } from '../graph/use-workspace-graph';
 import { paneScroller } from '../layout/regions';
-import { useNarrowViewport, useRoomForAnotherPane } from '../layout/viewport';
+import { useNarrowViewport } from '../layout/viewport';
 import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { publishNotice } from '../lib/notices';
 import { offerReference } from '../lib/pending-reference';
@@ -82,29 +82,21 @@ function moveRefusal(reason: unknown): string {
 export function GraphPage(): ReactElement {
   const [searchParams] = useSearchParams();
   const { status, graph, error, reload, refresh } = useWorkspaceGraph();
-  const { openPreview, openPinned, openBeside, canOpenBeside } = useOpenItem();
+  const { openPreview, openPinned } = useOpenItem();
   const openDialog = useItemDialog();
   const narrow = useNarrowViewport();
-  const roomForPane = useRoomForAnotherPane();
   const openMode = useGraphOpenPreference((state) => state.mode);
   const setOpenMode = useGraphOpenPreference((state) => state.setMode);
-  // The same policy a saved view uses; the graph route has no pane to open beside, so that mode
-  // degrades to a dialog there exactly as it does in a view without room.
+  // The same policy a saved view uses. The graph route has no pane to open beside, so that mode
+  // is not offered and resolves to a dialog here.
+  const dialogOrPage = openDialog ?? openPreview;
   const open = {
     page: openPreview,
-    dialog: openDialog ?? openPreview,
-    beside: (itemId: string): void => {
-      openBeside(itemId);
-    },
+    dialog: dialogOrPage,
+    beside: dialogOrPage,
     tab: openPinned,
-    none: openDialog ?? openPreview,
-  }[
-    resolveOpenMode({
-      view: { kind: 'graph', open: openMode },
-      narrow,
-      canOpenBeside: roomForPane && canOpenBeside,
-    })
-  ];
+    none: dialogOrPage,
+  }[resolveOpenMode({ view: { kind: 'graph', open: openMode }, narrow, canOpenBeside: false })];
   const client = useApiClient();
 
   /**

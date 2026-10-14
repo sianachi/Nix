@@ -43,12 +43,12 @@ describe('the graph open preference', () => {
     await hydrateUiSettings(client, ME);
 
     useGraphOpenPreference.getState().setMode('page');
-    useGraphOpenPreference.getState().setMode('beside');
+    useGraphOpenPreference.getState().setMode('tab');
     expect(execute).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0]?.[0].body).toEqual({ settings: { 'graph.openMode': 'beside' } });
+    expect(execute.mock.calls[0]?.[0].body).toEqual({ settings: { 'graph.openMode': 'tab' } });
   });
 
   it('applies the account value on sign-in without sending it back', async () => {
@@ -59,6 +59,14 @@ describe('the graph open preference', () => {
 
     expect(useGraphOpenPreference.getState().mode).toBe('tab');
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('reads a beside from the account as a dialog', async () => {
+    const { client } = fakeClient({ 'graph.openMode': 'beside' });
+
+    await hydrateUiSettings(client, ME);
+
+    expect(useGraphOpenPreference.getState().mode).toBe('dialog');
   });
 
   it('uploads a non-default local value the account has never seen', async () => {
