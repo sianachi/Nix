@@ -152,6 +152,7 @@ public sealed class DatabaseRoleTests
     [Theory]
     [InlineData(NixDatabaseRoles.Application)]
     [InlineData(NixDatabaseRoles.Collaboration)]
+    [InlineData(NixDatabaseRoles.Backup)]
     public async Task Service_roles_cannot_create_temporary_objects(string role)
     {
         var connection = await _fixture.OpenMigratorConnectionAsync();
@@ -164,6 +165,21 @@ public sealed class DatabaseRoleTests
                 $"SELECT has_database_privilege('{role}', current_database(), 'TEMPORARY')");
 
             Assert.False(mayCreateTemporary);
+        }
+    }
+
+    [Fact]
+    public async Task The_backup_role_can_neither_log_in_nor_bypass_row_level_security()
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            var attributes = await RawSql.TextAsync(
+                connection,
+                null,
+                $"SELECT rolcanlogin || ',' || rolbypassrls || ',' || rolsuper FROM pg_roles WHERE rolname = '{NixDatabaseRoles.Backup}'");
+
+            Assert.Equal("false,false,false", attributes);
         }
     }
 

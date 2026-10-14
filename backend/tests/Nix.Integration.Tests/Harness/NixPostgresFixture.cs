@@ -56,6 +56,9 @@ public sealed class NixPostgresFixture : IAsyncLifetime
     /// <summary>Gets the connection string for the schema-owning role, <c>nix_migrator</c>.</summary>
     public string MigratorConnectionString { get; private set; } = string.Empty;
 
+    /// <summary>Gets the connection string for the cluster superuser, on the application database.</summary>
+    public string SuperuserConnectionString { get; private set; } = string.Empty;
+
     /// <summary>
     /// Gets the shared application composition root, built through <c>AddNixPersistence</c>.
     /// </summary>
@@ -88,6 +91,8 @@ public sealed class NixPostgresFixture : IAsyncLifetime
         var port = _container.GetMappedPublicPort(5432);
 
         var superuserConnectionString = ConnectionStringFor(host, port, SuperuserName, SuperuserPassword, SuperuserName);
+        SuperuserConnectionString = ConnectionStringFor(
+            host, port, SuperuserName, SuperuserPassword, NixDatabaseRoles.Database);
         MigratorConnectionString = ConnectionStringFor(
             host, port, NixDatabaseRoles.Migrator, NixDatabaseRoles.Password, NixDatabaseRoles.Database);
         ApplicationConnectionString = ConnectionStringFor(
@@ -185,6 +190,15 @@ public sealed class NixPostgresFixture : IAsyncLifetime
     public async Task<NpgsqlConnection> OpenMigratorConnectionAsync()
     {
         var connection = new NpgsqlConnection(MigratorConnectionString);
+        await connection.OpenAsync();
+        return connection;
+    }
+
+    /// <summary>Opens a connection as the cluster superuser, the identity the backup jobs run as.</summary>
+    /// <returns>An open connection; the caller disposes it.</returns>
+    public async Task<NpgsqlConnection> OpenSuperuserConnectionAsync()
+    {
+        var connection = new NpgsqlConnection(SuperuserConnectionString);
         await connection.OpenAsync();
         return connection;
     }
