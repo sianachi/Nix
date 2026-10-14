@@ -26,6 +26,29 @@
  */
 export const PANE_LIMIT = 3;
 
+/**
+ * What a pane shows instead of its item: the companion conversation, `chat=workspace` or
+ * `chat=<note id>` (`chat2`, `chat3` in later panes). The item stays in the address so the pane
+ * exists and Back returns to it; selecting any item in the pane drops the chat
+ * (`writeSelectedItem`). The value is a scope, not a thread: a scope has exactly one live
+ * conversation, so a chat tab keeps showing it however it is archived or resumed.
+ */
+export const CHAT_PARAM = 'chat';
+
+const CHAT_SCOPE = /^(workspace|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/** Reads a pane's chat scope; anything but `workspace` or an item id is dropped, as the address is hostile. */
+export function parseChatScope(raw: string | null, pane = 0): string | null {
+  if (raw === null || raw.length === 0) {
+    return null;
+  }
+  if (!CHAT_SCOPE.test(raw)) {
+    console.warn(`Ignoring unrecognised "${paneParam(CHAT_PARAM, pane)}" search parameter:`, raw);
+    return null;
+  }
+  return raw;
+}
+
 /** Which way the panes are laid out. */
 export const SPLIT_PARAM = 'split';
 

@@ -4,7 +4,7 @@ import { PANE_LIMIT } from '../panes/pane-params';
 import { closePaneParams, parsePanes } from '../panes/pane-state';
 import { writeSelectedItem } from '../routing/selected-item';
 import { ownerOfItem, tabsForPane } from './tab-ownership';
-import type { OpenTab } from './tab-store';
+import { isChatTabId, type OpenTab } from './tab-store';
 
 export const TAB_TRANSFER_MIME = 'application/x-nix-document-tab';
 
@@ -132,7 +132,10 @@ export function planTabTransfer(input: PlanTabTransferInput): PlanTabTransferRes
   }
 
   const sourceTabs = tabsForPane(sourcePane, source.itemId, arrangement.panes, byPane);
-  const movedIndex = sourceTabs.findIndex((tab) => tab.itemId === itemId);
+  // Chat tabs ride along in the strips but are never a pane's replacement document.
+  const movedIndex = sourceTabs
+    .filter((tab) => !isChatTabId(tab.itemId))
+    .findIndex((tab) => tab.itemId === itemId);
   if (movedIndex === -1) {
     return { plan: null, refusal: 'stale-tab' };
   }
@@ -144,7 +147,8 @@ export function planTabTransfer(input: PlanTabTransferInput): PlanTabTransferRes
     byPane,
   );
   const remaining = sourceTabs.filter((tab) => tab.itemId !== itemId);
-  const sourceClosed = source.itemId === itemId && remaining.length === 0;
+  const remainingItems = remaining.filter((tab) => !isChatTabId(tab.itemId));
+  const sourceClosed = source.itemId === itemId && remainingItems.length === 0;
   const finalDestinationPane =
     sourceClosed && destinationPane > sourcePane ? destinationPane - 1 : destinationPane;
 
@@ -154,7 +158,7 @@ export function planTabTransfer(input: PlanTabTransferInput): PlanTabTransferRes
     writeSelectedItem(nextParams, finalDestinationPane, itemId);
   } else {
     if (source.itemId === itemId) {
-      const neighbor = remaining[Math.max(0, movedIndex - 1)];
+      const neighbor = remainingItems[Math.max(0, movedIndex - 1)];
       if (neighbor === undefined) {
         return { plan: null, refusal: 'stale-tab' };
       }

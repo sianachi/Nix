@@ -754,6 +754,24 @@ describe('companion workflow', () => {
     });
   });
 
+  it('renders no second runtime while a pane shows the workspace conversation', async () => {
+    const note = '66666666-6666-4666-8666-666666666666';
+    const render_ = (search: string) =>
+      render(
+        <MemoryRouter initialEntries={[`/w/33333333-3333-4333-8333-333333333333?${search}`]}>
+          <Routes>
+            <Route path="/w/:workspaceId" element={<PetCompanion />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    const beside = render_(`item=${note}`);
+    expect(await screen.findByRole('button', { name: 'Talk with Cat' })).toBeInTheDocument();
+    beside.unmount();
+
+    render_(`item=${note}&chat=workspace`);
+    expect(screen.queryByRole('button', { name: 'Talk with Cat' })).not.toBeInTheDocument();
+  });
+
   it('shows the live conversation title and renames it from the actions menu', async () => {
     const named = {
       ...connected,

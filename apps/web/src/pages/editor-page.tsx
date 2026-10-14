@@ -102,6 +102,9 @@ import { useForgetMissingSmartList, useRememberSmartList } from '../views/query/
 import { useOptionalWorkspace } from '../workspaces/workspace-context';
 import { ViewSwitcher } from '../views/core/view-switcher';
 import { useTemplateLibrary } from '../templates/template-library-context';
+import { useOpenChat } from '../tabs/use-open-chat';
+import { PetConversationPane } from './pet-page';
+import { useWorkspace } from '../workspaces/workspace-context';
 
 /**
  * One item, open.
@@ -335,6 +338,7 @@ function PaneContents({
   const orientation = useTabOrientationStore((state) => state.orientation);
   const item = tree.find(pane.itemId);
   const zen = useZenActive();
+  const { workspaceId } = useWorkspace();
 
   return (
     <article
@@ -364,6 +368,7 @@ function PaneContents({
             paneIndex={pane.index}
             tree={tree}
             activeItemId={pane.itemId}
+            activeChat={pane.chat}
             visiblePanes={visiblePanes}
             draggedTab={draggedTab}
             onTabDragStarted={onTabDragStarted}
@@ -382,7 +387,15 @@ function PaneContents({
             </Text>
           ) : null}
 
-          {item === null ? (
+          {pane.chat !== undefined ? (
+            // Keyed on the scope: workspace chat and a note's chat are different conversations,
+            // each with its own runtime.
+            <PetConversationPane
+              key={pane.chat}
+              workspaceId={workspaceId}
+              rootItemId={pane.chat === 'workspace' ? null : pane.chat}
+            />
+          ) : item === null ? (
             <NotFoundItem tree={tree} pane={pane} onClose={onClose} />
           ) : (
             // Keyed on the item throughout: switching notes has to build a new Yjs document and
@@ -517,6 +530,7 @@ export function OpenItem({
   const visibility = useHiddenItems();
   const treeChildren = useHiddenItems('tree-children');
   const navigate = useNavigate();
+  const openChat = useOpenChat();
   const narrow = useNarrowViewport();
   // Zen draws the item and its sync state alone. Everything it removes below is not rendered
   // rather than hidden, and every removal is a sibling of the body in a fixed position, never a
@@ -704,9 +718,7 @@ export function OpenItem({
             label: 'Chat about this note',
             onSelect: () => {
               onNavigateAway?.();
-              void navigate(
-                `/w/${encodeURIComponent(workspace.workspaceId)}/pet?root=${encodeURIComponent(itemId)}`,
-              );
+              openChat(itemId);
             },
           },
           {

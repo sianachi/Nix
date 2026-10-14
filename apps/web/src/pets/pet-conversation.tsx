@@ -49,6 +49,8 @@ import { Link, useLocation, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
 import { useNarrowViewport } from '../layout/viewport';
 import { useZenActive } from '../lib/zen-mode';
+import { usePaneIndex } from '../panes/pane-context';
+import { selectedItemParam } from '../routing/selected-item';
 import { PetAvatar, type PetAnimationState } from './pet-avatar';
 import { type UsePetRuntimeResult } from './use-pet-runtime';
 import {
@@ -185,7 +187,9 @@ export function Conversation({
   const client = useApiClient();
   const location = useLocation();
   const [search] = useSearchParams();
-  const currentItem = noteScope?.rootItemId ?? search.get('item');
+  // This pane's own item: a conversation shown in pane 2 is about pane 2's note.
+  const pane = usePaneIndex();
+  const currentItem = noteScope?.rootItemId ?? search.get(selectedItemParam(pane));
   const {
     runtime,
     models,

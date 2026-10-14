@@ -1,8 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PetPage } from '../../pages/pet-page';
+import { chatTabId, useTabStore } from '../../tabs/tab-store';
+import { stubViewport } from '../stub-viewport';
 import type { PetProfile } from '@nix/api-client';
 
 const WORKSPACE = '33333333-3333-4333-8333-333333333333';
@@ -71,9 +73,16 @@ function renderNote(root = ROOT) {
   );
 }
 
+function Where() {
+  return <p>{`editor${useLocation().search}`}</p>;
+}
+
 describe('note chat page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The page is where the conversation lives when tabs are not drawn.
+    stubViewport(false);
+    useTabStore.setState({ workspaceId: WORKSPACE, byPane: {} });
     petSettings.provider = 'chatgpt';
     petSettings.enabled = true;
     localStorage.clear();
@@ -194,5 +203,37 @@ describe('note chat page', () => {
       '/w/33333333-3333-4333-8333-333333333333/settings?tab=pets',
     );
     expect(mock.hook).not.toHaveBeenCalled();
+  });
+
+  it('hands a wide window the note conversation as a pinned chat tab in the editor', async () => {
+    stubViewport(true);
+    render(
+      <MemoryRouter initialEntries={[`/w/${WORKSPACE}/pet?root=${ROOT}`]}>
+        <Routes>
+          <Route path="/w/:workspaceId/pet" element={<PetPage />} />
+          <Route path="/w/:workspaceId" element={<Where />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(`editor?item=${ROOT}&chat=${ROOT}`)).toBeVisible();
+    expect(useTabStore.getState().byPane[0]).toEqual([
+      { itemId: ROOT, pinned: true },
+      { itemId: chatTabId(ROOT), pinned: true },
+    ]);
+    expect(mock.hook).not.toHaveBeenCalled();
+  });
+
+  it('keeps a narrow window on the page, and a wide one without a note', async () => {
+    renderNote();
+    expect(await screen.findByRole('combobox', { name: 'Note chat access' })).toBeVisible();
+    stubViewport(true);
+    render(
+      <MemoryRouter initialEntries={[`/w/${WORKSPACE}/pet`]}>
+        <PetPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getAllByRole('dialog', { name: 'Conversation with Pip' }).length).toBeGreaterThan(
+      0,
+    );
   });
 });
