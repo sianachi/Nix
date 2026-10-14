@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { useItemOpenProps } from '../core/item-open-click';
 import { dayLabel, dayText, weekLabel, type CalendarDay } from '../core/calendar-dates';
 import { readPropertyText, type Item } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
@@ -964,6 +965,7 @@ function DayColumn(props: {
     onGesture,
     suppressClick,
   } = props;
+  const openProps = useItemOpenProps(onOpen);
 
   return (
     <div
@@ -1059,12 +1061,13 @@ function DayColumn(props: {
                           beginGesture(event, entry, dayIndex, 'move');
                         }
                   }
-                  onClick={() => {
+                  {...openProps(entry.item.id)}
+                  onClick={(event) => {
                     if (suppressClick.current) {
                       suppressClick.current = false;
                       return;
                     }
-                    onOpen(entry.item.id);
+                    openProps(entry.item.id).onClick(event);
                   }}
                   className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
                 >
@@ -1310,6 +1313,7 @@ function AllDayBand(props: {
     ((title: string, properties?: Record<string, unknown>) => Promise<string | null>) | undefined;
 }): ReactNode {
   const { days, items, dateProperty, onOpen, onCreate } = props;
+  const openProps = useItemOpenProps(onOpen);
 
   return (
     <div className="flex border-y border-divider">
@@ -1364,9 +1368,7 @@ function AllDayBand(props: {
                   <button
                     {...contextTarget}
                     type="button"
-                    onClick={() => {
-                      onOpen(item.id);
-                    }}
+                    {...openProps(item.id)}
                     className="relative block w-full truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
                   >
                     {readPropertyText(item, 'title')}

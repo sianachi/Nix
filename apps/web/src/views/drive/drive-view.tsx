@@ -35,6 +35,7 @@ import { useWorkspace } from '../../workspaces/workspace-context';
 import { useWorkspaceTree } from '../../items/use-workspace-tree';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
 import { formatBytes, fileKindLabel, formatWhen } from '../../files/file-facts';
+import { useItemOpenProps } from '../core/item-open-click';
 import { CreateItemControl } from '../core/create-item-control';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import type { Item } from '../core/container-model';
@@ -634,6 +635,7 @@ function DriveTable(
     onDragEnd,
     onDrop,
   } = props;
+  const openProps = useItemOpenProps(onOpen);
 
   return (
     <div className="min-w-0 overflow-x-auto">
@@ -720,9 +722,7 @@ function DriveTable(
                     <td className="border-b border-divider p-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          onOpen(item.id);
-                        }}
+                        {...openProps(item.id)}
                         className={cn(
                           'flex min-h-(--control-sm) w-full min-w-0 items-center gap-2 text-left pointer-coarse:min-h-(--control-lg)',
                           focusRing,
@@ -839,6 +839,7 @@ function DriveGrid(props: RowsProps): ReactNode {
     onDragEnd,
     onDrop,
   } = props;
+  const openProps = useItemOpenProps(onOpen);
 
   return (
     // eslint-disable-next-line jsx-a11y/no-redundant-roles -- Tailwind removes the list style, and with it this implicit role in WebKit.
@@ -899,9 +900,7 @@ function DriveGrid(props: RowsProps): ReactNode {
                 )}
                 <button
                   type="button"
-                  onClick={() => {
-                    onOpen(item.id);
-                  }}
+                  {...openProps(item.id)}
                   className={cn('w-full min-w-0 text-center', focusRing)}
                 >
                   <Text

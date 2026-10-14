@@ -6,6 +6,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefOb
 import { PartialNotice } from '../../components/states/status-panels';
 import { CalendarEntryMenu } from '../calendar/calendar-entry-menu';
 import { PropertyInput } from '../../properties/property-input';
+import { useItemOpenProps } from '../core/item-open-click';
 import { dayFromText, dayLabel, dayText, type CalendarDay } from '../core/calendar-dates';
 import {
   readPropertyText,
@@ -94,6 +95,7 @@ const MAXIMUM_COLLAPSED_OFF_AXIS_ITEMS = 20;
 
 export function TimelineView(props: ViewRendererProps): ReactNode {
   const { container, view, onOpen } = props;
+  const openProps = useItemOpenProps(onOpen);
   const viewState = useViewState();
   const { mode: urlMode, setMode } = viewState;
 
@@ -332,9 +334,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
                     <Button
                       variant="ghost"
                       className="min-w-0 max-w-full justify-start whitespace-normal text-left wrap-anywhere"
-                      onClick={() => {
-                        onOpen(entry.item.id);
-                      }}
+                      {...openProps(entry.item.id)}
                     >
                       {entry.item.title || 'Untitled'}
                     </Button>
@@ -954,13 +954,12 @@ interface BarProps {
  * have no way of knowing they had been.
  */
 function Bar({ placed, onOpen, continuesBefore, continuesAfter }: BarProps): ReactNode {
+  const openProps = useItemOpenProps(onOpen);
   return (
     <button
       type="button"
       aria-label={announce(placed)}
-      onClick={() => {
-        onOpen(placed.item.id);
-      }}
+      {...openProps(placed.item.id)}
       // A tint rather than a solid accent fill. The design grammar reserves the solid accent for
       // the primary button - one of them per screen - and a row of forty saturated bars would
       // drown it.
@@ -1010,13 +1009,12 @@ function Milestone({
   readonly placed: Placed;
   readonly onOpen: (itemId: string) => void;
 }): ReactNode {
+  const openProps = useItemOpenProps(onOpen);
   return (
     <button
       type="button"
       aria-label={announce(placed)}
-      onClick={() => {
-        onOpen(placed.item.id);
-      }}
+      {...openProps(placed.item.id)}
       // The same hit-area extension as `Bar`, for the same 20.4px height, in the same `td p-1`
       // row space - so no two of these overlap either.
       className={cn(
@@ -1181,6 +1179,7 @@ function OffAxisEntry({
   readonly aside: AsideContext;
 }): ReactNode {
   const { item } = placed;
+  const openProps = useItemOpenProps(aside.onOpen);
 
   return (
     <CalendarEntryMenu
@@ -1200,9 +1199,7 @@ function OffAxisEntry({
               variant="ghost"
               aria-label={announce(placed)}
               className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
-              onClick={() => {
-                aside.onOpen(item.id);
-              }}
+              {...openProps(item.id)}
             >
               <span className="truncate">{titleOf(item)}</span>
             </Button>

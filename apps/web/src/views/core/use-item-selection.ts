@@ -84,6 +84,8 @@ interface RowClickEvent {
   readonly ctrlKey: boolean;
   readonly shiftKey: boolean;
   readonly altKey: boolean;
+  /** 0 for a click a key produced (Enter on a focused button), 1 and up for a pointer. */
+  readonly detail: number;
   readonly preventDefault: () => void;
   readonly nativeEvent: Event;
 }
@@ -101,6 +103,9 @@ interface RowKeyEvent {
  * toggles, Shift-click ranges across `order`, Alt-click opens beside (when the surface can), and
  * Space on the focused control toggles. After a touch long-press has started a selection, a tap
  * toggles too. With no selection (a view drawn alone) a click just opens.
+ *
+ * With `clickSelects` (open mode none) a plain pointer click selects instead, or does nothing when
+ * the view offers no selection; double-click and Enter on the focused control still open.
  */
 export function rowGestures(
   selection: RowSelection | null,
@@ -108,18 +113,24 @@ export function rowGestures(
   order: readonly string[],
   open: () => void,
   openBeside?: () => void,
+  clickSelects = false,
 ): {
   readonly onClick: (event: RowClickEvent) => void;
+  readonly onDoubleClick?: () => void;
   readonly onKeyDown: (event: RowKeyEvent) => void;
   readonly onKeyUp: (event: RowKeyEvent) => void;
 } {
   return {
+    ...(clickSelects ? { onDoubleClick: open } : {}),
     onClick: (event) => {
       if (selection !== null && isSelectGesture(event)) {
         event.preventDefault();
         selection.toggle(itemId, order, event.shiftKey);
       } else if (event.altKey && openBeside !== undefined) {
         openBeside();
+      } else if (clickSelects) {
+        if (event.detail === 0) open();
+        else selection?.toggle(itemId, order);
       } else if (
         selection !== null &&
         selection.selected.size > 0 &&

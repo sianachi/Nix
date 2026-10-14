@@ -3,6 +3,7 @@ import { CircleAlert } from 'lucide-react';
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
 import { useNarrowViewport } from '../../layout/viewport';
+import { useItemOpenProps } from '../core/item-open-click';
 import {
   readPropertyText,
   type Item,
@@ -432,6 +433,7 @@ function MatrixCard(props: MatrixCardProps): ReactNode {
     onOpen,
   } = props;
   const itemActions = useItemContextActions(onOpen);
+  const openProps = useItemOpenProps(onOpen);
   const title = item.title.length > 0 ? item.title : 'Untitled';
 
   return (
@@ -454,9 +456,7 @@ function MatrixCard(props: MatrixCardProps): ReactNode {
               <button
                 ref={titleRef}
                 type="button"
-                onClick={() => {
-                  onOpen(item.id);
-                }}
+                {...openProps(item.id)}
                 className={cn(
                   'min-w-0 w-full text-left any-pointer-coarse:min-h-(--control-lg)',
                   focusRing,
