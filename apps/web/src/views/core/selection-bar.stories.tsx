@@ -40,6 +40,7 @@ function Pane({
           setCount(shown);
         }}
         onMove={() => undefined}
+        onDelete={() => undefined}
         onClear={() => {
           setCount(0);
         }}

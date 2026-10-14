@@ -96,6 +96,10 @@ export function ContainerView({
   const shownIds = useCallback(() => shown, [shown]);
   useSelectionShortcuts(paneRef, selection, shownIds);
   const allShownSelected = shown.every((id) => selection.selected.has(id));
+  const dropDeleted = (deleted: readonly string[]): void => {
+    const gone = new Set(deleted);
+    selection.setAll([...selection.selected].filter((id) => !gone.has(id)));
+  };
   const selectionBar = selecting ? (
     <SelectionBar
       count={selection.selected.size}
@@ -108,6 +112,13 @@ export function ContainerView({
           ? undefined
           : () => {
               commands.moveItems([...selection.selected]);
+            }
+      }
+      onDelete={
+        commands === null || !capabilities.delete
+          ? undefined
+          : () => {
+              void commands.deleteItems([...selection.selected]).then(dropDeleted);
             }
       }
       onClear={selection.clear}
