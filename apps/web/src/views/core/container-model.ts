@@ -328,7 +328,7 @@ export const ViewSchema = z.object({
   chart: ChartOptionsSchema.nullable().default(null),
 
   /**
-   * How an item activated from this view opens: `page`, `dialog` or `beside`. Null means Auto, the
+   * How an item activated from this view opens: `page`, `dialog`, `beside` or `tab`. Null means Auto, the
    * context-aware default in `open-policy.ts`, which is what every view stored before the field
    * existed did. An open string like `cardSize`, for the same reason.
    */

@@ -102,7 +102,7 @@ public static class ViewDefinitionRules
             if (view.Open is { } open && !ViewOpenModes.IsValid(open))
             {
                 return $"'{view.Name}': '{open}' is not an open mode; "
-                    + $"use '{ViewOpenModes.Page}', '{ViewOpenModes.Dialog}', '{ViewOpenModes.Beside}' or '{ViewOpenModes.Tab}'.";
+                    + $"use one of {string.Join(", ", ViewOpenModes.All.Select(mode => $"'{mode}'"))}.";
             }
 
             if (view.Layout is { } layout && !DriveLayouts.IsValid(layout))
