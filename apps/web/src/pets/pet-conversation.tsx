@@ -118,6 +118,9 @@ function toolInsertIndex(
   return index;
 }
 
+/** The most notes one message carries; the server refuses more. */
+const MAX_CONTEXTS = 5;
+
 type ConversationPanel = 'chat' | 'settings' | 'history';
 
 interface SharedContext {
@@ -195,8 +198,7 @@ export function Conversation({
   // The draft lives in a small in-memory store rather than here so it survives the
   // conversation moving between the floating panel and its page.
   const [draft, setDraft] = usePetDraft(workspaceId, pet.id, noteScope?.rootItemId);
-  // The notes attached to the next message. The request carries one item for now, so only the
-  // first is sent (see `contextFields`).
+  // The notes attached to the next message, all sent with it (see `contextFields`).
   const [contexts, setContexts] = useState<readonly SharedContext[]>([]);
   const [model, setModel] = useState(() =>
     readConversationModel(workspaceId, pet.id, pet.provider),
@@ -440,12 +442,17 @@ export function Conversation({
     addContext({ itemId: currentItem, sharedText: trimmed, label: trimmed.slice(0, 120) });
   }
 
-  /** Adds `entry` to the attached notes; the same note or selection twice stays one entry. */
+  /** Adds `entry` to the attached notes; the same note or selection twice stays one entry, and
+   * a full list takes no more (the buttons are disabled then). */
   function addContext(entry: SharedContext) {
-    setContexts((list) => [
-      ...list.filter((c) => c.itemId !== entry.itemId || c.sharedText !== entry.sharedText),
-      entry,
-    ]);
+    setContexts((list) =>
+      list.length >= MAX_CONTEXTS
+        ? list
+        : [
+            ...list.filter((c) => c.itemId !== entry.itemId || c.sharedText !== entry.sharedText),
+            entry,
+          ],
+    );
   }
 
   /** Must-fix 5: "Summarize this page" attaches the open item as a removable chip, sent as
@@ -460,15 +467,19 @@ export function Conversation({
     });
   }
 
-  /** What a turn sends as its context. shortcut: the request has one `itemId`/`sharedText`
-   * pair, so only the first attached note goes; lift this when the API accepts a list. */
+  /** What a turn sends as its context: the attached notes, with the text selected in any of
+   * them joined into one `sharedText` (the request has a single field for it). */
   function contextFields() {
-    const first = contexts[0];
-    return noteScope
-      ? { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly }
-      : first
-        ? { itemId: first.itemId, sharedText: first.sharedText }
-        : {};
+    if (noteScope) return { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly };
+    if (contexts.length === 0) return {};
+    return {
+      itemIds: [...new Set(contexts.map((context) => context.itemId))],
+      sharedText: contexts
+        .map((context) => context.sharedText)
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, 16000),
+    };
   }
 
   async function submit() {
@@ -500,15 +511,17 @@ export function Conversation({
     }
   }
 
-  /** Sends `text` as a new turn with the conversation's current context. Backs "Try again",
+  /** Sends `text` as a new turn that replaces the user message `replaceFromMessageId` and
+   * everything after it, with the conversation's current context. Backs "Try again",
    * "Regenerate" and an edited last message; each is a new request, unlike a failed `send`'s
    * retry, which resends the exact same one. */
-  function resendTurn(text: string) {
+  function resendTurn(text: string, replaceFromMessageId: string) {
     regenerateRequestId();
     return send({
       text,
       model,
       workspaceAccess,
+      replaceFromMessageId,
       ...contextFields(),
     });
   }
@@ -517,7 +530,7 @@ export function Conversation({
    * failure) offers its own "Try again" that resends the *last user message*. */
   function retryLastTurn() {
     const lastUser = [...messages].reverse().find((message) => message.role === 'user');
-    if (lastUser) void resendTurn(lastUser.text);
+    if (lastUser) void resendTurn(lastUser.text, lastUser.id);
   }
 
   /** Must-fix 4: the label a hook-level `error` offers, keyed by `errorKind` - `send` and
@@ -896,7 +909,7 @@ export function Conversation({
                             }}
                             onSend={() => {
                               setEditing(null);
-                              void resendTurn(edit.text);
+                              void resendTurn(edit.text, message.id);
                             }}
                             onCancel={() => {
                               setEditing(null);
@@ -978,7 +991,7 @@ export function Conversation({
           <div className="mx-auto flex min-w-0 w-full max-h-[50%] max-w-4xl shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-divider p-3">
             {contexts.length > 0 ? (
               <ul aria-label="Notes sent with your message" className="flex min-w-0 flex-col gap-2">
-                {contexts.map((context, index) => (
+                {contexts.map((context) => (
                   <li
                     key={`${context.itemId}:${context.sharedText}`}
                     className="flex min-w-0 items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2"
@@ -986,11 +999,6 @@ export function Conversation({
                     <Text variant="note" className="truncate">
                       {context.label}
                     </Text>
-                    {index > 0 ? (
-                      <Text variant="note" tone="muted" className="shrink-0">
-                        Not sent yet
-                      </Text>
-                    ) : null}
                     <Button
                       variant="icon"
                       aria-label={`Remove ${context.label}`}
@@ -1150,7 +1158,7 @@ export function Conversation({
                 variant="icon"
                 className="shrink-0"
                 aria-label="Add this page to the message"
-                disabled={!currentItem}
+                disabled={!currentItem || contexts.length >= MAX_CONTEXTS}
                 onClick={attachPageContext}
               >
                 <Icon icon={FilePlus} size="sm" />
@@ -1159,7 +1167,7 @@ export function Conversation({
                 variant="icon"
                 className="shrink-0"
                 aria-label={hasSelection ? 'Share selected text' : 'Select text on the page first'}
-                disabled={!currentItem || !hasSelection}
+                disabled={!currentItem || !hasSelection || contexts.length >= MAX_CONTEXTS}
                 onMouseDown={(event) => {
                   event.preventDefault();
                 }}
