@@ -40,7 +40,7 @@ it('selects list rows by their boxes, counts them, and clears them again', async
   expect(within(bar).getByText('2 selected')).toBeVisible();
   // No shell around this view, so there is nowhere to move to: the bar offers no Move.
   expect(within(bar).queryByRole('button', { name: 'Move to…' })).not.toBeInTheDocument();
-  await user.click(within(bar).getByRole('button', { name: 'Clear selection' }));
+  await user.click(within(bar).getByRole('button', { name: 'Clear' }));
   expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
 });
 

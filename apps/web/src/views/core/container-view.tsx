@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Text } from '@nix/ui';
 import { useNarrowViewport, useRoomForAnotherPane } from '../../layout/viewport';
 import { useOptionalItemCommands } from '../../items/item-commands-context';
@@ -12,7 +12,7 @@ import { VIEW_GUTTER } from './view-gutter';
 import { ItemSelectionContext } from './item-selection-context';
 import { resolveOpenMode } from './open-policy';
 import { SelectionBar } from './selection-bar';
-import { useItemSelection } from './use-item-selection';
+import { useItemSelection, useSelectionShortcuts } from './use-item-selection';
 import { capabilitiesOf, DRAG_EFFECT_COPY } from './view-capabilities';
 import { findViewKind } from './view-kinds';
 import { ViewItemVisibility } from './view-item-visibility';
@@ -82,9 +82,27 @@ export function ContainerView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [childKey]);
   const selecting = capabilities.select && !container.locked;
+  // What the view says it draws, for Select all and Cmd/Ctrl-A: filters live in the view, so it reports.
+  const [shown, setShown] = useState<readonly string[]>([]);
+  const show = useCallback((ids: readonly string[]): void => {
+    setShown((current) =>
+      current.length === ids.length && current.every((id, index) => id === ids[index])
+        ? current
+        : ids,
+    );
+  }, []);
+  const paneRef = useRef<HTMLDivElement>(null);
+  // Identity matters: the shortcut listener re-attaches whenever this changes.
+  const shownIds = useCallback(() => shown, [shown]);
+  useSelectionShortcuts(paneRef, selection, shownIds);
+  const allShownSelected = shown.every((id) => selection.selected.has(id));
   const selectionBar = selecting ? (
     <SelectionBar
       count={selection.selected.size}
+      shownCount={allShownSelected ? 0 : shown.length}
+      onSelectAll={() => {
+        selection.setAll(shown);
+      }}
       onMove={
         commands === null || !capabilities.move
           ? undefined
@@ -102,7 +120,14 @@ export function ContainerView({
         {DRAG_EFFECT_COPY[capabilities.drag]}
       </Text>
     );
-  const selectionValue = { selected: selection.selected, toggle: selection.toggle, capabilities };
+  const selectionValue = {
+    selected: selection.selected,
+    toggle: selection.toggle,
+    capabilities,
+    shown,
+    show,
+    openBeside: roomForPane ? onOpenBeside : undefined,
+  };
   const tools =
     container.status === 'ready' &&
     !container.locked &&
@@ -151,13 +176,13 @@ export function ContainerView({
     );
   return (
     <ItemSelectionContext value={selecting ? selectionValue : null}>
-      <div className={VIEW_GUTTER}>
+      <div ref={paneRef} className={VIEW_GUTTER}>
         {tools}
         {dragHint}
-        {selectionBar}
         <ViewItemVisibility container={container} view={view}>
           {(visible) => renderContent(visible, view, open)}
         </ViewItemVisibility>
+        {selectionBar}
       </div>
     </ItemSelectionContext>
   );

@@ -17,7 +17,8 @@ import {
   type View,
 } from '../core/container-model';
 import { CoverImage } from './cover-image';
-import { useOptionalItemSelection } from '../core/item-selection-context';
+import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { rowGestures } from '../core/use-item-selection';
 import { CoverPickerDialog } from './cover-picker-dialog';
 import { CreateItemControl } from '../core/create-item-control';
 import { useItemContextActions } from '../core/use-item-context-actions';
@@ -287,6 +288,7 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
 
   return (
     <div className="@container/gallery flex min-h-0 min-w-0 flex-col gap-3">
+      <ShownItems ids={chrome.items.map((item) => item.id)} />
       {chrome.notice}
 
       {/* Above the grid rather than repeated on every card. The property is gone once, not once per
@@ -665,6 +667,12 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     // against - and `shadow-sm` is the resting elevation every other card in the product has.
     <ContextMenu
       label={`${item.title || 'Untitled'} actions`}
+      // A touch long-press starts a selection; once one exists it opens the card menu as before.
+      onLongPress={() => {
+        if (selection === null || selection.selected.size > 0) return false;
+        selection.toggle(item.id, selection.shown);
+        return true;
+      }}
       items={() =>
         itemActions(item.id, item.title, [
           {
@@ -685,19 +693,26 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
           data-virtual-index={virtualIndex}
           className={cn(
             blueprintFrame,
-            'relative flex min-w-0 flex-col gap-2 bg-surface p-3 shadow-sm',
-            isSelected && 'outline-2 -outline-offset-2 outline-accent',
+            'group relative flex min-w-0 flex-col gap-2 bg-surface p-3 shadow-sm',
+            isSelected && 'bg-accent/10 outline-2 -outline-offset-2 outline-accent',
           )}
         >
-          {/* The selection box, always on screen like the cover button beside it: a hover-only
-              box is invisible to a tap. `z-20` lifts it above the title's stretched hit area. */}
+          {/* The selection box, in the card's corner: drawn on hover or focus until something is
+              selected, then on every card. Touch starts a selection with a long press, so the box
+              is not the only way in. `z-20` lifts it above the title's stretched hit area. */}
           {selection === null ? null : (
-            <div className="absolute left-2 top-2 z-20 rounded-md bg-surface">
+            <div
+              className={cn(
+                'absolute left-2 top-2 z-20 rounded-md bg-surface',
+                selection.selected.size === 0 &&
+                  'opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100',
+              )}
+            >
               <Checkbox
                 aria-label={`Select ${item.title || 'Untitled'}`}
                 checked={isSelected}
                 onClick={(event) => {
-                  selection.toggle(item.id, [], event.shiftKey);
+                  selection.toggle(item.id, selection.shown, event.shiftKey);
                 }}
                 onChange={() => undefined}
               />
@@ -715,9 +730,19 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
           <h3 className="min-w-0 pr-(--control-lg)">
             <button
               type="button"
-              onClick={() => {
-                onOpen(item.id);
-              }}
+              {...rowGestures(
+                selection,
+                item.id,
+                selection?.shown ?? [],
+                () => {
+                  onOpen(item.id);
+                },
+                selection?.openBeside === undefined
+                  ? undefined
+                  : () => {
+                      selection.openBeside?.(item.id);
+                    },
+              )}
               // The card is mostly picture, and in a gallery the picture *is* the affordance - it is
               // why somebody chose this view. A stretched pseudo-element makes the whole card clickable
               // while the accessible tree keeps exactly one control per card; a second click target on

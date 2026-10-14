@@ -71,6 +71,12 @@ export interface TableColumn<Row> {
 
   /** Numbers read right-aligned; everything else reads left-aligned. */
   readonly align?: 'start' | 'end';
+
+  /**
+   * A narrow leading gutter (a selection box, say): the header is read by assistive technology but
+   * not drawn, and the column takes no more width than its cell needs.
+   */
+  readonly gutter?: boolean;
 }
 
 export interface TableProps<Row> {
@@ -113,6 +119,10 @@ export interface TableProps<Row> {
   readonly rowContextMenu?: (row: Row) => readonly MenuEntry[];
   /** What a row's menu is called - which row it acts on. Defaults to "Row actions". */
   readonly rowContextMenuLabel?: (row: Row) => string;
+  /** Offers a touch long-press on a row to the caller first; see `ContextMenu`'s `onLongPress`. */
+  readonly rowLongPress?: (row: Row) => boolean;
+  /** Marks a row selected: a tint and `aria-selected`. Colour is never the only signal. */
+  readonly rowSelected?: (row: Row) => boolean;
 
   /** Sparse row geometry when the caller renders only a measured window of a larger table. */
   readonly virtualization?: {
@@ -193,6 +203,8 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
     virtualization,
     rowContextMenu,
     rowContextMenuLabel,
+    rowLongPress,
+    rowSelected,
     tableRef,
     columnWidths,
     onColumnResize,
@@ -209,6 +221,9 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
     <tr
       key={rowKey(row)}
       {...contextTarget}
+      // `group` lets a cell reveal something on row hover or focus (the list's selection box).
+      className={cn('group', rowSelected?.(row) === true && 'bg-accent/10')}
+      aria-selected={rowSelected === undefined ? undefined : rowSelected(row)}
       aria-rowindex={virtualization === undefined ? undefined : dataIndex + 2}
       data-virtual-index={virtualization === undefined ? undefined : dataIndex}
     >
@@ -216,6 +231,7 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
         const cellClass = cn(
           'border-b border-divider font-body text-md text-foreground',
           cellPadding,
+          column.gutter === true && 'w-px pr-0',
           column.align === 'end' ? 'text-right' : 'text-left',
         );
 
@@ -268,6 +284,7 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
                   'border-b border-divider text-foreground/70',
                   headerText,
                   sortable ? 'p-0' : cellPadding,
+                  column.gutter === true && 'w-px pr-0',
                   alignEnd ? 'text-right' : 'text-left',
                   onColumnResize === undefined ? '' : 'relative',
                 )}
@@ -295,6 +312,8 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
                       size="sm"
                     />
                   </button>
+                ) : column.gutter === true ? (
+                  <span className="sr-only">{column.header}</span>
                 ) : (
                   column.header
                 )}
@@ -342,6 +361,7 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
                   key={rowKey(row)}
                   label={rowContextMenuLabel?.(row) ?? 'Row actions'}
                   items={() => rowContextMenu(row)}
+                  {...(rowLongPress === undefined ? {} : { onLongPress: () => rowLongPress(row) })}
                 >
                   {(contextTarget) => drawRow(row, dataIndex, contextTarget)}
                 </ContextMenu>
