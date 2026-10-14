@@ -834,15 +834,19 @@ export function Conversation({
               })()
             )}
             {running && !hasDraft && !approvalPending ? (
-              <div className="flex items-center gap-1" aria-hidden="true">
+              // The pet itself, in its thinking pose: the avatar owns the motion preference and
+              // shows a still frame under reduced motion. The header status carries the label.
+              <div className="flex items-center gap-2" aria-hidden="true">
+                <PetAvatar
+                  appearance={pet.appearance}
+                  motion={settings.motion}
+                  state="thinking"
+                  label={`${pet.name}: thinking`}
+                  size="compact"
+                />
                 <Text variant="note" tone="muted">
                   {pet.name} is thinking
                 </Text>
-                <span className="flex gap-0.5">
-                  <span className="motion-safe:animate-pulse">.</span>
-                  <span className="motion-safe:animate-pulse [animation-delay:150ms]">.</span>
-                  <span className="motion-safe:animate-pulse [animation-delay:300ms]">.</span>
-                </span>
               </div>
             ) : null}
           </PetChatViewport>
