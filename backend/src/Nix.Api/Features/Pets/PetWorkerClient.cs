@@ -116,7 +116,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             || request.Operation is "tool_claim" or "tool_result" && (request.RequestId is null || request.RequestId == Guid.Empty || request.ToolId.Length == 0)
             || request.Mode is null || request.Mode is not ("" or "chat" or "consult")
             || request.RootItemId == Guid.Empty
-            || request.RootItemId is { } scopeRoot && request.ItemId is { } sharedItem && scopeRoot != sharedItem
+            || !IsValidSharedItems(request, out _)
+            || request.ReplaceFromMessageId is { } replaced && (replaced == Guid.Empty || request.Operation != "send")
             || !IsValidTurnContext(request))
         {
             return Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Check the message and try again."));
@@ -124,6 +125,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
 
         var instructions = string.Empty;
         var title = string.Empty;
+        var sharedItems = new List<PetWorkerItem>();
         PetProfile? pet = null;
         if (request.Operation is "status" or "connect" or "disconnect" or "models")
         {
@@ -182,15 +184,27 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
                 return Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "A message and request identity are required."));
             }
 
-            if (request.ItemId is not null)
+            IsValidSharedItems(request, out var sharedIds);
+            foreach (var sharedId in sharedIds)
             {
-                var item = await dispatcher.QueryAsync<GetItem, Result<Item>>(new(new ItemId(request.ItemId.Value)), cancellationToken).ConfigureAwait(false);
+                var item = await dispatcher.QueryAsync<GetItem, Result<Item>>(new(new ItemId(sharedId)), cancellationToken).ConfigureAwait(false);
                 if (item.IsFailure || item.Value.WorkspaceId.Value != request.WorkspaceId)
                 {
                     return Result.Failure<PetConnectionResponse>(new("pets.not_found", "The shared item is unavailable."));
                 }
 
-                title = ItemProperties.ReadTitle(item.Value.Properties);
+                var itemLock = await dispatcher.QueryAsync<GetItemLock, Result<ItemLockState>>(new(new ItemId(sharedId)), cancellationToken).ConfigureAwait(false);
+                if (itemLock.IsFailure || itemLock.Value is { Locked: true, UnlockedUntil: null })
+                {
+                    return Result.Failure<PetConnectionResponse>(new("pets.not_found", "The shared item is unavailable."));
+                }
+
+                sharedItems.Add(new(sharedId.ToString(), ItemProperties.ReadTitle(item.Value.Properties)));
+            }
+
+            if (sharedItems.Count > 0)
+            {
+                title = sharedItems[0].Title;
             }
             else if (request.SharedText.Length > 0)
             {
@@ -228,10 +242,11 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
         outgoing.Headers.Add("X-Nix-Internal-Secret", secret);
         outgoing.Content = JsonContent.Create(new PetWorkerRequest(context.TenantId.Value.ToString(), context.PrincipalId.Value.ToString(),
             request.WorkspaceId?.ToString() ?? "", request.PetId?.ToString() ?? "", request.Operation,
-            request.RequestId?.ToString() ?? "", request.Text, instructions, request.ItemId?.ToString() ?? "", title, request.SharedText,
+            request.RequestId?.ToString() ?? "", request.Text, instructions, sharedItems.Count > 0 ? sharedItems[0].Id : request.ItemId?.ToString() ?? "", title, request.SharedText,
             request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
             request.Mode, after, request.Today, request.TimeZone, request.RootItemId is null ? request.WorkspaceMap : null, request.ToolLockedContent,
-            request.RootItemId?.ToString(), request.ReadOnly, provider == PetProviders.ChatGpt ? null : provider, apiKey), PetJsonContext.Default.PetWorkerRequest);
+            request.RootItemId?.ToString(), request.ReadOnly, sharedItems.Count > 0 ? sharedItems : null,
+            request.ReplaceFromMessageId?.ToString(), provider == PetProviders.ChatGpt ? null : provider, apiKey), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
@@ -257,6 +272,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
                         new("pets.too_many_watches", "Too many active watches. Close another tab and try again.")),
                     HttpStatusCode.Conflict => Result.Failure<PetConnectionResponse>(
                         new("pets.busy", "The companion is already handling another request.")),
+                    HttpStatusCode.BadRequest => Result.Failure<PetConnectionResponse>(
+                        new("pets.invalid_request", "Check the message and try again.")),
                     _ => Result.Failure<PetConnectionResponse>(
                         new("pets.unavailable", "The companion could not complete this request. Retry or check the selected provider in Settings > Pets.")),
                 };
@@ -288,6 +305,26 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             ApiLog.PetWorkerFailed(log, request.Operation, exception.GetType().Name, "pets.unavailable");
             return Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion is unreachable. Check the existing worker and try again."));
         }
+    }
+
+    /// <summary>The most items one send may attach.</summary>
+    public const int MaxSharedItems = 5;
+
+    /// <summary>The attached items: <c>ItemId</c> first, then <c>ItemIds</c>, de-duplicated. False when
+    /// there are more than <see cref="MaxSharedItems"/>, one is empty, or a note-scoped conversation
+    /// names anything but its own root.</summary>
+    private static bool IsValidSharedItems(PetRuntimeRequest request, out IReadOnlyList<Guid> ids)
+    {
+        var all = new List<Guid>();
+        if (request.ItemId is { } single)
+        {
+            all.Add(single);
+        }
+
+        all.AddRange(request.ItemIds ?? []);
+        all = all.Distinct().ToList();
+        ids = all;
+        return all.Count <= MaxSharedItems && all.TrueForAll(id => id != Guid.Empty && (request.RootItemId is null || id == request.RootItemId));
     }
 
     /// <summary>The most containers a conversation's first message may describe.</summary>
