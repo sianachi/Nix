@@ -435,7 +435,8 @@ describe('workspace management', () => {
 
     const role = await screen.findByRole('combobox', { name: 'Role for Legacy commenter' });
     expect(within(role).getByRole('option', { name: 'Commenter (legacy)' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Role' })).not.toContainHTML('commenter');
+    // The invite form renders from its own request, so it can arrive after the member list.
+    expect(await screen.findByRole('combobox', { name: 'Role' })).not.toContainHTML('commenter');
   });
 
   it('remounts workspace-owned form, notice and confirmation state on a switch', async () => {
