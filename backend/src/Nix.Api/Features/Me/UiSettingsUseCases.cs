@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Nix.Abstractions;
 using Nix.Domain.Primitives;
 using Nix.Messaging;
@@ -25,7 +26,7 @@ public static class UiSettingsValidation
 
     // A null value list means a boolean; otherwise the key takes one of the listed strings. The
     // enum values mirror the web stores that hold each setting today (keyboard-mode-store.ts,
-    // text-width-preference.ts, suggestion-preferences.ts); graph.openMode and
+    // text-width-preference.ts, suggestion-preferences.ts for viewSuggestions and choiceOrder); graph.openMode and
     // sites.publishingEnabled have no web store yet and follow the ticket.
     private static readonly FrozenDictionary<string, string[]?> Rules = new Dictionary<string, string[]?>(StringComparer.Ordinal)
     {
@@ -34,11 +35,15 @@ public static class UiSettingsValidation
         ["editor.pageGuides"] = null,
         ["editor.phraseSuggestions"] = null,
         ["editor.unlinkedMentionUnderline"] = null,
-        ["editor.viewSuggestionOrder"] = ["on", "off"],
+        ["editor.viewSuggestions"] = ["on", "off"],
+        ["editor.choiceOrder"] = ["on", "off"],
         ["dailyNotes.openTodayOnStart"] = null,
         ["sites.publishingEnabled"] = null,
         ["graph.openMode"] = ["page", "dialog", "beside", "tab"],
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    // The shape of a setting name such as "editor.pageGuides"; a null patch value may delete any name of this shape.
+    private static readonly Regex KeyShape = new(@"^[a-z][A-Za-z0-9]*(\.[A-Za-z][A-Za-z0-9]*)+$", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, TimeSpan.FromMilliseconds(50));
 
     /// <summary>Returns why a patch is refused, or <see langword="null"/> when it may be merged.</summary>
     public static NixError? Check(IReadOnlyDictionary<string, JsonElement>? patch)
@@ -63,14 +68,16 @@ public static class UiSettingsValidation
         {
             if (!Rules.TryGetValue(key, out var allowed))
             {
+                // A key retired from the allow-list can still be deleted, so a stored row never becomes unrepairable.
+                if (value.ValueKind == JsonValueKind.Null && KeyShape.IsMatch(key))
+                {
+                    continue;
+                }
+
                 return new NixError(InvalidCode, $"'{key}' is not a setting that can be saved.");
             }
 
-            var ok = value.ValueKind == JsonValueKind.Null
-                || (allowed is null
-                    ? value.ValueKind is JsonValueKind.True or JsonValueKind.False
-                    : value.ValueKind == JsonValueKind.String && allowed.Contains(value.GetString(), StringComparer.Ordinal));
-            if (!ok)
+            if (!IsValid(allowed, value))
             {
                 return new NixError(InvalidCode, $"'{key}' has a value of the wrong type or an unknown option.");
             }
@@ -79,10 +86,24 @@ public static class UiSettingsValidation
         return null;
     }
 
-    internal static UiSettingsResponse ToResponse(string? settingsJson, long revision) =>
-        new(settingsJson is null
-            ? new Dictionary<string, JsonElement>()
-            : JsonSerializer.Deserialize(settingsJson, MeJsonContext.Default.DictionaryStringJsonElement) ?? [], revision);
+    private static bool IsValid(string[]? allowed, JsonElement value) =>
+        value.ValueKind == JsonValueKind.Null
+        || (allowed is null
+            ? value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            : value.ValueKind == JsonValueKind.String && allowed.Contains(value.GetString(), StringComparer.Ordinal));
+
+    // Only stored keys whose value passes today's rules are returned, so a key or option retired
+    // from the allow-list can never make the client's strict parse of the response fail.
+    internal static UiSettingsResponse ToResponse(string? settingsJson, long revision)
+    {
+        var stored = settingsJson is null
+            ? []
+            : JsonSerializer.Deserialize(settingsJson, MeJsonContext.Default.DictionaryStringJsonElement) ?? [];
+        return new(
+            stored.Where(pair => pair.Value.ValueKind != JsonValueKind.Null && Rules.TryGetValue(pair.Key, out var allowed) && IsValid(allowed, pair.Value))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+            revision);
+    }
 }
 
 /// <summary>Reads only the session owner's settings.</summary>

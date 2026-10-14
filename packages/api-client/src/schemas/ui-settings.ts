@@ -9,7 +9,8 @@ const settingShapes = {
   'editor.pageGuides': z.boolean(),
   'editor.phraseSuggestions': z.boolean(),
   'editor.unlinkedMentionUnderline': z.boolean(),
-  'editor.viewSuggestionOrder': z.enum(['on', 'off']),
+  'editor.viewSuggestions': z.enum(['on', 'off']),
+  'editor.choiceOrder': z.enum(['on', 'off']),
   'dailyNotes.openTodayOnStart': z.boolean(),
   'sites.publishingEnabled': z.boolean(),
   'graph.openMode': z.enum(['page', 'dialog', 'beside', 'tab']),
@@ -27,7 +28,8 @@ export const uiSettingsPatchSchema = z.object({
   'editor.unlinkedMentionUnderline': settingShapes['editor.unlinkedMentionUnderline']
     .nullable()
     .optional(),
-  'editor.viewSuggestionOrder': settingShapes['editor.viewSuggestionOrder'].nullable().optional(),
+  'editor.viewSuggestions': settingShapes['editor.viewSuggestions'].nullable().optional(),
+  'editor.choiceOrder': settingShapes['editor.choiceOrder'].nullable().optional(),
   'dailyNotes.openTodayOnStart': settingShapes['dailyNotes.openTodayOnStart'].nullable().optional(),
   'sites.publishingEnabled': settingShapes['sites.publishingEnabled'].nullable().optional(),
   'graph.openMode': settingShapes['graph.openMode'].nullable().optional(),
