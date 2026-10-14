@@ -41,6 +41,17 @@ public sealed class SiteOperators(SiteOptions options, IPermissionResolver permi
             ? options.Operators.Contains(context.PrincipalId.Value)
             : await permissions.IsTenantAdministratorAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Whether the caller is listed in <c>Nix:Sites:Operators</c>. For instance-wide data no tenant
+    /// owns (backup status) the tenant-administrator fallback must not apply, so an empty list
+    /// means nobody.
+    /// </summary>
+    public ValueTask<bool> IsInstanceOperatorAsync()
+    {
+        var context = session.Current ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
+        return ValueTask.FromResult(options.Operators.Contains(context.PrincipalId.Value));
+    }
 }
 
 /// <summary>
