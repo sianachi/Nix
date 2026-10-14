@@ -1,6 +1,6 @@
 import type { BackupRun, BackupStep } from '@nix/api-client';
 import { Button, Tag, Text } from '@nix/ui';
-import { type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/states/status-panels';
 import { formatDateTime, formatRelativeTime } from '../lib/date-format';
@@ -11,6 +11,9 @@ const STEPS: readonly { readonly step: BackupStep; readonly label: string }[] = 
   { step: 'local', label: 'Local' },
   { step: 'offsite', label: 'Off-site' },
 ];
+
+/** How often an open tab re-reads the clock, so a step that goes overdue is shown without a reload. */
+const CLOCK_TICK_MS = 60_000;
 
 function when(run: BackupRun): string {
   const at = new Date(run.finishedAt);
@@ -24,7 +27,15 @@ function when(run: BackupRun): string {
  */
 export function BackupsSection(): ReactElement {
   const { status, runs, error, reload } = useBackupRuns();
-  const now = new Date();
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, CLOCK_TICK_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
 
   return (
     <section aria-labelledby="backups-heading" className="flex min-w-0 max-w-4xl flex-col gap-4">
@@ -64,6 +75,9 @@ export function BackupsSection(): ReactElement {
       {status === 'ready' && runs.length > 0
         ? STEPS.map(({ step, label }) => {
             const facts = backupStepFacts(runs, step, now);
+            const never = facts.runCount === 0;
+            // Off-site may be unconfigured, so no rows is "never", not a fault. Local must always run.
+            const unconfigured = never && step === 'offsite';
             return (
               <div
                 key={step}
@@ -75,7 +89,9 @@ export function BackupsSection(): ReactElement {
                   <Text variant="h5" as="h3">
                     {label}
                   </Text>
-                  {facts.stale ? (
+                  {unconfigured ? (
+                    <Tag tone="muted">Never</Tag>
+                  ) : facts.stale ? (
                     <Tag tone="accent">Overdue</Tag>
                   ) : (
                     <Tag tone="muted">On schedule</Tag>
@@ -86,9 +102,11 @@ export function BackupsSection(): ReactElement {
                     Last success
                   </Text>
                   <Text as="dd" variant="bodySmall">
-                    {facts.lastSuccess === null
-                      ? `None in the last ${String(runs.length)} runs`
-                      : when(facts.lastSuccess)}
+                    {never
+                      ? 'Never'
+                      : facts.lastSuccess === null
+                        ? `None in the last ${String(facts.runCount)} ${facts.runCount === 1 ? 'run' : 'runs'}`
+                        : when(facts.lastSuccess)}
                   </Text>
                   <Text as="dt" variant="note" tone="muted">
                     Last error
