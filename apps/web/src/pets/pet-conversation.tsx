@@ -198,7 +198,7 @@ export function Conversation({
   // The draft lives in a small in-memory store rather than here so it survives the
   // conversation moving between the floating panel and its page.
   const [draft, setDraft] = usePetDraft(workspaceId, pet.id, noteScope?.rootItemId);
-  // The notes attached to the next message, all sent with it (see `contextFields`).
+  // The notes attached to the conversation: all go with every turn until removed.
   const [contexts, setContexts] = useState<readonly SharedContext[]>([]);
   const [model, setModel] = useState(() =>
     readConversationModel(workspaceId, pet.id, pet.provider),
@@ -498,6 +498,7 @@ export function Conversation({
         preparing.current = false;
       }
     }
+    setEditing(null);
     const ok = await send({
       text: draft,
       model,
@@ -507,7 +508,6 @@ export function Conversation({
     });
     if (ok) {
       setDraft('');
-      setContexts([]);
     }
   }
 
@@ -516,6 +516,7 @@ export function Conversation({
    * "Regenerate" and an edited last message; each is a new request, unlike a failed `send`'s
    * retry, which resends the exact same one. */
   function resendTurn(text: string, replaceFromMessageId: string) {
+    setEditing(null);
     regenerateRequestId();
     return send({
       text,
@@ -551,7 +552,15 @@ export function Conversation({
   const loadErrorMessage = `Lost connection to ${pet.name}. Retrying…`;
 
   function onComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    if (slashOptions.length > 0) {
+    // An IME's confirming Enter or arrow is the IME's, not the menu's.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const composing = event.nativeEvent.isComposing || event.keyCode === 229;
+    if (slashOptions.length > 0 && !composing) {
+      if (event.key === 'Tab') {
+        // Hide the menu before focus moves, so Tab leaves the field instead of entering the list.
+        setSlashDismissed(true);
+        return;
+      }
       if (event.key === 'Escape') {
         // The menu is the innermost layer, so the conversation behind it stays open.
         event.preventDefault();
@@ -904,6 +913,7 @@ export function Conversation({
                           <PetMessageEditor
                             text={edit.text}
                             enterToSend={!touchLikeComposer}
+                            busy={running || busy}
                             onChange={(text) => {
                               setEditing({ id: message.id, text });
                             }}
@@ -1074,6 +1084,9 @@ export function Conversation({
                   setDraft(event.currentTarget.value);
                   regenerateRequestId();
                 }}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={slashOptions.length > 0}
                 aria-controls={slashOptions.length > 0 ? slashListbox.id : undefined}
                 aria-activedescendant={
                   slashOptions.length > 0 ? slashListbox.activeOptionId : undefined
@@ -1274,12 +1287,15 @@ function PetMessageRow({
 function PetMessageEditor({
   text,
   enterToSend,
+  busy,
   onChange,
   onSend,
   onCancel,
 }: {
   readonly text: string;
   readonly enterToSend: boolean;
+  /** A turn is running: sending is off until it ends. */
+  readonly busy: boolean;
   readonly onChange: (text: string) => void;
   readonly onSend: () => void;
   readonly onCancel: () => void;
@@ -1308,7 +1324,7 @@ function PetMessageEditor({
           }
           // eslint-disable-next-line @typescript-eslint/no-deprecated
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-          if (event.key === 'Enter' && enterToSend && !event.shiftKey && text.trim()) {
+          if (event.key === 'Enter' && enterToSend && !event.shiftKey && text.trim() && !busy) {
             event.preventDefault();
             onSend();
           }
@@ -1318,7 +1334,7 @@ function PetMessageEditor({
         <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="secondary" disabled={!text.trim()} onClick={onSend}>
+        <Button variant="secondary" disabled={!text.trim() || busy} onClick={onSend}>
           Resend
         </Button>
       </div>

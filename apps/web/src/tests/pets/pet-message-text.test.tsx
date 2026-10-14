@@ -167,14 +167,17 @@ describe('pet result links', () => {
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();
   });
-  it('highlights fenced code, keeps its markup inert and copies the raw code', async () => {
+  it('shows code plainly, then highlights it, keeps its markup inert and copies the raw code', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     const code = 'const a = "<img src=x onerror=alert(1)>";';
     const { container } = render(
       <PetMessageText workspaceId={workspace} text={`\`\`\`js\n${code}\n\`\`\``} />,
     );
-    expect(container.querySelector('.hljs-keyword')).toHaveTextContent('const');
+    expect(container.querySelector('code')).toHaveTextContent(code);
+    await waitFor(() => {
+      expect(container.querySelector('.hljs-keyword')).toHaveTextContent('const');
+    });
     expect(container.querySelector('img')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
     expect(writeText).toHaveBeenCalledWith(code);
@@ -182,4 +185,31 @@ describe('pet result links', () => {
       expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
     });
   });
+
+  it('says so when the clipboard refuses, then goes back to Copy code', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<PetMessageText workspaceId={workspace} text={'```js\nconst a = 1;\n```'} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
+    expect(await screen.findByRole('button', { name: 'Copy failed' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Copy code' }, { timeout: 3000 }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(['constructor', '__proto__'])(
+    'renders a "%s" fence as escaped text',
+    async (language) => {
+      const { container } = render(
+        <PetMessageText
+          workspaceId={workspace}
+          text={`\`\`\`${language}\nconst a = "<b>";\n\`\`\``}
+        />,
+      );
+      await waitFor(() => {
+        expect(container.querySelector('code')?.innerHTML).toBe('const a = "&lt;b&gt;";');
+      });
+      expect(container.querySelector('.hljs-keyword')).toBeNull();
+    },
+  );
 });
