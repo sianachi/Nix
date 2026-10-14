@@ -109,13 +109,15 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
     private async Task<Result<PetConnectionResponse>> ExecuteCoreAsync(PetRuntimeRequest request, long after, CancellationToken cancellationToken)
     {
         var context = session.Current ?? throw new InvalidOperationException("A session is required.");
-        if (request.Operation is not ("status" or "connect" or "disconnect" or "models" or "read" or "watch" or "send" or "interrupt" or "reset" or "tool_claim" or "tool_result" or "history" or "read_history" or "delete_history")
+        if (request.Operation is not ("status" or "connect" or "disconnect" or "models" or "read" or "watch" or "send" or "interrupt" or "reset" or "tool_claim" or "tool_result" or "history" or "read_history" or "delete_history" or "rename" or "resume_history")
             || request.Text is null || request.SharedText is null || request.Text.Length > 8000 || request.SharedText.Length > 16000
             || request.Model is null || request.Model.Length > 160 || request.ToolId is null || request.ToolId.Length > 200
             || request.ToolResult is null || request.ToolResult.Length > 32000
             || request.Operation is "tool_claim" or "tool_result" && (request.RequestId is null || request.RequestId == Guid.Empty || request.ToolId.Length == 0)
             || request.Mode is null || request.Mode is not ("" or "chat" or "consult")
             || request.RootItemId == Guid.Empty
+            || request.Operation == "rename" && !IsValidTitle(request.Text)
+            || request.Operation == "resume_history" && (request.HistoryId is null || request.HistoryId == Guid.Empty)
             || !IsValidSharedItems(request, out _)
             || request.ReplaceFromMessageId is { } replaced && (replaced == Guid.Empty || request.Operation != "send")
             || !IsValidTurnContext(request))
@@ -333,6 +335,14 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
 
     /// <summary>The most containers a conversation's first message may describe.</summary>
     internal const int MaxWorkspaceMapEntries = 40;
+
+    /// <summary>A conversation title: 1 to 120 characters once trimmed, no control characters. The worker
+    /// checks the same bounds.</summary>
+    private static bool IsValidTitle(string text)
+    {
+        var title = text.Trim();
+        return title.Length is > 0 and <= 120 && !title.Any(char.IsControl);
+    }
 
     /// <summary>Bounds the date, zone and workspace map a request carries. The map is accepted on a
     /// send only: no other operation starts a turn, so on any other it would be dead weight.</summary>
