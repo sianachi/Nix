@@ -1,6 +1,6 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PetMessageText } from '../../pets/pet-message-text';
 const workspace = '11111111-1111-4111-8111-111111111111';
 describe('pet result links', () => {
@@ -166,5 +166,20 @@ describe('pet result links', () => {
     expect(screen.getByText(/### Next steps/)).toHaveTextContent('- **List**');
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();
+  });
+  it('highlights fenced code, keeps its markup inert and copies the raw code', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const code = 'const a = "<img src=x onerror=alert(1)>";';
+    const { container } = render(
+      <PetMessageText workspaceId={workspace} text={`\`\`\`js\n${code}\n\`\`\``} />,
+    );
+    expect(container.querySelector('.hljs-keyword')).toHaveTextContent('const');
+    expect(container.querySelector('img')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
+    expect(writeText).toHaveBeenCalledWith(code);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    });
   });
 });

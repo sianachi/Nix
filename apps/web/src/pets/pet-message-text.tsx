@@ -1,8 +1,10 @@
 import { nixSchema } from '@nix/editor-schema';
 import { markdownToDocument } from '@nix/markdown';
-import { Text } from '@nix/ui';
+import { highlightCode } from '@nix/site-render/highlight';
+import { Button, Icon, Text } from '@nix/ui';
 import type { Node as DocumentNode } from '@tiptap/pm/model';
-import { Fragment, type ReactElement, type ReactNode } from 'react';
+import { Check, Copy } from 'lucide-react';
+import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 function workspaceHref(href: string, workspaceId: string): boolean {
@@ -30,6 +32,48 @@ function plainText(text: string, workspaceId: string): ReactNode {
       {parts}
       {text.slice(start)}
     </>
+  );
+}
+
+/** Highlighted fenced code with a copy button. The HTML is highlight.js output, which escapes the
+ * code and emits only class spans; the classes take their colours from chart-series tokens. */
+function CodeBlock({
+  code,
+  language,
+}: {
+  readonly code: string;
+  readonly language: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => {
+      setCopied(false);
+    }, 1500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [copied]);
+  return (
+    <div className="relative">
+      <pre className="max-w-full overflow-x-auto rounded-sm border border-divider bg-surface p-3 pr-12 [&_.hljs-comment]:text-muted [&_.hljs-keyword]:text-series-4 [&_.hljs-literal]:text-series-4 [&_.hljs-number]:text-series-5 [&_.hljs-string]:text-series-3 [&_.hljs-title]:text-accent [&_.hljs-type]:text-series-1 [&_.hljs-built_in]:text-series-1">
+        <Text as="span" className="font-mono">
+          <code dangerouslySetInnerHTML={{ __html: highlightCode(code, language) }} />
+        </Text>
+      </pre>
+      <Button
+        variant="icon"
+        className="absolute right-1 top-1"
+        aria-label={copied ? 'Copied' : 'Copy code'}
+        onClick={() => {
+          void navigator.clipboard.writeText(code).then(() => {
+            setCopied(true);
+          });
+        }}
+      >
+        <Icon icon={copied ? Check : Copy} size="sm" />
+      </Button>
+    </div>
   );
 }
 
@@ -123,11 +167,10 @@ function messageNode(
       );
     case 'codeBlock':
       return (
-        <pre className="max-w-full overflow-x-auto rounded-sm border border-divider bg-surface p-3">
-          <Text as="span" className="font-mono">
-            <code>{node.textContent}</code>
-          </Text>
-        </pre>
+        <CodeBlock
+          code={node.textContent}
+          language={typeof node.attrs.language === 'string' ? node.attrs.language : null}
+        />
       );
     case 'hardBreak':
       return <br />;
