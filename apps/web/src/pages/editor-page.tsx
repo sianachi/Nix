@@ -329,7 +329,7 @@ function PaneContents({
   canManageTemplates,
   canApplyTemplates,
 }: PaneContentsProps): ReactNode {
-  const { openPreview, openBeside } = useOpenItem();
+  const { openPreview, openPinned, openBeside } = useOpenItem();
   const tabPinned = useTabStore((state) => state.tabPinned);
   const narrow = useNarrowViewport();
   const orientation = useTabOrientationStore((state) => state.orientation);
@@ -400,6 +400,7 @@ function PaneContents({
               onOpenBeside={(target) => {
                 openBeside(target);
               }}
+              onOpenPinned={openPinned}
               onClose={onClose}
               onCommit={() => {
                 tabPinned(pane.index, item.id);
@@ -487,6 +488,9 @@ interface OpenItemProps {
   /** Opens an item in another pane, for views set to open beside. */
   readonly onOpenBeside?: ((itemId: string) => void) | undefined;
 
+  /** Opens an item as a pinned tab, for views set to open in a new tab. */
+  readonly onOpenPinned?: ((itemId: string) => void) | undefined;
+
   /** Closes this pane, or absent when it is the only one and there is nothing to close to. */
   readonly onClose: (() => void) | undefined;
 
@@ -505,6 +509,7 @@ export function OpenItem({
   canApplyTemplates,
   onOpen,
   onOpenBeside,
+  onOpenPinned,
   onClose,
   onCommit,
   onNavigateAway,
@@ -1049,6 +1054,7 @@ export function OpenItem({
                     view={showChildren ? null : active}
                     onOpen={onOpen}
                     onOpenBeside={onOpenBeside}
+                    onOpenPinned={onOpenPinned}
                   />
                 ) : (
                   <CompanionViewPair
@@ -1067,6 +1073,7 @@ export function OpenItem({
                         view={active}
                         onOpen={onOpen}
                         onOpenBeside={onOpenBeside}
+                        onOpenPinned={onOpenPinned}
                       />
                     }
                     companion={
@@ -1079,6 +1086,7 @@ export function OpenItem({
                           }
                           onOpen={onOpen}
                           onOpenBeside={onOpenBeside}
+                          onOpenPinned={onOpenPinned}
                         />
                       </PaneProvider>
                     }

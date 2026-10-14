@@ -5446,6 +5446,42 @@
       "viewsScope": "parity"
     },
     {
+      "id": "views-accepts-the-tab-open-mode",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "open": "tab"
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
       "id": "views-refuses-an-invalid-layout",
       "schema": {
         "properties": [],
