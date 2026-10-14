@@ -84,3 +84,58 @@ it('names what dragging changes on a board, before anything is dragged', () => {
   );
   expect(screen.getByText('Dropping changes the grouping property, not the order.')).toBeVisible();
 });
+
+it('selects a board card by its box, which sits outside the drag handle', async () => {
+  const user = userEvent.setup();
+  renderAt(
+    <ContainerView
+      container={aContainer({
+        children: [first, second],
+        schema: {
+          properties: [
+            {
+              key: 'status',
+              label: 'Status',
+              type: 'select',
+              options: ['A', 'B'],
+              required: false,
+            },
+          ],
+          declared: [],
+          inherit: true,
+        },
+      })}
+      view={aView({ kind: 'board', groupBy: 'status', groupOrder: ['A', 'B'] })}
+      onOpen={vi.fn()}
+    />,
+  );
+  const box = screen.getByRole('checkbox', { name: 'Select First' });
+  expect(box.closest('[draggable]')).toBeNull();
+  await user.click(box);
+  const bar = screen.getByRole('toolbar', { name: 'Selected items' });
+  expect(within(bar).getByText('1 selected')).toBeVisible();
+});
+
+it('selects a checklist line by its box, apart from the box that ticks it', async () => {
+  const user = userEvent.setup();
+  renderAt(
+    <ContainerView
+      container={aContainer({
+        children: [first, second],
+        schema: {
+          properties: [
+            { key: 'done', label: 'Done', type: 'checkbox', options: [], required: false },
+          ],
+          declared: [],
+          inherit: true,
+        },
+      })}
+      view={aView({ kind: 'checklist' })}
+      onOpen={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole('checkbox', { name: 'Select First' }));
+  const bar = screen.getByRole('toolbar', { name: 'Selected items' });
+  expect(within(bar).getByText('1 selected')).toBeVisible();
+  expect(screen.getByRole('checkbox', { name: 'First' })).not.toBeChecked();
+});
