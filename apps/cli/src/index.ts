@@ -2433,15 +2433,26 @@ export function buildProgram(): Command {
     .description('Run a stress scenario and print a machine-readable report.')
     .requiredOption(
       '--scenario <name>',
-      'the scenario to run (read-storm, list-storm, chart-storm, search-storm, query-storm)',
+      'the scenario to run (read-storm, list-storm, chart-storm, search-storm, query-storm, ' +
+        'collab-edit)',
     )
-    .requiredOption('--iterations <n>', 'how many reads to make', (value) =>
+    .option('--iterations <n>', 'the storms: how many reads to make', (value) =>
       Number.parseInt(value, 10),
+    )
+    .option('--create', 'collab-edit: create a fresh note in --workspace to edit', false)
+    .option('--clients <n>', 'collab-edit: concurrent Yjs clients', (value) =>
+      Number.parseInt(value, 10),
+    )
+    .option('--edits <n>', 'collab-edit: marker edits per client', (value) =>
+      Number.parseInt(value, 10),
+    )
+    .option('--interval-ms <n>', "collab-edit: pause between a client's edits", (value) =>
+      Number(value),
     )
     .option(
       '--item <id>',
       'read-storm/list-storm/chart-storm/query-storm: the item to read (a container for all but ' +
-        'read-storm)',
+        'read-storm); collab-edit: the note to edit (or --create with --workspace)',
     )
     .option('--workspace <id>', 'list-storm: the workspace the container lives in')
     .option('--page-size <n>', 'list-storm: how many children to ask for per page', (value) =>
@@ -2461,6 +2472,13 @@ export function buildProgram(): Command {
           {
             scenario: options.scenario,
             iterations: options.iterations,
+            collab: {
+              docId: options.item,
+              create: options.create === true,
+              clients: options.clients ?? 2,
+              edits: options.edits ?? 50,
+              intervalMs: options.intervalMs ?? 20,
+            },
             itemId: options.item,
             workspaceId: options.workspace,
             pageSize: options.pageSize,
@@ -2997,7 +3015,11 @@ interface SeedCliOptions {
 
 interface RunCliOptions {
   readonly scenario: string;
-  readonly iterations: number;
+  readonly iterations?: number;
+  readonly create?: boolean;
+  readonly clients?: number;
+  readonly edits?: number;
+  readonly intervalMs?: number;
   readonly item?: string;
   readonly workspace?: string;
   readonly pageSize?: number;
