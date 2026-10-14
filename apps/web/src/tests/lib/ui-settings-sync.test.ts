@@ -75,7 +75,7 @@ describe('synced UI settings', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
-  it('does not upload another account\'s leftovers, but still applies server values', async () => {
+  it("does not upload another account's leftovers, but still applies server values", async () => {
     localStorage.setItem(OWNER_KEY, SOMEONE_ELSE);
     useKeyboardModeStore.setState({ mode: 'emacs' });
     useTextWidthPreference.setState({ width: 'full' });
