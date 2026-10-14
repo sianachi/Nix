@@ -1,9 +1,8 @@
 import { nixSchema } from '@nix/editor-schema';
 import { markdownToDocument } from '@nix/markdown';
-import { highlightCode } from '@nix/site-render/highlight';
 import { Button, Icon, Text } from '@nix/ui';
 import type { Node as DocumentNode } from '@tiptap/pm/model';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, X } from 'lucide-react';
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
@@ -35,8 +34,10 @@ function plainText(text: string, workspaceId: string): ReactNode {
   );
 }
 
-/** Highlighted fenced code with a copy button. The HTML is highlight.js output, which escapes the
- * code and emits only class spans; the classes take their colours from chart-series tokens. */
+/** Fenced code with a copy button, highlighted once the highlighter has loaded. The HTML is
+ * highlight.js output, which escapes the code and emits only class spans; their colours are text
+ * roles (accent and muted), so they keep the contrast of the code block's background. The
+ * highlighter is a separate chunk, so the code shows as plain text until it arrives. */
 function CodeBlock({
   code,
   language,
@@ -44,34 +45,53 @@ function CodeBlock({
   readonly code: string;
   readonly language: string | null;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [html, setHtml] = useState<{ readonly code: string; readonly html: string } | null>(null);
   useEffect(() => {
-    if (!copied) return;
+    if (copy === 'idle') return;
     const timer = setTimeout(() => {
-      setCopied(false);
+      setCopy('idle');
     }, 1500);
     return () => {
       clearTimeout(timer);
     };
-  }, [copied]);
+  }, [copy]);
+  useEffect(() => {
+    let live = true;
+    void import('@nix/site-render/highlight').then((module) => {
+      if (live) setHtml({ code, html: module.highlightCode(code, language) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [code, language]);
   return (
     <div className="relative">
-      <pre className="max-w-full overflow-x-auto rounded-sm border border-divider bg-surface p-3 pr-12 [&_.hljs-comment]:text-muted [&_.hljs-keyword]:text-series-4 [&_.hljs-literal]:text-series-4 [&_.hljs-number]:text-series-5 [&_.hljs-string]:text-series-3 [&_.hljs-title]:text-accent [&_.hljs-type]:text-series-1 [&_.hljs-built_in]:text-series-1">
+      <pre className="max-w-full overflow-x-auto rounded-sm border border-divider bg-surface p-3 pr-12 [&_.hljs-built_in]:text-accent-text [&_.hljs-comment]:text-muted [&_.hljs-keyword]:text-accent-text [&_.hljs-literal]:text-accent-text [&_.hljs-title]:text-accent-text [&_.hljs-type]:text-accent-text">
         <Text as="span" className="font-mono">
-          <code dangerouslySetInnerHTML={{ __html: highlightCode(code, language) }} />
+          {html?.code === code ? (
+            <code dangerouslySetInnerHTML={{ __html: html.html }} />
+          ) : (
+            <code>{code}</code>
+          )}
         </Text>
       </pre>
       <Button
         variant="icon"
         className="absolute right-1 top-1"
-        aria-label={copied ? 'Copied' : 'Copy code'}
+        aria-label={copy === 'copied' ? 'Copied' : copy === 'failed' ? 'Copy failed' : 'Copy code'}
         onClick={() => {
-          void navigator.clipboard.writeText(code).then(() => {
-            setCopied(true);
-          });
+          navigator.clipboard.writeText(code).then(
+            () => {
+              setCopy('copied');
+            },
+            () => {
+              setCopy('failed');
+            },
+          );
         }}
       >
-        <Icon icon={copied ? Check : Copy} size="sm" />
+        <Icon icon={copy === 'copied' ? Check : copy === 'failed' ? X : Copy} size="sm" />
       </Button>
     </div>
   );
