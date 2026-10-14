@@ -4535,6 +4535,9 @@ export interface components {
       rootItemId?: null | string;
       /** @default false */
       readOnly: boolean;
+      itemIds?: null | string[];
+      /** Format: uuid */
+      replaceFromMessageId?: null | string;
     };
     PetSettings: {
       enabled: boolean;

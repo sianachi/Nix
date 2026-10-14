@@ -80,8 +80,9 @@ const ALIASES: Readonly<Record<string, string>> = {
 };
 
 export function highlightCode(code: string, language: string | null): string {
-  const name =
-    language === null ? null : (ALIASES[language.toLowerCase()] ?? language.toLowerCase());
+  const key = language?.toLowerCase() ?? null;
+  // Own keys only: the fence info string is untrusted, and `constructor` would find Object's.
+  const name = key === null ? null : Object.hasOwn(ALIASES, key) ? (ALIASES[key] ?? key) : key;
   if (name === null || hljs.getLanguage(name) === undefined) {
     return escapeHtml(code);
   }
