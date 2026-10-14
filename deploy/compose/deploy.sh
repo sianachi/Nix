@@ -87,6 +87,9 @@ done
 "${compose[@]}" stop nix-web ${sites_services[@]+"${sites_services[@]}"} nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-collab nix-api
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres rabbitmq nix-versitygw
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-storage-init
+# The BackupRuns migration grants to the nix_backup role, which migrations cannot create. Create
+# it here, idempotently, with the attributes seed.sql gives it; never run deploy/seed/seed.sql on production (it resets role passwords).
+"${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c "DO \$\$BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nix_backup') THEN CREATE ROLE nix_backup NOLOGIN NOINHERIT; END IF; ALTER ROLE nix_backup NOLOGIN NOINHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE; END\$\$"
 "${compose[@]}" run --rm --no-deps nix-migrate
 if [ "$bootstrap_identity" = true ]; then
   "${compose[@]}" --profile bootstrap run --rm --no-deps nix-identity-bootstrap

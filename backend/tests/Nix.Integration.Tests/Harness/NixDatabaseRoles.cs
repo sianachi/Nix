@@ -36,6 +36,9 @@ internal static class NixDatabaseRoles
     /// </remarks>
     public const string Collaboration = "nix_collab";
 
+    /// <summary>The nightly backup writer: cannot log in, may only execute the one recording function.</summary>
+    public const string Backup = "nix_backup";
+
     /// <summary>Password for both roles inside the disposable test container.</summary>
     public const string Password = "nix-test-password";
 
@@ -58,12 +61,16 @@ internal static class NixDatabaseRoles
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{Collaboration}') THEN
                 CREATE ROLE {Collaboration} LOGIN PASSWORD '{Password}';
             END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{Backup}') THEN
+                CREATE ROLE {Backup} NOLOGIN NOINHERIT;
+            END IF;
         END
         $$;
 
         ALTER ROLE {Migrator} WITH BYPASSRLS;
         ALTER ROLE {Application} WITH NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
         ALTER ROLE {Collaboration} WITH NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        ALTER ROLE {Backup} WITH NOLOGIN NOINHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
         DO $$
         BEGIN

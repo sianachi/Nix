@@ -137,6 +137,12 @@ export interface StubOptions {
   readonly siteFeature?: boolean;
   /** The remote MCP endpoint `/me` advertises, or null. */
   readonly mcpUrl?: string | null;
+  /** Whether `/me` says the caller is a deployment operator (may read backup status). */
+  readonly operator?: boolean;
+  /** The runs `GET /api/v1/admin/backups` returns, newest first. */
+  readonly backupRuns?: readonly Record<string, unknown>[];
+  /** Makes the backups read fail. */
+  readonly backupsFail?: boolean;
   readonly displayName?: string;
   readonly email?: string | null;
   readonly items?: readonly StubItem[];
@@ -572,6 +578,9 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     isTenantAdministrator = false,
     siteFeature = false,
     mcpUrl = null,
+    operator = false,
+    backupRuns = [],
+    backupsFail = false,
     displayName = 'Test Person',
     email = 'test@example.test',
     items = [],
@@ -1688,6 +1697,12 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         );
       }
 
+      if (url.includes('/api/v1/admin/backups') && method === 'GET') {
+        return Promise.resolve(
+          backupsFail ? json({ code: 'admin.operator_required' }, 403) : json({ runs: backupRuns }),
+        );
+      }
+
       if (url.includes('/api/v1/me')) {
         return Promise.resolve(
           profileFails
@@ -1698,7 +1713,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 displayName,
                 email,
                 isTenantAdministrator,
-                features: { sites: siteFeature, mcpUrl },
+                features: { sites: siteFeature, mcpUrl, operator },
               }),
         );
       }

@@ -13,15 +13,41 @@
 # so a nightly backup never overlaps a release. Any failure stops the later steps, logs the
 # failed step to the journal and exits nonzero; local copies are only deleted after a
 # successful push and retention run.
+#
+# Each run also records a local and an off-host row in the database (backup_runs, shown to
+# operators in Settings). Rows carry only timestamps, a size, a snapshot id and a fixed phrase
+# written here plus an exit code; tool output is never stored. Recording is best effort and
+# never changes the result of the backup.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 keep_days=7
 step=configuration
 
 log() { printf 'nightly: %s\n' "$*" >&2; }
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+local_started=$(now)
+offsite_started=$local_started
+
+# record <local|offsite> <succeeded|failed> <started> <snapshot id or empty> <bytes or empty> <error or empty>
+# psql gets every value through -v and quotes it with :'name'; nothing is spliced into the SQL.
+record() {
+  local pg
+  pg=$(docker ps -q --filter label=com.docker.compose.project=nix \
+    --filter label=com.docker.compose.service=postgres 2>/dev/null) || pg=
+  if [[ -z $pg || $pg == *$'\n'* ]]; then log 'backup status not recorded: no single postgres container'; return 0; fi
+  printf '%s\n' "SET ROLE nix_backup; SELECT nix_record_backup_run(:'b_started', :'b_finished', :'b_step', :'b_status', :'b_snapshot', NULLIF(:'b_bytes', '')::bigint, :'b_error');" \
+    | docker exec -i "$pg" psql -X -q -At -v ON_ERROR_STOP=1 -U postgres -d nix \
+      -v "b_started=$3" -v "b_finished=$(now)" -v "b_step=$1" -v "b_status=$2" \
+      -v "b_snapshot=$4" -v "b_bytes=$5" -v "b_error=$6" >/dev/null \
+    || log "backup status not recorded: $1 $2"
+}
 finish() {
-  local status=$?
-  if [[ $status -ne 0 ]]; then log "FAILED during $step (exit $status); later steps did not run"; fi
+  local status=$? failed_step=local failed_started=$local_started
+  if [[ $status -ne 0 ]]; then
+    log "FAILED during $step (exit $status); later steps did not run"
+    case $step in 'off-host push' | 'off-host retention') failed_step=offsite failed_started=$offsite_started ;; esac
+    record "$failed_step" failed "$failed_started" '' '' "$step failed (exit $status)"
+  fi
 }
 trap finish EXIT
 die() { log "$*"; exit 1; }
@@ -57,18 +83,29 @@ nightly_dirs() {
   find "$NIX_BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'nightly-*' 2>/dev/null | sort
 }
 step='local backup'
+local_started=$(now)
 before=$(nightly_dirs)
 log 'taking the local backup'
 bash "$here/backup.sh" --nightly
 dir=$(comm -13 <(printf '%s\n' "$before") <(nightly_dirs))
 [[ -n $dir && $dir != *$'\n'* ]] || die 'could not identify the new nightly backup directory'
+# shortcut: disk usage in KiB, not an exact byte count (portable du); upgrade if exact sizes matter.
+kb=$(du -sk "$dir" 2>/dev/null | cut -f1) || kb= # sizing never fails the nightly
+bytes=$(( ${kb:-0} * 1024 ))
+record local succeeded "$local_started" '' "$bytes" ''
 
 step='off-host push'
+offsite_started=$(now)
 log "pushing $dir off-host"
-bash "$here/offsite.sh" push "$dir" --tag kind=nightly
+push_out=$(bash "$here/offsite.sh" push "$dir" --tag kind=nightly) && push_status=0 || push_status=$?
+printf '%s\n' "$push_out"
+[[ $push_status -eq 0 ]] || exit "$push_status"
+snapshot=$(sed -n 's/^offsite: snapshot //p' <<< "$push_out")
+[[ $snapshot =~ ^[0-9a-f]{8,64}$ ]] || snapshot=
 
 step='off-host retention'
 bash "$here/offsite.sh" forget
+record offsite succeeded "$offsite_started" "$snapshot" "$bytes" ''
 
 step='local retention'
 # Names carry their UTC creation time, so they compare as strings against the cutoff.

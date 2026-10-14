@@ -13,6 +13,13 @@
 # deploy.sh with NIX_BACKUP_OFFSITE=true renders OFFSITE_REQUIRED so a missing secret fails the Job.
 # Initialize the repository once with deploy/compose/offsite.sh init; the Job never creates one.
 # Test a restore - an untested backup is a hypothesis.
+#
+# Status: Kubernetes runs init containers in order and a regular container last, so the pod is dump
+# -> offsite (both init, both always exit 0) -> record (the main container). Each init container
+# leaves key=value lines in the shared /status volume; record reads them with sed (never sourced)
+# and calls nix_record_backup_run as the nix_backup role, then fails the Job if either step failed.
+# The error column only ever holds a fixed phrase written in these scripts plus an exit code; tool
+# output stays in `kubectl logs`.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata: { name: nix-backup, namespace: nix }
@@ -49,8 +56,19 @@ spec:
               command: ["/bin/bash", "-ec"]
               args:
                 - |
+                  started="$(date -u +%FT%TZ)"
                   day="$(date +%F)"
                   out="/backup/$day"
+                  # Always exit 0 so the later steps run; the outcome is left in /status/local.
+                  write_status() {
+                    if [ "$1" -eq 0 ]; then
+                      kb="$(du -sk "$out" | cut -f1)"
+                      printf 'started_at=%s\nfinished_at=%s\nstatus=succeeded\nbytes=%s\nerror=\n' "$started" "$(date -u +%FT%TZ)" "$((kb * 1024))"
+                    else
+                      printf 'started_at=%s\nfinished_at=%s\nstatus=failed\nbytes=\nerror=local dump failed (exit %s)\n' "$started" "$(date -u +%FT%TZ)" "$1"
+                    fi > /status/local
+                  }
+                  trap 'write_status "$?"; exit 0' EXIT
                   mkdir -p "$out.partial"
                   pg_dumpall --roles-only > "$out.partial/roles.sql"
                   pg_dump -Fc -d nix > "$out.partial/nix.dump"
@@ -65,17 +83,7 @@ spec:
               volumeMounts:
                 - { name: backup, mountPath: /backup }
                 - { name: objects, mountPath: /objects, readOnly: true }
-          volumes:
-            - name: restic-scratch
-              emptyDir: { sizeLimit: 256Mi }
-            - name: restic-cache
-              emptyDir: { sizeLimit: 512Mi }
-            - name: backup
-              persistentVolumeClaim: { claimName: nix-backup }
-            # The versitygw StatefulSet's volume (objects/ and iam/); same node, so RWO allows it.
-            - name: objects
-              persistentVolumeClaim: { claimName: data-nix-versitygw-0, readOnly: true }
-          containers:
+                - { name: status, mountPath: /status }
             - name: offsite
               image: restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510
               # RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION.
@@ -86,34 +94,41 @@ spec:
               command: ["/bin/sh", "-ec"]
               args:
                 - |
+                  [ "$(sed -n 's/^status=//p' /status/local)" = succeeded ] || { echo 'offsite: skipped, the local dump failed'; exit 0; }
+                  started="$(date -u +%FT%TZ)"
+                  bytes="$(sed -n 's/^bytes=//p' /status/local)"
+                  fail() {
+                    echo "offsite: FAILED - $*" >&2
+                    printf 'started_at=%s\nfinished_at=%s\nstatus=failed\nsnapshot_id=\nbytes=\nerror=%s\n' "$started" "$(date -u +%FT%TZ)" "$*" > /status/offsite
+                    exit 0
+                  }
                   if [ -z "${RESTIC_REPOSITORY:-}" ]; then
-                    if [ "$OFFSITE_REQUIRED" = true ]; then
-                      echo 'offsite: NIX_BACKUP_OFFSITE=true but secret nix-backup-offsite is missing' >&2
-                      exit 1
-                    fi
+                    [ "$OFFSITE_REQUIRED" != true ] || fail 'offsite secret missing'
                     echo 'offsite: not configured (no nix-backup-offsite secret); local backup only'
                     exit 0
                   fi
                   for key in RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION; do
                     eval "value=\${$key:-}"
-                    [ -n "$value" ] || { echo "offsite: FAILED - nix-backup-offsite does not set $key" >&2; exit 1; }
+                    [ -n "$value" ] || fail "nix-backup-offsite does not set $key"
                   done
-                  fail() { echo "offsite: FAILED - $*" >&2; exit 1; }
                   name="$(cat /backup/LATEST)"
-                  case "$name" in *[!0-9-]* | '') fail "unexpected backup directory name: $name" ;; esac
+                  case "$name" in *[!0-9-]* | '') fail 'unexpected backup directory name' ;; esac
                   (cd "/backup/$name" && sha256sum -c SHA256SUMS >/dev/null) || fail "/backup/$name does not match its SHA256SUMS"
                   status=0
                   restic cat config >/dev/null || status=$?
                   [ "$status" -ne 10 ] || fail 'the repository does not exist; initialize it once with deploy/compose/offsite.sh init'
                   [ "$status" -eq 0 ] || fail "could not open the repository (restic exit $status)"
                   echo "offsite: pushing /backup/$name"
-                  restic backup --host nix-k8s --tag kind=nightly "/backup/$name" || fail "restic backup of /backup/$name failed"
+                  restic backup --json --host nix-k8s --tag kind=nightly "/backup/$name" > /tmp/backup.json || fail "restic backup of /backup/$name failed"
+                  snapshot="$(sed -n '/"message_type":"summary"/s/.*"snapshot_id":"\([0-9a-f]*\)".*/\1/p' /tmp/backup.json | tail -n 1)"
+                  case "$snapshot" in *[!0-9a-f]* | '') fail "restic backup of /backup/$name reported no snapshot id" ;; esac
                   restic forget --host nix-k8s --tag kind=nightly --group-by host \
                     --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune || fail 'restic forget failed'
                   subset=''
                   [ "$(date +%u)" != 7 ] || subset='--read-data-subset=5%'
                   restic check $subset || fail 'restic check failed'
-                  echo "offsite: pushed /backup/$name"
+                  printf 'started_at=%s\nfinished_at=%s\nstatus=succeeded\nsnapshot_id=%s\nbytes=%s\nerror=\n' "$started" "$(date -u +%FT%TZ)" "$snapshot" "$bytes" > /status/offsite
+                  echo "offsite: pushed /backup/$name as snapshot $snapshot"
               securityContext:
                 runAsNonRoot: true
                 runAsUser: 65532
@@ -125,5 +140,59 @@ spec:
               resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 1Gi } }
               volumeMounts:
                 - { name: backup, mountPath: /backup, readOnly: true }
+                - { name: status, mountPath: /status }
                 - { name: restic-scratch, mountPath: /tmp }
                 - { name: restic-cache, mountPath: /cache }
+          containers:
+            - name: record
+              image: pgvector/pgvector:pg16
+              env:
+                - { name: PGHOST, value: postgres }
+                - { name: PGUSER, value: postgres }
+                - name: PGPASSWORD
+                  valueFrom: { secretKeyRef: { name: nix-db, key: superuser-password } }
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  sql="BEGIN; SET LOCAL ROLE nix_backup; SELECT nix_record_backup_run(:'b_started', :'b_finished', :'b_step', :'b_status', :'b_snapshot', NULLIF(:'b_bytes', '')::bigint, :'b_error'); COMMIT;"
+                  failed=0
+                  for step in local offsite; do
+                    file="/status/$step"
+                    # A missing local status means the dump container never reported: a failure. Off-site may be unconfigured.
+                    if [ ! -f "$file" ]; then
+                      [ "$step" != local ] || { echo 'record: no local status was written' >&2; failed=1; }
+                      continue
+                    fi
+                    get() { sed -n "s/^$1=//p" "$file"; }
+                    status="$(get status)"
+                    [ "$status" = succeeded ] || failed=1
+                    printf '%s\n' "$sql" | psql -X -q -At -v ON_ERROR_STOP=1 -d nix -v "b_step=$step" -v "b_status=$status" \
+                      -v "b_started=$(get started_at)" -v "b_finished=$(get finished_at)" \
+                      -v "b_snapshot=$(get snapshot_id)" -v "b_bytes=$(get bytes)" -v "b_error=$(get error)" >/dev/null \
+                      || echo "record: backup status not recorded: $step $status" >&2
+                  done
+                  exit "$failed"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 999
+                runAsGroup: 999
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+                seccompProfile: { type: RuntimeDefault }
+              resources: { requests: { cpu: 10m, memory: 32Mi }, limits: { memory: 128Mi } }
+              volumeMounts:
+                - { name: status, mountPath: /status, readOnly: true }
+          volumes:
+            # Step outcomes passed between the containers; never holds tool output.
+            - name: status
+              emptyDir: { sizeLimit: 1Mi }
+            - name: restic-scratch
+              emptyDir: { sizeLimit: 256Mi }
+            - name: restic-cache
+              emptyDir: { sizeLimit: 512Mi }
+            - name: backup
+              persistentVolumeClaim: { claimName: nix-backup }
+            # The versitygw StatefulSet's volume (objects/ and iam/); same node, so RWO allows it.
+            - name: objects
+              persistentVolumeClaim: { claimName: data-nix-versitygw-0, readOnly: true }

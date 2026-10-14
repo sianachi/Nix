@@ -70,6 +70,63 @@
         }
       }
     },
+    "/api/v1/admin/backups": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Recent nightly backup results",
+        "description": "Newest first. Instance-wide, so only the principals in Nix:Sites:Operators may read it; an empty list means nobody.",
+        "operationId": "ListBackupRuns",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupRunListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/structured-items": {
       "post": {
         "tags": [
@@ -12156,6 +12213,74 @@
           }
         }
       },
+      "BackupRunListResponse": {
+        "required": [
+          "runs"
+        ],
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackupRunResponse"
+            }
+          }
+        }
+      },
+      "BackupRunResponse": {
+        "required": [
+          "id",
+          "startedAt",
+          "finishedAt",
+          "step",
+          "status",
+          "snapshotId",
+          "bytes",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "step": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "snapshotId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "BeginDocumentImportRequest": {
         "required": [
           "workspaceId",
@@ -14056,7 +14181,8 @@
       "CurrentPrincipalFeatures": {
         "required": [
           "sites",
-          "mcpUrl"
+          "mcpUrl",
+          "operator"
         ],
         "type": "object",
         "properties": {
@@ -14068,6 +14194,9 @@
               "null",
               "string"
             ]
+          },
+          "operator": {
+            "type": "boolean"
           }
         }
       },
@@ -23500,6 +23629,9 @@
     },
     {
       "name": "Me"
+    },
+    {
+      "name": "Admin"
     },
     {
       "name": "Structure"

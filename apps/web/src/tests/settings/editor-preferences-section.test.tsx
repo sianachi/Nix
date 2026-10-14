@@ -109,7 +109,7 @@ describe('publishing', () => {
 
   it('has no row on a deployment without sites', () => {
     render(
-      <CapabilitiesProvider value={{ sites: false, mcpUrl: null }}>
+      <CapabilitiesProvider value={{ sites: false, mcpUrl: null, operator: false }}>
         <EditorPreferencesSection />
       </CapabilitiesProvider>,
     );
@@ -120,7 +120,7 @@ describe('publishing', () => {
   it('is off by default, and switching it on and off shows and hides the site entry', async () => {
     const user = userEvent.setup();
     render(
-      <CapabilitiesProvider value={{ sites: true, mcpUrl: null }}>
+      <CapabilitiesProvider value={{ sites: true, mcpUrl: null, operator: false }}>
         <EditorPreferencesSection />
         <SiteEntryProbe />
       </CapabilitiesProvider>,
@@ -141,7 +141,7 @@ describe('publishing', () => {
   it('shows nothing when publishing is on but the deployment has no sites', () => {
     usePublishingPreference.setState({ enabled: true });
     render(
-      <CapabilitiesProvider value={{ sites: false, mcpUrl: null }}>
+      <CapabilitiesProvider value={{ sites: false, mcpUrl: null, operator: false }}>
         <SiteEntryProbe />
       </CapabilitiesProvider>,
     );
