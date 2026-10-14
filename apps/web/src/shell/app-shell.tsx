@@ -110,12 +110,12 @@ export function AppShell(): ReactNode {
   const { workspaceId, workspace } = useWorkspace();
   useRememberLocation(workspaceId);
   useOpenDailyOnLaunch();
-  useUiSettingsSync();
   const [dailyCaptureOpen, setDailyCaptureOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
+  useUiSettingsSync(principal.principal?.id);
   const { selectedId } = useSelectedItem();
   const { panes } = usePanes();
   const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
