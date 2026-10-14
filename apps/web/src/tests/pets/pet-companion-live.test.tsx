@@ -296,7 +296,13 @@ describe('companion live wiring', () => {
     expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'Regenerate' }));
-    expect(sent().at(-1)).toMatchObject({ text: 'Second request', replaceFromMessageId: 'turn-2' });
+    // The send goes out after the click resolves, so wait for it rather than read it at once.
+    await waitFor(() => {
+      expect(sent().at(-1)).toMatchObject({
+        text: 'Second request',
+        replaceFromMessageId: 'turn-2',
+      });
+    });
 
     await user.click(await screen.findByRole('button', { name: 'Edit' }));
     const editor = screen.getByRole('textbox', { name: 'Edit your message' });
@@ -307,9 +313,11 @@ describe('companion live wiring', () => {
     client.execute.mockResolvedValue(replaced);
     client.query.mockResolvedValue(replaced);
     await user.click(screen.getByRole('button', { name: 'Resend' }));
-    expect(sent().at(-1)).toMatchObject({
-      text: 'Better request',
-      replaceFromMessageId: 'turn-2',
+    await waitFor(() => {
+      expect(sent().at(-1)).toMatchObject({
+        text: 'Better request',
+        replaceFromMessageId: 'turn-2',
+      });
     });
 
     const log = await screen.findByRole('log', { name: 'Conversation messages' });
