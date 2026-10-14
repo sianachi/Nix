@@ -26,6 +26,8 @@ const MAXIMUM_VIEWS = LIMITS.viewsPerContainer;
 const RESERVED_VIEW_ID = 'document';
 const CARD_SIZES: ReadonlySet<string> = new Set(['small', 'medium', 'large']);
 const LAYOUTS: ReadonlySet<string> = new Set(['list', 'grid']);
+/** `ViewOpenModes.All` (`backend/src/Nix.Api/Domain/Views/ViewDefinition.cs`); the message lists them in this order. */
+const OPEN_MODES: readonly string[] = ['page', 'dialog', 'beside', 'tab', 'none'];
 const HABIT_WIDGET_KINDS: ReadonlySet<string> = new Set(['completion', 'quantity', 'heatmap']);
 const MAXIMUM_HABIT_WIDGETS = 12;
 const MAXIMUM_HABIT_RANGE_DAYS = 366;
@@ -691,6 +693,10 @@ export function refuseViews(
 
     if (view.cardSize !== null && !CARD_SIZES.has(view.cardSize)) {
       return `'${view.name}': '${view.cardSize}' is not a card size; use 'small', 'medium' or 'large'.`;
+    }
+    // `open` is optional on the wire; absent or null means the client's own default, as in Core.
+    if (view.open != null && !OPEN_MODES.includes(view.open)) {
+      return `'${view.name}': '${view.open}' is not an open mode; use one of ${OPEN_MODES.map((mode) => `'${mode}'`).join(', ')}.`;
     }
     if (view.layout !== null && !LAYOUTS.has(view.layout)) {
       return `'${view.name}': '${view.layout}' is not a layout; use 'list' or 'grid'.`;
