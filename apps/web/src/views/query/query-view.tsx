@@ -9,6 +9,7 @@ import {
   PartialNotice,
 } from '../../components/states/status-panels';
 import { inferFilters, type InferredFilters } from '../../lib/suggest/infer-filters';
+import { useItemOpenProps } from '../core/item-open-click';
 import {
   applyTitleSearch,
   isFilterGroup,
@@ -45,6 +46,7 @@ const QueryByExamplePanel = lazy(() => import('./query-by-example'));
  */
 export function QueryView(props: ViewRendererProps): ReactNode {
   const { container, view, onOpen } = props;
+  const openProps = useItemOpenProps(onOpen);
   const visibility = useHiddenItems();
   const viewState = useViewState();
 
@@ -316,9 +318,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                       ) : null}
                       <button
                         type="button"
-                        onClick={() => {
-                          onOpen(row.id);
-                        }}
+                        {...openProps(row.id)}
                         className={cn(
                           'min-w-0 flex-1 cursor-default wrap-anywhere text-left font-semibold hover:text-accent-text any-pointer-coarse:min-h-(--control-lg)',
                           focusRing,

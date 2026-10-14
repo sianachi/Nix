@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { browserStorage } from '../lib/browser-storage';
+import { registerSyncedSetting, settingChanged } from '../lib/ui-settings-sync';
 
 /**
  * The two off switches for the model-free suggestions outside the note body: browser-local
@@ -47,7 +48,7 @@ interface SuggestionPreference {
   setSetting: (value: SuggestionSetting) => void;
 }
 
-function store(key: string) {
+function store(key: string, syncKey: 'editor.viewSuggestions' | 'editor.choiceOrder') {
   return create<SuggestionPreference>((set) => ({
     setting: read(browserStorage(), key),
     saved: true,
@@ -65,15 +66,31 @@ function store(key: string) {
         /* The choice still works for this session. */
       }
       set({ setting, saved });
+      settingChanged(syncKey, setting);
     },
   }));
 }
 
 /** Whether views draw their own suggestions (create, stale-card, fill-series, free-slot, usual value). */
-export const useViewSuggestionPreference = store(VIEW_SUGGESTIONS_KEY);
+export const useViewSuggestionPreference = store(VIEW_SUGGESTIONS_KEY, 'editor.viewSuggestions');
 
 /** Whether pick lists reorder themselves from this browser's pick history. */
-export const useChoiceOrderPreference = store(CHOICE_ORDER_KEY);
+export const useChoiceOrderPreference = store(CHOICE_ORDER_KEY, 'editor.choiceOrder');
+
+registerSyncedSetting('editor.viewSuggestions', {
+  get: () => useViewSuggestionPreference.getState().setting,
+  set: (setting) => {
+    useViewSuggestionPreference.getState().setSetting(setting);
+  },
+  defaultValue: 'on',
+});
+registerSyncedSetting('editor.choiceOrder', {
+  get: () => useChoiceOrderPreference.getState().setting,
+  set: (setting) => {
+    useChoiceOrderPreference.getState().setSetting(setting);
+  },
+  defaultValue: 'on',
+});
 
 /** Selector: true when view suggestions are on. */
 export function viewSuggestionsOn(): boolean {

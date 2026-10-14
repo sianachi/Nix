@@ -2,7 +2,7 @@
 
 exports[`view capabilities > matches the documented capability matrix 1`] = `
 [
-  "| list | yes | yes | yes | yes | none |",
+  "| list | yes | yes | yes | yes | parent |",
   "| gallery | yes | yes | yes | yes | none |",
   "| checklist | yes | yes | yes | yes | none |",
   "| board | yes | yes | yes | yes | group-value |",

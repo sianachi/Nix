@@ -6,7 +6,7 @@ import { ErrorPanel } from '../components/states/status-panels';
 import { settingsPanelWidth } from '../layout/regions';
 import { BacklinksPane } from '../links/backlinks-panel';
 import { PropertyPanel } from '../properties/property-panel';
-import { useCapabilities } from '../session/capabilities-context';
+import { useSitesVisible } from '../settings/publishing-preference';
 import { SitePane } from '../sites/site-pane';
 import type { ItemProperties } from '../properties/use-item-properties';
 import type { ContainerData } from '../views/core/use-container';
@@ -62,9 +62,11 @@ export function ItemPanel({
   pane: steeredPane,
   onPaneChange,
 }: ItemPanelProps): ReactNode {
-  const sitesEnabled = useCapabilities().sites;
+  const sitesEnabled = useSitesVisible();
   const [ownPane, setOwnPane] = useState<Pane>('details');
-  const pane = steeredPane ?? ownPane;
+  const requestedPane = steeredPane ?? ownPane;
+  // Switching publishing off while the Site pane is open falls back to Details.
+  const pane = requestedPane === 'site' && !sitesEnabled ? 'details' : requestedPane;
   const setPane = onPaneChange ?? setOwnPane;
 
   return (

@@ -30,6 +30,7 @@ import { useBookmarksLoader, useBookmarksStore, useIsKept } from '../bookmarks/u
 import { MiniPlayer } from '../audio/mini-player';
 import { useOpenItem } from '../tabs/use-open-item';
 import { useOpenDailyOnLaunch } from '../launch/use-open-daily-on-launch';
+import { useUiSettingsSync } from '../settings/use-ui-settings-sync';
 import { DailyCaptureDialog } from '../daily-notes/daily-capture-dialog';
 import { useSessionStore } from '../auth/session-store';
 import { CapabilitiesProvider } from '../session/capabilities-context';
@@ -115,6 +116,7 @@ export function AppShell(): ReactNode {
   const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
+  useUiSettingsSync(principal.principal?.id);
   const { selectedId } = useSelectedItem();
   const { panes } = usePanes();
   const { openPreview, openPinned, openBeside, canOpenBeside, besideRefusal } = useOpenItem();
