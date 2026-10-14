@@ -199,7 +199,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
                     return Result.Failure<PetConnectionResponse>(new("pets.not_found", "The shared item is unavailable."));
                 }
 
-                sharedItems.Add(new(sharedId.ToString(), ItemProperties.ReadTitle(item.Value.Properties)));
+                sharedItems.Add(new(sharedId.ToString(), ClipTitle(ItemProperties.ReadTitle(item.Value.Properties))));
             }
 
             if (sharedItems.Count > 0)
@@ -309,6 +309,10 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
 
     /// <summary>The most items one send may attach.</summary>
     public const int MaxSharedItems = 5;
+
+    /// <summary>The worker accepts titles of 240 UTF-16 units at most; longer ones are cut, never split mid-pair.</summary>
+    internal static string ClipTitle(string title) =>
+        title.Length <= 240 ? title : title[..(char.IsHighSurrogate(title[239]) ? 239 : 240)];
 
     /// <summary>The attached items: <c>ItemId</c> first, then <c>ItemIds</c>, de-duplicated. False when
     /// there are more than <see cref="MaxSharedItems"/>, one is empty, or a note-scoped conversation

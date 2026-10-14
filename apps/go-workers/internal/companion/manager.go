@@ -1084,18 +1084,23 @@ func (a *account) notify(method string, raw json.RawMessage) {
 	}
 }
 
-// replaceIndex is where the message with this id sits when it is a user message, else -1.
+// replaceIndex is where the message with this id sits when it is the conversation's last user
+// message - only the last turn can be replaced - else -1.
 func replaceIndex(messages []Message, id string) int {
-	for i, m := range messages {
-		if m.ID == id && m.Role == "user" {
-			return i
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			if messages[i].ID == id {
+				return i
+			}
+			return -1
 		}
 	}
 	return -1
 }
 
-// earlierTranscript renders the final user and assistant messages as plain text, newest kept
-// when it must be cut to maxEarlierRunes. Commentary, drafts and system notices are left out.
+// earlierTranscript renders the final user and assistant messages as plain text. When it is over
+// maxEarlierRunes the oldest whole messages go first, so it never starts mid-message. Commentary,
+// drafts and system notices are left out.
 func earlierTranscript(messages []Message) string {
 	var lines []string
 	for _, m := range messages {
@@ -1108,9 +1113,13 @@ func earlierTranscript(messages []Message) string {
 		}
 		lines = append(lines, speaker+": "+m.Text)
 	}
-	runes := []rune(strings.Join(lines, "\n\n"))
-	if len(runes) > maxEarlierRunes {
-		runes = runes[len(runes)-maxEarlierRunes:]
+	kept, used := 0, 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		used += len([]rune(lines[i])) + 2
+		if used-2 > maxEarlierRunes {
+			break
+		}
+		kept++
 	}
-	return string(runes)
+	return strings.Join(lines[len(lines)-kept:], "\n\n")
 }
