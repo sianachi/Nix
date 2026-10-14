@@ -153,7 +153,7 @@ describe('companion workflow', () => {
     ).toBe(false);
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await screen.findByRole('dialog', { name: 'Conversation with Cat' });
-    await user.type(screen.getByRole('combobox', { name: 'Message Cat' }), 'Help with a plan');
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'Help with a plan');
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
     });
@@ -203,7 +203,7 @@ describe('companion workflow', () => {
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await screen.findByRole('dialog', { name: 'Conversation with Cat' });
     await user.click(screen.getByRole('button', { name: 'Workspace access' }));
-    await user.type(screen.getByRole('combobox', { name: 'Message Cat' }), 'What is due?');
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'What is due?');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     const sends = () =>
       client.execute.mock.calls
@@ -227,7 +227,7 @@ describe('companion workflow', () => {
     client.execute.mockResolvedValue(withHistory);
     client.query.mockResolvedValue(withHistory);
     await screen.findAllByText('What is due?');
-    await user.type(screen.getByRole('combobox', { name: 'Message Cat' }), 'And tomorrow?');
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'And tomorrow?');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => {
       expect(sends()).toHaveLength(2);
@@ -433,7 +433,7 @@ describe('companion workflow', () => {
       'Add a Claude API key in Pet settings.',
     );
     expect(screen.queryByText('Claude conversation')).not.toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'Message Cat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Message Cat' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Pet settings' })).toHaveAttribute(
       'href',
       '/w/33333333-3333-4333-8333-333333333333/settings?tab=pets',
@@ -463,7 +463,7 @@ describe('companion workflow', () => {
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     expect(await screen.findByText('Your reply stays in the reading area.')).toBeVisible();
     const messages = screen.getByRole('log', { name: 'Conversation messages' });
-    expect(messages).not.toContainElement(screen.getByRole('combobox', { name: 'Message Cat' }));
+    expect(messages).not.toContainElement(screen.getByRole('textbox', { name: 'Message Cat' }));
     expect(screen.queryByRole('button', { name: 'New conversation' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
     expect(screen.getByRole('menuitem', { name: 'New conversation' })).toBeVisible();
@@ -530,7 +530,7 @@ describe('companion workflow', () => {
       </MemoryRouter>,
     );
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
-    const composer = await screen.findByRole('combobox', { name: 'Message Cat' });
+    const composer = await screen.findByRole('textbox', { name: 'Message Cat' });
     await user.type(composer, 'Plan my notes');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(

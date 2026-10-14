@@ -1084,9 +1084,6 @@ export function Conversation({
                   setDraft(event.currentTarget.value);
                   regenerateRequestId();
                 }}
-                role="combobox"
-                aria-autocomplete="list"
-                aria-expanded={slashOptions.length > 0}
                 aria-controls={slashOptions.length > 0 ? slashListbox.id : undefined}
                 aria-activedescendant={
                   slashOptions.length > 0 ? slashListbox.activeOptionId : undefined

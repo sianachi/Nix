@@ -342,7 +342,7 @@ describe('companion live wiring', () => {
     const list = screen.getByRole('list', { name: 'Notes sent with your message' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(1);
 
-    await user.type(screen.getByRole('combobox', { name: 'Message Cat' }), 'Summarize');
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'Summarize');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledWith(
@@ -377,7 +377,7 @@ describe('companion live wiring', () => {
     client.query.mockResolvedValue({ ...base, state: 'success', messages: [], tools: [] });
     client.execute.mockResolvedValue(base);
     const user = await openCompanion();
-    const composer = await screen.findByRole('combobox', { name: 'Message Cat' });
+    const composer = await screen.findByRole('textbox', { name: 'Message Cat' });
 
     await user.type(composer, '/');
     expect(screen.getAllByRole('option')).toHaveLength(3);
@@ -414,7 +414,7 @@ describe('companion live wiring', () => {
     const list = screen.getByRole('list', { name: 'Notes sent with your message' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(2);
 
-    await user.type(screen.getByRole('combobox', { name: 'Message Cat' }), 'Compare');
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'Compare');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledWith(
@@ -456,7 +456,7 @@ describe('companion live wiring', () => {
     expect(screen.getByRole('textbox', { name: 'Edit your message' })).toBeVisible();
 
     // A send from the composer closes the inline editor.
-    await user.type(screen.getByRole('combobox', { name: 'Message Cat' }), 'More');
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'More');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => {
       expect(screen.queryByRole('textbox', { name: 'Edit your message' })).toBeNull();
@@ -496,11 +496,10 @@ describe('companion live wiring', () => {
     client.query.mockResolvedValue({ ...base, state: 'success', messages: [], tools: [] });
     client.execute.mockResolvedValue(base);
     const user = await openCompanion();
-    const composer = await screen.findByRole('combobox', { name: 'Message Cat' });
-    expect(composer).toHaveAttribute('aria-expanded', 'false');
+    const composer = await screen.findByRole('textbox', { name: 'Message Cat' });
+    expect(composer).not.toHaveAttribute('aria-controls');
 
     await user.type(composer, '/');
-    expect(composer).toHaveAttribute('aria-expanded', 'true');
     expect(composer).toHaveAttribute('aria-controls', screen.getByRole('listbox').id);
 
     fireEvent.keyDown(composer, { key: 'Enter', isComposing: true, keyCode: 229 });
