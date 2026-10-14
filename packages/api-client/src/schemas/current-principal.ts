@@ -11,8 +11,13 @@ export const currentPrincipalSchema = z.object({
   isTenantAdministrator: z.boolean(),
   /** Deployment features the shell may offer; defaulted so an older Core answers without them. */
   features: z
-    .object({ sites: z.boolean().default(false), mcpUrl: z.string().nullable().default(null) })
-    .default({ sites: false, mcpUrl: null }),
+    .object({
+      sites: z.boolean().default(false),
+      mcpUrl: z.string().nullable().default(null),
+      /** Listed in `Nix:Sites:Operators`: may read instance-wide data such as backup status. */
+      operator: z.boolean().default(false),
+    })
+    .default({ sites: false, mcpUrl: null, operator: false }),
 });
 
 export type CurrentPrincipal = z.infer<typeof currentPrincipalSchema>;

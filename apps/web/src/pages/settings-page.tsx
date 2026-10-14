@@ -3,6 +3,7 @@ import { type ReactElement } from 'react';
 
 import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens-section';
+import { BackupsSection } from '../settings/backups-section';
 import { McpSection } from '../settings/mcp-section';
 import { CalendarsSection } from '../settings/calendars-section';
 import { DailyNotesSection } from '../settings/daily-notes-section';
@@ -10,7 +11,8 @@ import { EditorPreferencesSection } from '../settings/editor-preferences-section
 import { NotificationsSection } from '../settings/notifications-section';
 import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
 import { PetSettingsSection } from '../pets/pet-settings-section';
-import { useSettingsTab, type SettingsTab } from './settings-tab';
+import { useCapabilities } from '../session/capabilities-context';
+import { DEFAULT_SETTINGS_TAB, useSettingsTab, type SettingsTab } from './settings-tab';
 
 const settingsTabs: readonly { id: SettingsTab; label: string; closable: false }[] = [
   { id: 'workspace', label: 'Workspace', closable: false },
@@ -21,12 +23,19 @@ const settingsTabs: readonly { id: SettingsTab; label: string; closable: false }
   { id: 'integrations', label: 'Calendars', closable: false },
   { id: 'access-tokens', label: 'Access tokens', closable: false },
   { id: 'mcp', label: 'MCP', closable: false },
+  { id: 'backups', label: 'Backups', closable: false },
 ];
 
 /** Settings grouped by the thing being managed, with workspace management first. Addressable by
  * `?tab=` so a link to a specific section survives a refresh or gets shared. */
 export function SettingsPage(): ReactElement {
-  const { tab: activeTab, setTab: setActiveTab } = useSettingsTab();
+  const { tab: requestedTab, setTab: setActiveTab } = useSettingsTab();
+  // A display hint: Core refuses the backups route to anyone who is not an operator.
+  const { operator } = useCapabilities();
+  const tabs = operator ? settingsTabs : settingsTabs.filter((tab) => tab.id !== 'backups');
+  const activeTab = tabs.some((tab) => tab.id === requestedTab)
+    ? requestedTab
+    : DEFAULT_SETTINGS_TAB;
 
   return (
     <div className={`${paneScroller} flex flex-col`}>
@@ -43,10 +52,10 @@ export function SettingsPage(): ReactElement {
       <div className="min-w-0">
         <Tabs
           label="Settings sections"
-          items={settingsTabs}
+          items={tabs}
           activeId={activeTab}
           onActivate={(id) => {
-            const selected = settingsTabs.find((tab) => tab.id === id);
+            const selected = tabs.find((tab) => tab.id === id);
             if (selected !== undefined) setActiveTab(selected.id);
           }}
         />
@@ -55,7 +64,7 @@ export function SettingsPage(): ReactElement {
       <main
         id={`settings-panel-${activeTab}`}
         role="tabpanel"
-        aria-label={settingsTabs.find((tab) => tab.id === activeTab)?.label}
+        aria-label={tabs.find((tab) => tab.id === activeTab)?.label}
         className="flex min-w-0 flex-col gap-6 break-words p-3 sm:p-6"
       >
         {activeTab === 'workspace' ? <WorkspaceManagementSection /> : null}
@@ -66,6 +75,7 @@ export function SettingsPage(): ReactElement {
         {activeTab === 'integrations' ? <CalendarsSection /> : null}
         {activeTab === 'access-tokens' ? <AccessTokensSection /> : null}
         {activeTab === 'mcp' ? <McpSection /> : null}
+        {activeTab === 'backups' ? <BackupsSection /> : null}
       </main>
     </div>
   );
