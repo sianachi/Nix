@@ -12,6 +12,13 @@ import { CalendarView } from './calendar-view';
 
 export default { title: 'Nix/Views/Calendar and timeline', parameters: { layout: 'padded' } };
 
+function assertCheckboxReveals(checkbox: HTMLElement): void {
+  const wrapper = checkbox.parentElement;
+  if (wrapper === null || getComputedStyle(wrapper).opacity !== '1') {
+    throw new Error('Selecting controls must reveal on hover before an item is selected.');
+  }
+}
+
 function Example({ kind }: { readonly kind: 'calendar' | 'timeline' }): ReactNode {
   const now = new Date();
   const date = `${String(now.getFullYear()).padStart(4, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -99,7 +106,10 @@ export const CalendarSelection = {
   },
   play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole('checkbox', { name: 'Select Today' }));
+    const checkbox = canvas.getByRole('checkbox', { name: 'Select Today' });
+    await userEvent.hover(checkbox);
+    assertCheckboxReveals(checkbox);
+    await userEvent.click(checkbox);
     canvas.getByRole('toolbar', { name: 'Selected items' });
   },
 };
@@ -145,7 +155,10 @@ export const TimelineSelection = {
   },
   play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole('checkbox', { name: 'Select Today' }));
+    const checkbox = canvas.getByRole('checkbox', { name: 'Select Today' });
+    await userEvent.hover(checkbox);
+    assertCheckboxReveals(checkbox);
+    await userEvent.click(checkbox);
     canvas.getByRole('toolbar', { name: 'Selected items' });
   },
 };

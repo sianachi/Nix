@@ -334,7 +334,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
                 onReschedule={setRescheduling}
               >
                 {(contextTarget) => (
-                  <li {...contextTarget} className="flex min-w-0 flex-col gap-2 py-3">
+                  <li {...contextTarget} className="group flex min-w-0 flex-col gap-2 py-3">
                     <SelectCheckbox item={entry.item} />
                     <Button
                       variant="ghost"
@@ -760,7 +760,7 @@ function TimelineRow({ placed, columns, aside, virtualIndex }: TimelineRowProps)
       {(contextTarget) => (
         <tr
           {...contextTarget}
-          className="align-middle"
+          className="group align-middle"
           data-virtual-index={virtualIndex}
           aria-rowindex={virtualIndex === undefined ? undefined : virtualIndex + 2}
         >
@@ -1195,7 +1195,7 @@ function OffAxisEntry({
       onReschedule={aside.setRescheduling}
     >
       {(contextTarget) => (
-        <li {...contextTarget} className="flex min-w-0 flex-col gap-1">
+        <li {...contextTarget} className="group flex min-w-0 flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
             <SelectCheckbox item={item} />
             {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
