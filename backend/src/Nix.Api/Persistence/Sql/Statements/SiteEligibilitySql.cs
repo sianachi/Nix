@@ -136,6 +136,73 @@ public static class SiteEligibilitySql
         """;
 
     /// <summary>
+    /// The direct entries of an otherwise eligible dated collection that its date rule withholds.
+    /// It deliberately excludes entries that are locked or explicitly excluded, so a build report
+    /// cannot disclose those items. Binds the same parameters as <see cref="EligiblePages"/>, plus
+    /// <c>@limit</c> so the build report never materializes an unbounded draft collection.
+    /// </summary>
+    public const string WithheldDatedPosts = """
+        WITH RECURSIVE barred AS MATERIALIZED (
+            SELECT exclusion.item_id
+            FROM site_exclusion AS exclusion
+            WHERE exclusion.tenant_id = @tenant_id
+              AND exclusion.site_id = @site_id
+            UNION
+            SELECT locked.item_id
+            FROM item_lock AS locked
+            WHERE locked.tenant_id = @tenant_id
+        ),
+        dated AS MATERIALIZED (
+            SELECT setting.item_id, setting.date_property
+            FROM site_dated_collection AS setting
+            WHERE setting.tenant_id = @tenant_id
+              AND setting.site_id = @site_id
+        ),
+        walk (id, depth, seq_path) AS (
+            SELECT root.id, 0, ARRAY[ROW(root.seq, root.id)]
+            FROM item AS root
+            WHERE root.tenant_id = @tenant_id
+              AND root.id = @root_id
+              AND root.workspace_id = @workspace_id
+              AND root.lifecycle_state = 'active'
+              AND root.template_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM barred WHERE barred.item_id = root.id)
+            UNION ALL
+            SELECT child.id, walk.depth + 1, walk.seq_path || ROW(child.seq, child.id)
+            FROM walk
+            JOIN item AS child
+              ON child.tenant_id = @tenant_id
+             AND child.parent_id = walk.id
+            WHERE walk.depth < 128
+              AND child.workspace_id = @workspace_id
+              AND child.lifecycle_state = 'active'
+              AND child.template_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM barred WHERE barred.item_id = child.id)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM dated
+                  WHERE dated.item_id = walk.id
+                    AND COALESCE(nix_safe_timestamptz(split_part(child.properties ->> dated.date_property, '[', 1)) > @now, true)
+              )
+        )
+        SELECT child.properties ->> 'title',
+               child.properties ->> dated.date_property AS date_value,
+               nix_safe_timestamptz(split_part(child.properties ->> dated.date_property, '[', 1)) AS published_at
+        FROM walk
+        JOIN dated ON dated.item_id = walk.id
+        JOIN item AS child
+          ON child.tenant_id = @tenant_id
+         AND child.parent_id = walk.id
+        WHERE child.workspace_id = @workspace_id
+          AND child.lifecycle_state = 'active'
+          AND child.template_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM barred WHERE barred.item_id = child.id)
+          AND COALESCE(nix_safe_timestamptz(split_part(child.properties ->> dated.date_property, '[', 1)) > @now, true)
+        ORDER BY walk.seq_path, child.seq, child.id
+        LIMIT @limit
+        """;
+
+    /// <summary>
     /// The containers, among <c>@container_ids</c>, that have an active child outside
     /// <c>@eligible_ids</c>. A chart over such a container would count the hidden child, so none is
     /// published for it (rule 1.7). Binds <c>@tenant_id</c>, <c>@container_ids</c> and

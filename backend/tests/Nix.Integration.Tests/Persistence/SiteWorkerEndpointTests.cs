@@ -53,6 +53,7 @@ public sealed class SiteWorkerEndpointTests(NixPostgresFixture fixture) : IAsync
     public async Task A_build_is_read_uploaded_sealed_and_activated_and_the_host_manifest_is_bound_to_its_digest()
     {
         var (buildId, jobId) = await PublishAsync("one");
+        await Sql($"UPDATE site_build SET loss = '[\"draft: A post has no date.\"]'::jsonb WHERE id = '{buildId}'");
         await ClaimAsync(jobId);
 
         using (var manifest = await Internal(HttpMethod.Get, $"/builds/{jobId}", jobId))
@@ -179,7 +180,7 @@ public sealed class SiteWorkerEndpointTests(NixPostgresFixture fixture) : IAsync
         Assert.Equal("published", site.RootElement.GetProperty("status").GetString());
         Assert.Equal(buildId, site.RootElement.GetProperty("liveBuild").GetProperty("id").GetGuid());
         Assert.Equal("live", site.RootElement.GetProperty("liveBuild").GetProperty("status").GetString());
-        Assert.Equal(["unsupported embed"], site.RootElement.GetProperty("liveBuild").GetProperty("loss").EnumerateArray().Select(entry => entry.GetString()!).ToArray());
+        Assert.Equal(["draft: A post has no date.", "unsupported embed"], site.RootElement.GetProperty("liveBuild").GetProperty("loss").EnumerateArray().Select(entry => entry.GetString()!).ToArray());
         Assert.Equal(["4:100"], await QueryAsync($"SELECT file_count::text || ':' || total_bytes::text FROM site_build WHERE id = '{buildId}'"));
     }
 

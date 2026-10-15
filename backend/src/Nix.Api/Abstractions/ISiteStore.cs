@@ -30,6 +30,9 @@ public sealed record EligiblePage(
     Guid? DocId,
     long? HeadSeq);
 
+/// <summary>A dated collection entry Core withheld only because its publish date is absent, invalid or in the future.</summary>
+public sealed record WithheldDatedPost(string? Title, string? DateValue, DateTimeOffset? PublishedAt);
+
 /// <summary>An image the publisher may copy into a site, at its current version.</summary>
 /// <param name="FileItemId">The file item.</param>
 /// <param name="FileVersionId">The current version.</param>
@@ -196,6 +199,9 @@ public interface ISiteStore
 
     /// <summary>Runs the eligibility statement under the publisher's session.</summary>
     public ValueTask<IReadOnlyList<EligiblePage>> EligiblePagesAsync(Site site, DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>Lists dated collection entries the publisher may name but Core withholds from this build.</summary>
+    public ValueTask<IReadOnlyList<WithheldDatedPost>> WithheldDatedPostsAsync(Site site, DateTimeOffset now, CancellationToken cancellationToken);
 
     /// <summary>Which of the containers have an active child that is not among the eligible items.</summary>
     public ValueTask<IReadOnlySet<ItemId>> ContainersWithHiddenChildrenAsync(IReadOnlyCollection<ItemId> containerIds, IReadOnlyCollection<ItemId> eligibleIds, CancellationToken cancellationToken);
