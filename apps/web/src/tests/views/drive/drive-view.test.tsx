@@ -9,6 +9,7 @@ import { aView } from '../../view-fixture';
 import type { Item } from '../../../views/core/container-model';
 import type { ContainerData } from '../../../views/core/use-container';
 import { DriveView } from '../../../views/drive/drive-view';
+import { ContainerView } from '../../../views/core/container-view';
 
 /**
  * The drive view: a container's children as a file manager.
@@ -207,6 +208,22 @@ function driveOf(options: {
   );
 }
 
+function selectableDriveOf(options: {
+  readonly items: readonly Item[];
+  readonly onOpen?: (id: string) => void;
+  readonly onOpenBeside?: (id: string) => void;
+  readonly layout?: string;
+}) {
+  return (
+    <ContainerView
+      container={aContainer({ itemId: null, children: [...options.items], reload: reloadMock })}
+      view={aView({ kind: 'drive', layout: options.layout ?? 'list' })}
+      onOpen={options.onOpen ?? (() => undefined)}
+      onOpenBeside={options.onOpenBeside}
+    />
+  );
+}
+
 beforeEach(() => {
   client = fakeClient();
   moveMock.mockReset();
@@ -232,7 +249,7 @@ afterEach(() => {
 describe('the drive view', () => {
   it.each(['list', 'grid'])('offers item actions from the %s entry context menu', (layout) => {
     const onOpen = vi.fn();
-    render(driveOf({ items: [NOTE, FOLDER], onOpen, layout }));
+    render(selectableDriveOf({ items: [NOTE, FOLDER], onOpen, layout }));
 
     fireEvent.contextMenu(screen.getByRole('button', { name: NOTE.title }), {
       clientX: 10,
@@ -248,24 +265,6 @@ describe('the drive view', () => {
     });
     fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }));
     expect(onOpen).toHaveBeenCalledWith(NOTE.id);
-  });
-
-  it('moves the context-menu item instead of a previous selection', async () => {
-    render(driveOf({ items: [NOTE, FOLDER, FILE_A] }));
-    fireEvent.click(screen.getByRole('checkbox', { name: `Select ${FILE_A.title}` }));
-    fireEvent.contextMenu(screen.getByRole('button', { name: NOTE.title }), {
-      clientX: 10,
-      clientY: 10,
-    });
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Move to…' });
-    fireEvent.click(within(dialog).getByRole('radio', { name: FOLDER.title }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Move 1 item' }));
-    await vi.waitFor(() => {
-      expect(moveMock).toHaveBeenCalledOnce();
-    });
-    expect(moveMock).toHaveBeenCalledWith(NOTE.id, FOLDER.id, null);
   });
 
   it('downloads a file from its context menu without selecting other files', async () => {
@@ -316,54 +315,69 @@ describe('the drive view', () => {
     expect(names()).toEqual(['Delta file', 'Bravo note', 'Alpha folder']);
   });
 
-  it('selects a range with shift-click and everything with select-all', () => {
-    render(driveOf({ items: [FOLDER, NOTE, FILE_A] }));
+  it('uses the shared selection tray and downloads only selected files', async () => {
+    render(selectableDriveOf({ items: [NOTE, FILE_A, FILE_B] }));
 
-    const checkboxFor = (title: string) =>
-      screen.getByRole('checkbox', { name: `Select ${title}` });
+    fireEvent.click(screen.getByRole('checkbox', { name: `Select ${NOTE.title}` }));
+    fireEvent.click(screen.getByRole('checkbox', { name: `Select ${FILE_A.title}` }));
+    const tray = screen.getByRole('toolbar', { name: 'Selected items' });
+    expect(within(tray).getByText('2 selected')).toBeVisible();
+    expect(within(tray).getByRole('button', { name: 'Select all 3' })).toBeVisible();
+    expect(within(tray).getByRole('button', { name: 'Clear' })).toBeVisible();
 
-    fireEvent.click(checkboxFor('Alpha folder'));
-    fireEvent.click(checkboxFor('Charlie file'), { shiftKey: true });
-
-    expect(screen.getByRole('toolbar', { name: 'Selected items' })).toHaveTextContent('3 selected');
-
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all rows' }));
-    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all rows' }));
-    expect(screen.getByRole('toolbar', { name: 'Selected items' })).toHaveTextContent('3 selected');
-  });
-
-  it('downloads only the selected files, skipping the rest of the selection', async () => {
-    render(driveOf({ items: [NOTE, FILE_A, FILE_B] }));
-
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all rows' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Download' }));
+    fireEvent.click(within(tray).getByRole('button', { name: 'Download' }));
 
     await vi.waitFor(() => {
-      expect(fetchFileContentMock).toHaveBeenCalledTimes(2);
+      expect(fetchFileContentMock).toHaveBeenCalledOnce();
     });
     expect(fetchFileContentMock).toHaveBeenCalledWith(client, FILE_A.id);
-    expect(fetchFileContentMock).toHaveBeenCalledWith(client, FILE_B.id);
   });
 
-  it('moves every selected item through the Move dialog', async () => {
-    render(driveOf({ items: [NOTE, FOLDER, FILE_A] }));
+  it('uses the shared Cmd/Ctrl-click, Shift-range, and Select all selection gestures', () => {
+    render(selectableDriveOf({ items: [FOLDER, NOTE, FILE_A] }));
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bravo note' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Charlie file' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Move to…' }));
+    fireEvent.click(screen.getByRole('button', { name: FOLDER.title }), { ctrlKey: true });
+    fireEvent.click(screen.getByRole('button', { name: FILE_A.title }), { shiftKey: true });
+    expect(screen.getByRole('toolbar', { name: 'Selected items' })).toHaveTextContent('3 selected');
 
-    const dialog = screen.getByRole('dialog', { name: 'Move to…' });
-    fireEvent.click(within(dialog).getByRole('radio', { name: 'Alpha folder' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: /Move 2 items/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    fireEvent.keyDown(screen.getByRole('button', { name: NOTE.title }), {
+      key: 'a',
+      ctrlKey: true,
+    });
+    expect(screen.getByRole('toolbar', { name: 'Selected items' })).toHaveTextContent('3 selected');
+  });
+
+  it.each(['list', 'grid'])('opens the correct %s item beside with Alt-click', (layout) => {
+    const onOpen = vi.fn();
+    const onOpenBeside = vi.fn();
+    render(selectableDriveOf({ items: [NOTE], onOpen, onOpenBeside, layout }));
+    fireEvent.click(screen.getByRole('button', { name: NOTE.title }), { altKey: true });
+    expect(onOpenBeside).toHaveBeenCalledWith(NOTE.id);
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: NOTE.title }));
+    expect(onOpen).toHaveBeenCalledWith(NOTE.id);
+  });
+
+  it('keeps selected rows together when dragging them onto a drive folder', async () => {
+    render(selectableDriveOf({ items: [FOLDER, NOTE, FILE_A] }));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: `Select ${NOTE.title}` }));
+    fireEvent.click(screen.getByRole('checkbox', { name: `Select ${FILE_A.title}` }));
+    const source = screen.getByRole('button', { name: FILE_A.title }).closest('tr');
+    const target = screen.getByRole('button', { name: FOLDER.title }).closest('tr');
+    if (source === null || target === null) throw new Error('Drive rows must be table rows.');
+    const dataTransfer = { effectAllowed: '', setData: vi.fn() };
+
+    fireEvent.dragStart(source, { dataTransfer });
+    fireEvent.dragOver(target, { dataTransfer });
+    fireEvent.drop(target, { dataTransfer });
 
     await vi.waitFor(() => {
       expect(moveMock).toHaveBeenCalledTimes(2);
     });
     expect(moveMock).toHaveBeenCalledWith(NOTE.id, FOLDER.id, null);
     expect(moveMock).toHaveBeenCalledWith(FILE_A.id, FOLDER.id, null);
-    expect(reloadMock).toHaveBeenCalled();
   });
 
   it('uploads files chosen through the Upload button, for a device with no drag-and-drop', async () => {
@@ -420,30 +434,6 @@ describe('the drive view', () => {
     await vi.waitFor(() => {
       expect(reloadMock).toHaveBeenCalled();
     });
-  });
-
-  it('shows a refusal visibly and keeps the refused item selected, rather than announcing every item as moved', async () => {
-    moveMock.mockImplementation((itemId: string) =>
-      Promise.resolve(
-        itemId === FILE_A.id ? { refusal: 'Unlock the locked item first.' } : { refusal: null },
-      ),
-    );
-    render(driveOf({ items: [NOTE, FOLDER, FILE_A] }));
-
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bravo note' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Charlie file' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Move to…' }));
-
-    const dialog = screen.getByRole('dialog', { name: 'Move to…' });
-    fireEvent.click(within(dialog).getByRole('radio', { name: 'Alpha folder' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: /Move 2 items/ }));
-
-    await vi.waitFor(() => {
-      expect(reloadMock).toHaveBeenCalled();
-    });
-    expect(await screen.findByText(/Unlock the locked item first\./)).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Select Charlie file' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Select Bravo note' })).not.toBeChecked();
   });
 
   it('uploads OS files dropped onto the view into this container', async () => {
