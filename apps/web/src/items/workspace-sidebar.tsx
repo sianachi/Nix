@@ -362,10 +362,12 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
               commands === null
                 ? undefined
                 : () => {
-                    void commands.deleteItems([...selection.selected]).then((deleted) => {
-                      const gone = new Set(deleted);
-                      selection.setAll([...selection.selected].filter((id) => !gone.has(id)));
-                    });
+                    void commands
+                      .deleteItems(tree.items.filter((item) => selection.selected.has(item.id)))
+                      .then((deleted) => {
+                        const gone = new Set(deleted);
+                        selection.setAll([...selection.selected].filter((id) => !gone.has(id)));
+                      });
                   }
             }
             onClear={selection.clear}
@@ -495,11 +497,23 @@ function CreateMenu({ childDestination, disabled, ...actions }: CreateMenuProps)
     },
   }));
 
-  items.push({ kind: 'action', key: 'chat', label: 'Chat…', onSelect: () => { setNewChat(true); } });
+  items.push({
+    kind: 'action',
+    key: 'chat',
+    label: 'Chat…',
+    onSelect: () => {
+      setNewChat(true);
+    },
+  });
   return (
     <>
       {newChat ? (
-        <NewChatNote sourceWorkspaceIds={[workspaceId]} onClose={() => { setNewChat(false); }} />
+        <NewChatNote
+          sourceWorkspaceIds={[workspaceId]}
+          onClose={() => {
+            setNewChat(false);
+          }}
+        />
       ) : null}
       <Menu label="New item" items={items}>
         {(trigger) => (
