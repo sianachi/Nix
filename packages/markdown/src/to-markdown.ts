@@ -253,6 +253,10 @@ function buildHandlers(loss: LossCollector): NodeHandlers<string> {
   };
 
   return {
+    unknownNode: (node, _ctx, children) =>
+      [node.text === null ? '' : escapeInline(node.text), ...children()]
+        .filter(Boolean)
+        .join('\n\n'),
     doc: block,
     paragraph: alignedInline,
     text: (node) => renderText(node, loss),

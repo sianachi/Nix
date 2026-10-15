@@ -172,6 +172,15 @@ func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string)
 				return nil, fmt.Sprintf("%s.%s could not be processed.", tool, key)
 			}
 		case argObjectJSON:
+			// Some providers encode an object parameter as JSON text. Normalize that encoding
+			// before the same shape, size, depth and operation validation used for native objects.
+			var encoded string
+			if json.Unmarshal(value, &encoded) == nil {
+				if !json.Valid([]byte(encoded)) {
+					return nil, fmt.Sprintf("%s.%s must be a JSON object.", tool, key)
+				}
+				value = json.RawMessage(encoded)
+			}
 			objectDecoder := json.NewDecoder(strings.NewReader(string(value)))
 			objectDecoder.UseNumber()
 			var object map[string]any

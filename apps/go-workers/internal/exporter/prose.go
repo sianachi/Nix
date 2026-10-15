@@ -165,6 +165,9 @@ func ProjectBody(body json.RawMessage, markdown bool, maximumBytes int) (string,
 	if maximumBytes <= 0 {
 		return "", nil, errors.New("prose projection limit must be positive")
 	}
+	if text, losses, handled, err := projectNonProseBody(body, markdown, maximumBytes); handled {
+		return text, losses, err
+	}
 	if len(body) == 0 || bytes.Equal(bytes.TrimSpace(body), []byte("null")) {
 		return emptyBodyProjection(markdown, "A non-text or empty body was not rendered.")
 	}

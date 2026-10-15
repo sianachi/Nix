@@ -346,11 +346,11 @@ func recordSource(ctx context.Context, input *nixarchive.BundleStream, format st
 		var body string
 		var observed []string
 		var images []stream.Image
+		var loader exporter.ImageLoader
 		if len(loaders) > 0 {
-			body, images, observed, err = exporter.ProjectBodyWithImages(bundle.Body, maximumBodyBytes, loaders[0])
-		} else {
-			body, observed, err = exporter.ProjectBody(bundle.Body, true, maximumBodyBytes)
+			loader = loaders[0]
 		}
+		body, images, observed, err = exporter.ProjectBundle(bundle, maximumBodyBytes, loader)
 		if err != nil {
 			return stream.Record{}, false, err
 		}
@@ -491,9 +491,9 @@ func lossMessages(format string, manifest nixarchive.Manifest, projectionLoss []
 	}
 	switch format {
 	case "markdown":
-		appendUnique(&result, "Workspace hierarchy metadata, properties, views, and lifecycle metadata are not represented in Markdown.")
+		appendUnique(&result, "Workspace hierarchy and lifecycle metadata are not preserved as editable Nix structure in Markdown. Views and properties are static text.")
 	case "docx", "pdf":
-		appendUnique(&result, "Workspace hierarchy metadata, properties, views, and lifecycle metadata are not represented in the converted document.")
+		appendUnique(&result, "Workspace hierarchy and lifecycle metadata are not preserved as editable Nix structure in the converted document. Views and properties are static text.")
 	}
 	return boundedReport(result, "loss entries")
 }

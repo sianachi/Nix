@@ -3,6 +3,144 @@
 All notable changes to Nix are recorded here. The format follows Keep a Changelog and the project
 follows semantic versioning (`0.x` pre-1.0).
 
+## 0.3.0 - Unreleased
+
+Work completed so far, recorded on 2026-10-15. These changes are recorded locally on `v0.3` and
+have not been pushed or released.
+
+### Added
+
+**Note/view conversion and document exports**
+
+- The workspace pet offers "Turn this note into sensible Nix views" and "Write a note from
+  these views". Conversion preserves the original note, entries and views, uses the existing
+  approval previews, and reports sampling or access limits.
+- PDF, Word and Markdown exports include readable static representations of every view kind,
+  with accessible source records, field definitions and form content. Incomplete source
+  snapshots are labelled. Interactive queries, calculations and controls are not reproduced.
+- Spreadsheet exports retain cell contents and formulas as text. Canvas exports include a
+  labelled inventory of text, geometry and connections. Attachments link to their original
+  Nix items. Unfamiliar body kinds retain readable stored fields.
+- Markdown keeps readable children of unfamiliar editor blocks, with a presentation warning
+  and a bounded nesting limit. Exported source content escapes active HTML, and document
+  exports preserve the exact decimal text of numeric properties.
+- Provider tool calls can supply object arguments as native JSON or JSON-encoded text; both
+  encodings pass through the same operation, size, depth and permission checks.
+
+**Dynamic fields**
+
+- Fields can suggest values from previous entries in the same field, supporting growing lists
+  such as "Who offended you" in a grudge list.
+- Select and multi-select choices can come from other notes and fields. Field-source settings
+  are supported by the editor, templates, API and companion tools.
+- The AI companion can change a field's property type.
+
+**Workspace groups**
+
+- A groups hub at `/workspaces/groups` and a page for each group at
+  `/workspaces/groups/:groupId`, with Overview, Chats and Manage tabs.
+- Create, rename, order and remove personal groups, and assign accessible workspaces. Groups
+  organise navigation and analysis without granting access to their contents.
+- Group pages show their workspaces and saved chats, with prompts such as "Compare priorities"
+  and "Summarize recent work". Analysis starts when requested; there is no automatic briefing.
+- New-chat setup shows the pet, selected source workspaces and destination workspace or parent
+  note. The last destination is remembered per group and checked before reuse.
+- Groups retain references to saved chat notes, filtering references the reader cannot access.
+  Removing a group leaves its chats and workspaces intact.
+
+**Chat notes and cross-workspace analysis**
+
+- New > Chat and a Chat view for live conversations. A conversation is an ordinary parent note
+  with ordered message children; its document body and other views remain usable.
+- Saved messages, source links, paginated history, streaming replies, errors, cancellation and
+  a composer use the pet conversation interface. Existing content needs compatible message
+  fields before a Chat view can be added.
+- Core stores conversation configuration, messages and turn state. Completed messages survive
+  refreshes and service restarts; provider sessions are private and replaceable.
+- One active turn per conversation, interrupted-turn status and stable request identifiers
+  prevent concurrent replies and duplicate messages on retry.
+- Readers can read saved transcripts. Editors send using their own connected provider account;
+  provider credentials and provider thread identifiers remain private.
+- Conversations keep an explicit source-workspace selection. Later group membership changes
+  do not expand it; changing sources is recorded and affects future turns.
+- Source access is checked by Core on every turn and tool request. Analysis tools are
+  read-only. An unavailable source pauses sending until an editor removes or replaces it.
+- Retrieved evidence carries workspace and item attribution. Replies report unavailable or
+  incomplete sources, and existing locked-content restrictions remain enforced.
+- Save as chat note previews the retained private transcript, destination, source scope and
+  sharing implications, then copies it into a live note. The original private history remains;
+  trimmed messages and hidden provider context are not imported.
+- Save insight as note previews editable assistant content and a destination before creating
+  an ordinary note. Saving cross-workspace content to a shared destination requires explicit
+  sharing confirmation.
+- Long replies are stored in bounded message children and displayed as one logical message.
+
+**APIs, archives and tooling**
+
+- Conversation APIs and `nixctl`/MCP commands support creation, transcript import, inspection,
+  paginated history, source changes, sending, watching and cancellation.
+- The `chat` view kind is supported by Core validation, generated OpenAPI/client contracts,
+  structure tools, view creation, rendering and archives.
+- Native archive export/import preserves chat content and portable configuration, excluding
+  active turns and private provider runtime state. Static HTML and SVG exports show transcripts
+  without a composer.
+- Proposed ADR-0062 records Core-owned chat history and the boundary between durable messages
+  and private provider sessions. Existing architecture decision statuses are preserved.
+
+### Changed
+
+- Workspace-menu groups are collapsible, and the desktop search bar is wider.
+- Graph labels appear on hover.
+- Older workspace-scoped group URLs redirect to the canonical group page.
+- Drive uses shared selection checkboxes, keyboard and range selection, selected-item dragging,
+  and the floating bulk-action tray. Download remains available alongside shared Move and
+  Delete actions. Alt-click opens the selected item beside the current view.
+- Mermaid loads when a diagram first renders, reducing the production app entry bundle from
+  1,044,315 to 875,536 gzip bytes in the measured build comparison.
+
+### Fixed
+
+- [#46](https://github.com/sianachi/Nix/issues/46): changed-path validation checks formatting of
+  changed TypeScript files, including paths with spaces, and skips deleted files.
+- [#50](https://github.com/sianachi/Nix/issues/50): cancelling a broker publish clears its
+  publisher and pending confirmations so the next publish cannot consume a stale acknowledgement.
+- [#92](https://github.com/sianachi/Nix/issues/92): archive ZIP timestamps are reproducible across
+  time zones, including daylight-saving gaps. Template catalog archives were regenerated with
+  unchanged uncompressed content.
+- [#51](https://github.com/sianachi/Nix/issues/51): ordinary code blocks no longer load Mermaid;
+  diagram rendering retains its serial queue, security settings and theme handling.
+- [#156](https://github.com/sianachi/Nix/issues/156): Drive selection and bulk actions follow the
+  shared view behaviour, including visible checkboxes on hover or keyboard focus.
+
+### Validation and current limits
+
+- Feature validation included backend unit tests, real PostgreSQL permission and integration
+  tests, CLI and collaboration tests, package checks, and browser accessibility stories.
+- Live local checks exercised cross-workspace analysis with citations, reopening saved chats,
+  restart persistence, retry deduplication, cancellation, frozen source scope, insight saving
+  and native archive round trips through supported tooling.
+- The final issue-batch checks passed 4,106 frontend tests, 21 Chromium/accessibility stories,
+  127 export tests, three template-catalog tests, Go checks and the production frontend build.
+  Archive generation also produced identical bytes on macOS and ARM64 Linux.
+- Existing private pet conversations remain compatible and are copied only on request.
+- Worker interruption or trashing an ancestor can take up to the four-minute turn lease to
+  mark a reply interrupted. Conversation watch currently polls fresh snapshots.
+- SVG exports show up to 60 logical messages with a truncation indicator; HTML exports retain
+  the full eligible transcript. Provider context uses a bounded recent history while saved
+  conversation history remains durable.
+- Two optional Versity object-storage integration tests were skipped. Broker cancellation was
+  tested through the publisher interface, without a live RabbitMQ cancellation probe. The
+  Mermaid measurement compares build sizes, not browser loading speed.
+
+### Commits
+
+- `51015f77`: dynamic field sources, workspace groups and durable chat notes.
+- `d3a30248`: TypeScript formatting validation (#46).
+- `26bb09f8`: broker confirmation cleanup after cancellation (#50).
+- `b57faf8e`: reproducible archive timestamps and catalog generation (#92).
+- `b80177aa`: lazy Mermaid loading (#51).
+- `d7dc47d8`: shared Drive selection and bulk actions (#156).
+
 ## 0.2.0 - 2026-10-15
 
 ### Added

@@ -366,6 +366,29 @@ describe('companion live wiring', () => {
     expect(screen.queryByRole('list', { name: 'Notes sent with your message' })).toBeNull();
   });
 
+  it.each(['Turn this note into sensible Nix views', 'Write a note from these views'])(
+    'offers %s for the open note without sending before review',
+    async (prompt) => {
+      client.query.mockResolvedValue({ ...base, state: 'success', messages: [], tools: [] });
+      client.execute.mockResolvedValue(base);
+      const user = userEvent.setup();
+      render(
+        <MemoryRouter initialEntries={['/?item=55555555-5555-4555-8555-555555555555']}>
+          <PetCompanion />
+        </MemoryRouter>,
+      );
+      await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+      await user.click(await screen.findByRole('button', { name: prompt }));
+      expect(screen.getByRole('textbox', { name: 'Message Cat' })).toHaveValue(prompt);
+      const sentBody: unknown = expect.objectContaining({ operation: 'send' });
+      expect(client.execute).not.toHaveBeenCalledWith(
+        expect.objectContaining({ body: sentBody }),
+        expect.anything(),
+      );
+      await user.clear(screen.getByRole('textbox', { name: 'Message Cat' }));
+    },
+  );
+
   it('removes an attached note from the list', async () => {
     client.query.mockResolvedValue({ ...base, state: 'success', messages: [], tools: [] });
     client.execute.mockResolvedValue(base);

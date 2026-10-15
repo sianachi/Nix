@@ -962,3 +962,38 @@ func TestReadViewIdentityNormalizesOnlyViewQueryObjects(t *testing.T) {
 		t.Fatal("search text was incorrectly normalized as a view query")
 	}
 }
+
+func TestReadViewAcceptsEquivalentProviderObjectEncoding(t *testing.T) {
+	native := json.RawMessage(`{"itemId":"11111111-1111-4111-8111-111111111111","query":{"viewId":"list","pageSize":25}}`)
+	encoded := json.RawMessage(`{"itemId":"11111111-1111-4111-8111-111111111111","query":"{\"viewId\":\"list\",\"pageSize\":25}"}`)
+	want, reason := flattenToolCall("nix_read_view", native)
+	if reason != "" {
+		t.Fatal(reason)
+	}
+	got, reason := flattenToolCall("nix_read_view", encoded)
+	if reason != "" || !jsonEqual(string(want), string(got)) {
+		t.Fatalf("encoded query = %s, %s; want %s", got, reason, want)
+	}
+	if reason := validateToolArguments(got); reason != "" {
+		t.Fatal(reason)
+	}
+	for _, query := range []string{"[]", "null", "42", `{"viewId":"list"} trailing`, `{"viewId":"list"} {}`} {
+		arguments, _ := json.Marshal(map[string]any{"itemId": "11111111-1111-4111-8111-111111111111", "query": query})
+		if _, reason := flattenToolCall("nix_read_view", arguments); reason == "" {
+			t.Fatalf("accepted invalid query %q", query)
+		}
+	}
+}
+
+func TestEncodedProviderObjectsStillRespectDepthAndSizeLimits(t *testing.T) {
+	for _, spec := range []string{
+		strings.Repeat(`{"nested":`, 30) + `{}` + strings.Repeat(`}`, 30),
+		`{"text":"` + strings.Repeat("x", 25000) + `"}`,
+	} {
+		arguments, _ := json.Marshal(map[string]any{"itemId": "11111111-1111-4111-8111-111111111111", "spec": spec})
+		flat, reason := flattenToolCall("nix_add_view", arguments)
+		if reason == "" && validateToolArguments(flat) == "" {
+			t.Fatal("accepted encoded spec beyond the same native limits")
+		}
+	}
+}
