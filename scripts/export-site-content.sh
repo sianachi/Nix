@@ -31,7 +31,7 @@ nixctl() {
       rm -f "$err"
       return 0
     fi
-    grep -qE 'rate limited|could not complete CLI authentication' "$err" && [ "$attempt" -lt 6 ] || break
+    grep -qE 'rate limited|could not complete CLI authentication|refused to protect the service' "$err" && [ "$attempt" -lt 6 ] || break
     echo "export-site-content: Core throttled nixctl, retrying in 60s" >&2
     sleep 60
   done
