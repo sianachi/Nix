@@ -43,7 +43,6 @@ nixctl() {
 # name|workspace id|site root item id
 sites=(
   'nix-docs|01a130ad-536c-7c8b-98af-f5dccb9d457a|01a130b0-044c-7d5d-a61d-0eab85259679'
-  'portfolio|01a130ad-5579-7ec9-b4f5-b7e1c50082f2|01a130b1-da7a-7031-840f-719bb4a23600'
 )
 
 slug() {
