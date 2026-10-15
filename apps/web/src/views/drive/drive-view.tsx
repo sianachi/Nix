@@ -1,7 +1,6 @@
-import { files as fileResources, isNixApiError, items as coreItems } from '@nix/api-client';
+import { files as fileResources, isNixApiError } from '@nix/api-client';
 import {
   Button,
-  Checkbox,
   ContextMenu,
   Icon,
   Text,
@@ -15,11 +14,11 @@ import {
   ArrowUp,
   ChevronsUpDown,
   Download,
-  FolderInput,
   Upload,
   type LucideIcon,
 } from 'lucide-react';
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -35,14 +34,15 @@ import { useWorkspace } from '../../workspaces/workspace-context';
 import { useWorkspaceTree } from '../../items/use-workspace-tree';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
 import { formatBytes, fileKindLabel, formatWhen } from '../../files/file-facts';
-import { useItemOpenProps } from '../core/item-open-click';
+import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
 import { CreateItemControl } from '../core/create-item-control';
 import { useItemContextActions } from '../core/use-item-context-actions';
+import { rowGestures } from '../core/use-item-selection';
+import { SelectCheckbox } from '../core/select-checkbox';
 import type { Item } from '../core/container-model';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { driveBodyKindLabel, driveKindIcon, isDriveContainerCandidate } from './drive-icons';
 import { DriveFileThumbnail } from './drive-file-thumbnail';
-import { DriveMoveDialog, type DriveMoveDestination } from './drive-move-dialog';
 import { useDriveFileInfo, type DriveFileInfo } from './use-drive-file-info';
 
 /**
@@ -119,6 +119,8 @@ export function DriveView(props: ViewRendererProps): ReactNode {
   const { workspaceId } = useWorkspace();
   const tree = useWorkspaceTree();
   const itemActions = useItemContextActions(onOpen);
+  const selection = useOptionalItemSelection();
+  const setTrayActions = selection?.setTrayActions;
 
   const layout = resolveLayout(view.layout);
 
@@ -130,43 +132,11 @@ export function DriveView(props: ViewRendererProps): ReactNode {
   // scope for landing the kind itself.
   const [sort, setSort] = useState<SortState>({ key: 'name', direction: 'ascending' });
 
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [lastClicked, setLastClicked] = useState<string | null>(null);
-  const [moveOpen, setMoveOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [dropTargetRoot, setDropTargetRoot] = useState(false);
   const [dropTargetRow, setDropTargetRow] = useState<string | null>(null);
   const [dragging, setDragging] = useState<readonly string[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // The container's own parent, for the Move dialog's "Parent" destination. `undefined` while it
-  // is unknown - either still being asked for, or this drive is drawing a workspace root, which
-  // has no parent to offer.
-  const [parent, setParent] = useState<{ readonly id: string | null } | undefined>(undefined);
-  useEffect(() => {
-    let cancelled = false;
-    // Deferred a microtask, the same way `use-bookmarks.ts`'s loader defers its own first read:
-    // setting state synchronously in an effect body is the cascading render
-    // `react-hooks/set-state-in-effect` exists to stop.
-    queueMicrotask(() => {
-      if (cancelled) return;
-      setParent(undefined);
-    });
-
-    if (container.itemId === null) return;
-    const itemId = container.itemId;
-    client
-      .query(coreItems.itemById(itemId))
-      .then((item) => {
-        if (!cancelled) setParent({ id: item.parentId });
-      })
-      .catch(() => {
-        if (!cancelled) setParent(undefined);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client, container.itemId]);
 
   const fileItemIds = useMemo(
     () => container.children.filter((item) => item.type === 'file').map((item) => item.id),
@@ -179,14 +149,6 @@ export function DriveView(props: ViewRendererProps): ReactNode {
     [container.children, sort, fileInfo],
   );
 
-  const destinations: readonly DriveMoveDestination[] = useMemo(
-    () =>
-      container.children
-        .filter(isDriveContainerCandidate)
-        .map((item) => ({ id: item.id, title: item.title })),
-    [container.children],
-  );
-
   function changeSort(key: SortKey): void {
     setSort((current) =>
       current.key === key
@@ -195,76 +157,62 @@ export function DriveView(props: ViewRendererProps): ReactNode {
     );
   }
 
-  function toggleSelect(itemId: string, shiftKey: boolean): void {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (shiftKey && lastClicked !== null) {
-        const ids = rows.map((row) => row.id);
-        const from = ids.indexOf(lastClicked);
-        const to = ids.indexOf(itemId);
-        if (from !== -1 && to !== -1) {
-          const [start, end] = from < to ? [from, to] : [to, from];
-          for (const id of ids.slice(start, end + 1)) next.add(id);
-          return next;
+  // The tray-registration effect needs a stable callback to avoid updating on every render.
+  const downloadItems = useCallback(
+    async (items: readonly Item[]): Promise<void> => {
+      const files = items.filter((row) => row.type === 'file');
+      const skipped = items.length - files.length;
+      setStatus(
+        `Downloading ${String(files.length)} ${files.length === 1 ? 'file' : 'files'}${
+          skipped > 0
+            ? `; skipping ${String(skipped)} non-file ${skipped === 1 ? 'item' : 'items'}`
+            : ''
+        }…`,
+      );
+      let downloaded = 0;
+      for (const item of files) {
+        try {
+          // Zipping the selection through the export worker is out of scope here; each file is
+          // downloaded on its own, one at a time, exactly as opening the file page and clicking
+          // Download would do.
+          const { blob } = await fileResources.fetchFileContent(client, item.id);
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = item.title || 'download';
+          anchor.click();
+          URL.revokeObjectURL(url);
+          downloaded += 1;
+        } catch {
+          // One file's refusal must not stop the rest of the selection from downloading, but the
+          // announcement below has to count it as failed rather than claim it succeeded.
         }
       }
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
-      return next;
-    });
-    setLastClicked(itemId);
-  }
+      setStatus(null);
+      const failed = files.length - downloaded;
+      announce(
+        failed === 0
+          ? `${String(downloaded)} ${downloaded === 1 ? 'file' : 'files'} downloaded.`
+          : `${String(downloaded)} of ${String(files.length)} ${
+              files.length === 1 ? 'file' : 'files'
+            } downloaded; ${String(failed)} could not be downloaded.`,
+      );
+    },
+    [client],
+  );
 
-  const allSelected = rows.length > 0 && rows.every((row) => selected.has(row.id));
-  function toggleSelectAll(): void {
-    setSelected(allSelected ? new Set() : new Set(rows.map((row) => row.id)));
-  }
-
-  async function downloadItems(items: readonly Item[]): Promise<void> {
-    const files = items.filter((row) => row.type === 'file');
-    const skipped = items.length - files.length;
-    setStatus(
-      `Downloading ${String(files.length)} ${files.length === 1 ? 'file' : 'files'}${
-        skipped > 0
-          ? `; skipping ${String(skipped)} non-file ${skipped === 1 ? 'item' : 'items'}`
-          : ''
-      }…`,
-    );
-    let downloaded = 0;
-    for (const item of files) {
-      try {
-        // Zipping the selection through the export worker is out of scope here; each file is
-        // downloaded on its own, one at a time, exactly as opening the file page and clicking
-        // Download would do.
-        const { blob } = await fileResources.fetchFileContent(client, item.id);
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = item.title || 'download';
-        anchor.click();
-        URL.revokeObjectURL(url);
-        downloaded += 1;
-      } catch {
-        // One file's refusal must not stop the rest of the selection from downloading, but the
-        // announcement below has to count it as failed rather than claim it succeeded.
-      }
-    }
-    setStatus(null);
-    const failed = files.length - downloaded;
-    announce(
-      failed === 0
-        ? `${String(downloaded)} ${downloaded === 1 ? 'file' : 'files'} downloaded.`
-        : `${String(downloaded)} of ${String(files.length)} ${
-            files.length === 1 ? 'file' : 'files'
-          } downloaded; ${String(failed)} could not be downloaded.`,
-    );
-  }
+  useEffect(() => {
+    if (setTrayActions === undefined) return;
+    setTrayActions(<DriveDownloadAction rows={rows} onDownload={downloadItems} />);
+    return () => {
+      setTrayActions(null);
+    };
+  }, [downloadItems, rows, setTrayActions]);
 
   /**
    * Moves every id to `targetParentId`, one at a time, and takes `tree.move`'s refusal seriously
-   * rather than assuming success: an id `tree.move` refuses stays selected, so the person can see
-   * exactly what did not move and retry it, and the refusal reason is shown rather than swallowed
-   * into a blanket "N items moved".
+   * rather than assuming success: the refusal reason is shown rather than swallowed into a blanket
+   * "N items moved".
    */
   async function moveItems(ids: readonly string[], targetParentId: string | null): Promise<void> {
     const refusals = new Map<string, string>();
@@ -274,11 +222,9 @@ export function DriveView(props: ViewRendererProps): ReactNode {
     }
     await container.reload();
     if (refusals.size === 0) {
-      setSelected(new Set());
       announce(`${String(ids.length)} ${ids.length === 1 ? 'item' : 'items'} moved.`);
       return;
     }
-    setSelected(new Set(refusals.keys()));
     const moved = ids.length - refusals.size;
     const firstRefusal = refusals.values().next().value ?? 'the move was refused';
     const message = `${String(moved)} of ${String(ids.length)} ${
@@ -286,11 +232,6 @@ export function DriveView(props: ViewRendererProps): ReactNode {
     } moved; ${String(refusals.size)} refused: ${firstRefusal}`;
     setStatus(message);
     announce(message);
-  }
-
-  async function moveSelected(targetParentId: string | null): Promise<void> {
-    setMoveOpen(false);
-    await moveItems([...selected], targetParentId);
   }
 
   /**
@@ -381,7 +322,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
   }
 
   function onRowDragStart(item: Item, event: DragEvent<HTMLElement>): void {
-    const ids = selected.has(item.id) ? [...selected] : [item.id];
+    const ids = selection?.selected.has(item.id) === true ? [...selection.selected] : [item.id];
     setDragging(ids);
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', ids.join(','));
@@ -409,13 +350,6 @@ export function DriveView(props: ViewRendererProps): ReactNode {
 
   function rowContextMenu(item: Item): MenuEntry[] {
     return itemActions(item.id, item.title, [
-      {
-        kind: 'action',
-        label: selected.has(item.id) ? 'Deselect' : 'Select',
-        onSelect: () => {
-          toggleSelect(item.id, false);
-        },
-      },
       ...(item.type === 'file'
         ? [
             {
@@ -427,15 +361,6 @@ export function DriveView(props: ViewRendererProps): ReactNode {
             },
           ]
         : []),
-      {
-        kind: 'action',
-        label: 'Move to…',
-        icon: FolderInput,
-        onSelect: () => {
-          setSelected(new Set([item.id]));
-          setMoveOpen(true);
-        },
-      },
     ]);
   }
 
@@ -503,51 +428,15 @@ export function DriveView(props: ViewRendererProps): ReactNode {
         />
       ) : (
         <>
-          {selected.size > 0 ? (
-            <div
-              role="toolbar"
-              aria-label="Selected items"
-              className={cn(blueprintFrame, 'flex flex-wrap items-center gap-3 bg-surface p-2')}
-            >
-              <Text variant="body" as="span">
-                {`${String(selected.size)} selected`}
-              </Text>
-              <Button
-                variant="secondary"
-                onClick={() => void downloadItems(rows.filter((row) => selected.has(row.id)))}
-              >
-                <Icon icon={Download} size="sm" />
-                Download
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setMoveOpen(true);
-                }}
-              >
-                <Icon icon={FolderInput} size="sm" />
-                Move to…
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setSelected(new Set());
-                }}
-              >
-                Clear
-              </Button>
-            </div>
-          ) : null}
+          <ShownItems ids={rows.map((row) => row.id)} />
 
           {layout === 'grid' ? (
             <DriveGrid
               rows={rows}
               fileInfo={fileInfo}
-              selected={selected}
               dropTargetRow={dropTargetRow}
               onOpen={onOpen}
               rowContextMenu={rowContextMenu}
-              onToggleSelect={toggleSelect}
               onDragStart={onRowDragStart}
               onDragOver={onRowDragOver}
               onDragEnd={onRowDragEnd}
@@ -558,13 +447,9 @@ export function DriveView(props: ViewRendererProps): ReactNode {
               rows={rows}
               fileInfo={fileInfo}
               sort={sort}
-              selected={selected}
-              allSelected={allSelected}
               dropTargetRow={dropTargetRow}
               onOpen={onOpen}
               rowContextMenu={rowContextMenu}
-              onToggleSelect={toggleSelect}
-              onToggleSelectAll={toggleSelectAll}
               onChangeSort={changeSort}
               onDragStart={onRowDragStart}
               onDragOver={onRowDragOver}
@@ -579,19 +464,6 @@ export function DriveView(props: ViewRendererProps): ReactNode {
           </div>
         </>
       )}
-
-      <DriveMoveDialog
-        open={moveOpen}
-        onClose={() => {
-          setMoveOpen(false);
-        }}
-        selectedCount={selected.size}
-        destinations={destinations.filter((destination) => !selected.has(destination.id))}
-        parent={parent}
-        onMove={(targetParentId) => {
-          void moveSelected(targetParentId);
-        }}
-      />
     </div>
   );
 }
@@ -599,11 +471,9 @@ export function DriveView(props: ViewRendererProps): ReactNode {
 interface RowsProps {
   readonly rows: readonly Item[];
   readonly fileInfo: ReadonlyMap<string, DriveFileInfo>;
-  readonly selected: ReadonlySet<string>;
   readonly dropTargetRow: string | null;
   readonly onOpen: (itemId: string) => void;
   readonly rowContextMenu: (item: Item) => MenuEntry[];
-  readonly onToggleSelect: (itemId: string, shiftKey: boolean) => void;
   readonly onDragStart: (item: Item, event: DragEvent<HTMLElement>) => void;
   readonly onDragOver: (item: Item, event: DragEvent<HTMLElement>) => void;
   readonly onDragEnd: () => void;
@@ -611,31 +481,24 @@ interface RowsProps {
 }
 
 function DriveTable(
-  props: RowsProps & {
-    readonly sort: SortState;
-    readonly allSelected: boolean;
-    readonly onToggleSelectAll: () => void;
-    readonly onChangeSort: (key: SortKey) => void;
-  },
+  props: RowsProps & { readonly sort: SortState; readonly onChangeSort: (key: SortKey) => void },
 ): ReactNode {
   const {
     rows,
     fileInfo,
     sort,
-    selected,
-    allSelected,
     dropTargetRow,
     onOpen,
     rowContextMenu,
-    onToggleSelect,
-    onToggleSelectAll,
     onChangeSort,
     onDragStart,
     onDragOver,
     onDragEnd,
     onDrop,
   } = props;
-  const openProps = useItemOpenProps(onOpen);
+  const selection = useOptionalItemSelection();
+  const openBeside = selection?.openBeside;
+  const order = rows.map((item) => item.id);
 
   return (
     <div className="min-w-0 overflow-x-auto">
@@ -644,11 +507,7 @@ function DriveTable(
         <thead>
           <tr>
             <th scope="col" className="w-(--control-lg) border-b border-divider p-2">
-              <Checkbox
-                checked={allSelected}
-                onChange={onToggleSelectAll}
-                aria-label="Select all rows"
-              />
+              {selection === null ? null : <Text variant="kicker">Select</Text>}
             </th>
             <SortableHeader label="Name" columnKey="name" sort={sort} onChangeSort={onChangeSort} />
             {/* Kind and Modified are context, not identity - on a phone-width table that scrolls
@@ -683,7 +542,20 @@ function DriveTable(
           {rows.map((item) => {
             const info = fileInfo.get(item.id);
             const RowIcon = driveKindIcon(item);
-            const isSelected = selected.has(item.id);
+            const isSelected = selection?.selected.has(item.id) === true;
+            const openProps = rowGestures(
+              selection,
+              item.id,
+              order,
+              () => {
+                onOpen(item.id);
+              },
+              openBeside === undefined
+                ? undefined
+                : () => {
+                    openBeside(item.id);
+                  },
+            );
             return (
               <ContextMenu
                 key={item.id}
@@ -705,24 +577,18 @@ function DriveTable(
                       onDrop(item, event);
                     }}
                     className={cn(
+                      'group',
                       isSelected && 'bg-accent/10',
                       dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
                     )}
                   >
                     <td className="border-b border-divider p-2">
-                      <Checkbox
-                        checked={isSelected}
-                        onClick={(event) => {
-                          onToggleSelect(item.id, event.shiftKey);
-                        }}
-                        onChange={() => undefined}
-                        aria-label={`Select ${item.title || 'Untitled'}`}
-                      />
+                      <SelectCheckbox item={item} />
                     </td>
                     <td className="border-b border-divider p-2">
                       <button
                         type="button"
-                        {...openProps(item.id)}
+                        {...openProps}
                         className={cn(
                           'flex min-h-(--control-sm) w-full min-w-0 items-center gap-2 text-left pointer-coarse:min-h-(--control-lg)',
                           focusRing,
@@ -829,17 +695,17 @@ function DriveGrid(props: RowsProps): ReactNode {
   const {
     rows,
     fileInfo,
-    selected,
     dropTargetRow,
     onOpen,
     rowContextMenu,
-    onToggleSelect,
     onDragStart,
     onDragOver,
     onDragEnd,
     onDrop,
   } = props;
-  const openProps = useItemOpenProps(onOpen);
+  const selection = useOptionalItemSelection();
+  const openBeside = selection?.openBeside;
+  const order = rows.map((item) => item.id);
 
   return (
     // eslint-disable-next-line jsx-a11y/no-redundant-roles -- Tailwind removes the list style, and with it this implicit role in WebKit.
@@ -851,7 +717,20 @@ function DriveGrid(props: RowsProps): ReactNode {
       {rows.map((item) => {
         const info = fileInfo.get(item.id);
         const RowIcon = driveKindIcon(item);
-        const isSelected = selected.has(item.id);
+        const isSelected = selection?.selected.has(item.id) === true;
+        const openProps = rowGestures(
+          selection,
+          item.id,
+          order,
+          () => {
+            onOpen(item.id);
+          },
+          openBeside === undefined
+            ? undefined
+            : () => {
+                openBeside(item.id);
+              },
+        );
         return (
           <ContextMenu
             key={item.id}
@@ -874,20 +753,12 @@ function DriveGrid(props: RowsProps): ReactNode {
                 }}
                 className={cn(
                   blueprintFrame,
-                  'relative flex min-w-0 flex-col items-center gap-2 bg-surface p-3',
+                  'group relative flex min-w-0 flex-col items-center gap-2 bg-surface p-3',
                   isSelected && 'bg-accent/10',
                   dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
                 )}
               >
-                <Checkbox
-                  checked={isSelected}
-                  onClick={(event) => {
-                    onToggleSelect(item.id, event.shiftKey);
-                  }}
-                  onChange={() => undefined}
-                  aria-label={`Select ${item.title || 'Untitled'}`}
-                  className="self-start"
-                />
+                <SelectCheckbox item={item} className="self-start" />
                 {isFileRow(item) ? (
                   <DriveFileThumbnail
                     item={item}
@@ -900,7 +771,7 @@ function DriveGrid(props: RowsProps): ReactNode {
                 )}
                 <button
                   type="button"
-                  {...openProps(item.id)}
+                  {...openProps}
                   className={cn('w-full min-w-0 text-center', focusRing)}
                 >
                   <Text
@@ -925,5 +796,27 @@ function DriveGrid(props: RowsProps): ReactNode {
         );
       })}
     </ul>
+  );
+}
+
+function DriveDownloadAction({
+  rows,
+  onDownload,
+}: {
+  readonly rows: readonly Item[];
+  readonly onDownload: (items: readonly Item[]) => Promise<void>;
+}): ReactNode {
+  const selection = useOptionalItemSelection();
+  if (selection === null) return null;
+  return (
+    <Button
+      variant="secondary"
+      onClick={() => {
+        void onDownload(rows.filter((row) => selection.selected.has(row.id)));
+      }}
+    >
+      <Icon icon={Download} size="sm" />
+      Download
+    </Button>
   );
 }

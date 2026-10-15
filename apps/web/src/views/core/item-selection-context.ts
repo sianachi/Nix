@@ -17,6 +17,8 @@ export interface ItemSelectionContextValue {
   readonly show: (ids: readonly string[]) => void;
   /** Opens beside, when the surface around the view can; an Alt-click does this. */
   readonly openBeside?: ((itemId: string) => void) | undefined;
+  /** Per-view controls appended to the shared selection tray. */
+  readonly setTrayActions?: ((actions: ReactNode) => void) | undefined;
 }
 
 export const ItemSelectionContext = createContext<ItemSelectionContextValue | null>(null);

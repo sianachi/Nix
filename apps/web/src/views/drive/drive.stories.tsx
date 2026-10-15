@@ -3,8 +3,8 @@ import { within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 
 import { storyContainer, storyItem } from '../core/story-container';
+import { ContainerView } from '../core/container-view';
 import { RecordViewStory, recordStoryView, STORY_FILE } from '../list/record-view-story';
-import { DriveView } from './drive-view';
 import { DriveMoveDialog } from './drive-move-dialog';
 
 export default { title: 'Nix/Views/Drive', parameters: { layout: 'padded' } };
@@ -17,7 +17,7 @@ function Example({
 }): ReactNode {
   return (
     <RecordViewStory>
-      <DriveView
+      <ContainerView
         container={storyContainer(
           [
             storyItem('a', longNames ? 'WeekendPlan'.repeat(12) : 'Ideas for a quiet weekend', 1),
@@ -74,12 +74,14 @@ export const LongMoveDestination = {
     />
   ),
 };
-export const MoveDialog = {
+/** Exercises the shared selection tray so the browser story's axe pass sees its controls. */
+export const Selection = {
   ...Files,
   play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole('checkbox', { name: 'Select Reading list.txt' }));
-    await userEvent.click(canvas.getByRole('button', { name: 'Move to…' }));
+    canvas.getByRole('toolbar', { name: 'Selected items' });
+    canvas.getByRole('button', { name: 'Download' });
   },
 };
 export const RowActions = {
@@ -92,5 +94,5 @@ export const RowActions = {
 export const DarkFiles = { ...Files, globals: { ground: 'dark' } };
 export const DarkGrid = { ...Grid, globals: { ground: 'dark' } };
 export const DarkNarrowFiles = { ...NarrowFiles, globals: { ground: 'dark' } };
-export const DarkMoveDialog = { ...MoveDialog, globals: { ground: 'dark' } };
+export const DarkSelection = { ...Selection, globals: { ground: 'dark' } };
 export const DarkRowActions = { ...RowActions, globals: { ground: 'dark' } };
