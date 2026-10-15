@@ -72,6 +72,7 @@ import {
 } from './commands/calendar-sync.ts';
 import { readStdin } from './commands/shared.ts';
 import { readNote, writeNote } from './commands/notes.ts';
+import { readCanvas, writeCanvas } from './commands/canvas.ts';
 import {
   listHistory,
   listHistoryVersions,
@@ -1110,6 +1111,27 @@ export function buildProgram(): Command {
       const flags = globalFlags(command);
       await run(() =>
         writeNote(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)),
+      );
+    });
+
+  const canvas = program.command('canvas').description("A canvas's durable elements, as JSON.");
+
+  canvas
+    .command('read <itemId>')
+    .description('Read a canvas scene, including element metadata and deletion tombstones.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readCanvas(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  canvas
+    .command('write <itemId>')
+    .description('Merge JSON scene elements from --file or stdin; omitted elements are retained.')
+    .option('--file <path>', 'read the scene from this file instead of stdin')
+    .action(async (itemId: string, options: { file?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        writeCanvas(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)),
       );
     });
 
