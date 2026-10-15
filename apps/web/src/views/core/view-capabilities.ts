@@ -37,7 +37,7 @@ export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
   checklist: ACTIONS,
   board: { ...ACTIONS, drag: 'group-value' },
   matrix: { ...ACTIONS, drag: 'row-col-values' },
-  calendar: { ...ACTIONS, select: false, drag: 'date' },
+  calendar: { ...ACTIONS, drag: 'date' },
   timeline: { ...ACTIONS, select: false },
   outline: { ...ACTIONS, select: false, drag: 'parent-order' },
   drive: { ...ACTIONS, rename: false },
