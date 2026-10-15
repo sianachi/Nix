@@ -11,7 +11,7 @@ import {
   togglePin,
 } from './arrangement';
 import { useWorkspaceArrangement } from './use-workspace-arrangement';
-import { useWorkspace } from './workspace-context';
+import { useAccessibleWorkspaces } from './workspace-context';
 
 /**
  * The person's own workspace groups and pins (requirements 4 and 5): one row per workspace with a
@@ -21,10 +21,21 @@ import { useWorkspace } from './workspace-context';
  */
 const NEW_GROUP = '__new__';
 
-export function WorkspaceGroupsSection(): ReactNode {
-  const { workspaces } = useWorkspace();
+export function WorkspaceGroupsSection({
+  groupId,
+  headingLevel,
+}: {
+  readonly groupId?: string;
+  readonly headingLevel?: 'h2' | 'h3';
+}): ReactNode {
+  const { workspaces } = useAccessibleWorkspaces();
   const active = workspaces.filter((entry) => entry.lifecycleState === 'active');
   const { arrangement, loading, saving, error, save } = useWorkspaceArrangement();
+  const selectedGroup = arrangement.groups.find((group) => group.id === groupId);
+  const managedGroups =
+    groupId === undefined
+      ? arrangement.groups
+      : arrangement.groups.filter((group) => group.id === groupId);
   const [creatingFor, setCreatingFor] = useState<string | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const groupOf = (workspaceId: string): string =>
@@ -44,6 +55,10 @@ export function WorkspaceGroupsSection(): ReactNode {
     });
   };
 
+  if (groupId !== undefined && !loading && error === null && selectedGroup === undefined) {
+    return <Text role="status">This workspace group no longer exists.</Text>;
+  }
+
   return (
     <section
       aria-labelledby="workspace-groups-heading"
@@ -51,8 +66,12 @@ export function WorkspaceGroupsSection(): ReactNode {
       className="flex flex-col gap-2"
     >
       <div className="flex flex-col gap-1">
-        <Text id="workspace-groups-heading" variant="h4" as="h3">
-          Workspace groups and pins
+        <Text
+          id="workspace-groups-heading"
+          variant="h4"
+          as={headingLevel ?? (groupId === undefined ? 'h3' : 'h2')}
+        >
+          {selectedGroup?.name ?? 'Workspace groups and pins'}
         </Text>
         <Text variant="note" tone="muted">
           Only changes your menu. Removing a group keeps its workspaces.
@@ -149,15 +168,17 @@ export function WorkspaceGroupsSection(): ReactNode {
             })}
           </ul>
 
-          {arrangement.groups.length === 0 ? null : (
-            <details className="text-sm">
+          {managedGroups.length === 0 ? null : (
+            <details open={groupId !== undefined ? true : undefined} className="text-sm">
               <summary className="cursor-pointer py-1">Manage groups</summary>
               <ul aria-label="Workspace groups" className="flex flex-col gap-1 pt-1">
-                {arrangement.groups.map((group, index) => (
+                {managedGroups.map((group) => (
                   <li key={group.id} className="flex items-center gap-1">
                     <Input
                       aria-label={`Name of group ${group.name}`}
                       className="min-w-0 flex-1"
+                      key={group.name}
+                      disabled={saving}
                       defaultValue={group.name}
                       maxLength={80}
                       onBlur={(event) => {
@@ -170,7 +191,7 @@ export function WorkspaceGroupsSection(): ReactNode {
                     <Button
                       variant="icon"
                       aria-label={`Move ${group.name} up`}
-                      disabled={saving || index === 0}
+                      disabled={saving || arrangement.groups[0]?.id === group.id}
                       onClick={() => {
                         void save(moveGroup(arrangement, group.id, -1));
                       }}
@@ -180,7 +201,7 @@ export function WorkspaceGroupsSection(): ReactNode {
                     <Button
                       variant="icon"
                       aria-label={`Move ${group.name} down`}
-                      disabled={saving || index === arrangement.groups.length - 1}
+                      disabled={saving || arrangement.groups.at(-1)?.id === group.id}
                       onClick={() => {
                         void save(moveGroup(arrangement, group.id, 1));
                       }}

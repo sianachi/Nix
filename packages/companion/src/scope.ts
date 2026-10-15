@@ -34,6 +34,7 @@ const SCOPED_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
   'update_view',
   'create_entries',
   'add_fields',
+  'edit_fields',
   'edit_form',
   'set_recurrence',
 ]);

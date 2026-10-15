@@ -1,3 +1,4 @@
+import { FieldSourceEditor } from '../../properties/field-source-editor';
 import {
   FORMULA_FUNCTION_NAMES,
   PROPERTY_FORMULA_LIMITS,
@@ -177,6 +178,11 @@ export function SchemaEditor({
   }
 
   async function save(): Promise<void> {
+    const pendingSource = draft.find((property) => property.choiceSource?.itemId === '');
+    if (pendingSource) {
+      setError(`Choose a source note for ${pendingSource.label} before saving.`);
+      return;
+    }
     setSaving(true);
     setError(null);
 
@@ -234,7 +240,20 @@ export function SchemaEditor({
                       // that it is frozen, because values are stored under it and changing it
                       // would orphan every one of them.
                       const isNew = !declared.some((own) => own.key === property.key);
-                      update(index, isNew ? { label, key: keyFor(label) } : { label });
+                      const key = isNew ? keyFor(label) : property.key;
+                      update(
+                        index,
+                        isNew
+                          ? {
+                              label,
+                              key,
+                              ...(property.choiceSource?.itemId === null &&
+                              property.choiceSource.field === property.key
+                                ? { choiceSource: { itemId: null, field: key } }
+                                : {}),
+                            }
+                          : { label },
+                      );
                     }}
                   />
                 )}
@@ -252,6 +271,13 @@ export function SchemaEditor({
                         // Options belong only to the select types, and the server refuses a schema
                         // where anything else carries them.
                         options: hasOptions(type) ? property.options : [],
+                        ...(property.choiceSource
+                          ? {
+                              choiceSource: ['text', 'select', 'multi_select'].includes(type)
+                                ? property.choiceSource
+                                : null,
+                            }
+                          : {}),
 
                         // Same rule for the expression, and the same refusal - but this one also
                         // matters after the fact: an expression left on a property retyped to text
@@ -313,6 +339,16 @@ export function SchemaEditor({
                   />
                 )}
               </Field>
+            ) : null}
+
+            {['text', 'select', 'multi_select'].includes(property.type) ? (
+              <FieldSourceEditor
+                property={property}
+                fields={inherit ? [...draft, ...inheritedOnly] : draft}
+                onChange={(choiceSource) => {
+                  update(index, { choiceSource });
+                }}
+              />
             ) : null}
 
             {property.type === 'rollup' ? (

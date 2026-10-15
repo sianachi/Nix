@@ -41,6 +41,13 @@ export interface ViewKindRule {
  */
 export const VIEW_KIND_RULES = [
   {
+    kind: 'chat',
+    label: 'Chat',
+    requires: null,
+    optional: [],
+    description: 'Message children using the chat message schema.',
+  },
+  {
     kind: 'list',
     label: 'List',
     requires: null,
@@ -283,13 +290,13 @@ export const HABIT = {
 
 /**
  * The four things no pet operation may ever do, regardless of mode - enforced by construction
- * (no operation the pet can call publishes a link, deletes permanently, retypes or removes a
+ * (no operation the pet can call publishes a link, deletes permanently, removes a
  * field, or deletes a view), and repeated here only so the model is told, not asked to infer it.
  */
 export const NEVER_OPERATIONS = [
   'Publish a public link',
   'Delete anything permanently',
-  'Remove or retype a field',
+  'Remove a field',
   'Delete a view',
 ] as const satisfies readonly string[];
 
@@ -310,6 +317,7 @@ export const STRUCTURE_OPERATIONS = [
   'add_view',
   'create_entries',
   'add_fields',
+  'edit_fields',
   'edit_form',
   'update_view',
   'set_recurrence',
@@ -344,6 +352,7 @@ export const WORKSPACE_OPERATIONS = [
   'add_view',
   'create_entries',
   'add_fields',
+  'edit_fields',
   'edit_form',
   'update_view',
   'set_recurrence',

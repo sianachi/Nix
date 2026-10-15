@@ -13,6 +13,7 @@ using Nix.Features.BrowserAuth;
 using Nix.Features.Calendar;
 using Nix.Features.Canvas;
 using Nix.Features.Charts;
+using Nix.Features.Conversations;
 using Nix.Features.CurrentUser;
 using Nix.Features.DocumentImports;
 using Nix.Features.Exports;
@@ -80,6 +81,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(SearchJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(CanvasJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(PetJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(ConversationJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(NotificationsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(AutomationJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(Nix.Features.CalendarSync.CalendarSyncJsonContext.Default);
@@ -141,6 +143,7 @@ builder.Services
 builder.Services.AddSingleton<OidcMetadataClient>();
 builder.Services.AddSingleton<NotificationWatchGate>();
 builder.Services.AddSingleton<Nix.Features.Pets.PetInlineLimiter>();
+builder.Services.AddHttpClient<ConversationBodyReader>();
 builder.Services.AddHttpClient<PetWorkerClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler { AllowAutoRedirect = false });
 
@@ -558,6 +561,9 @@ app.UseWhen(
             branch.UseWhen(
                 static context =>
                     !context.Request.Path.StartsWithSegments(
+                        "/internal/conversations",
+                        StringComparison.OrdinalIgnoreCase)
+                    && !context.Request.Path.StartsWithSegments(
                         "/internal/worker-dispatch",
                         StringComparison.OrdinalIgnoreCase)
                     && !context.Request.Path.StartsWithSegments(
@@ -596,6 +602,7 @@ app.MapInternalEndpoints();
 app.MapSearchEndpoints();
 app.MapCanvasEndpoints();
 app.MapPetEndpoints();
+app.MapConversationEndpoints();
 app.MapNotificationEndpoints();
 app.MapAutomationEndpoints();
 Nix.Features.CalendarSync.CalendarSyncEndpoints.MapCalendarSyncEndpoints(app);

@@ -45,6 +45,7 @@ public sealed class TemplateMergePlanner(TemplateDefinitionValidator validator)
             if (existing.Type != incoming.Type
                 || existing.Required != incoming.Required
                 || !string.Equals(existing.Expression, incoming.Expression, StringComparison.Ordinal)
+                || existing.ChoiceSource != incoming.ChoiceSource
                 || existing.Aggregate != incoming.Aggregate
                 || !string.Equals(existing.Source, incoming.Source, StringComparison.Ordinal)
                 || !existing.Options.SequenceEqual(incoming.Options, StringComparer.Ordinal))

@@ -33,7 +33,22 @@ export const saveArrangement = (
     schema: workspaceArrangementResponseSchema,
     body: {
       expectedRevision,
-      arrangement: value,
+      arrangement: {
+        pinnedWorkspaceIds: value.pinnedWorkspaceIds,
+        groups: value.groups.map(
+          ({
+            conversationItemIds,
+            lastDestinationWorkspaceId,
+            lastDestinationParentId,
+            ...group
+          }) => ({
+            ...group,
+            ...(conversationItemIds === undefined ? {} : { conversationItemIds }),
+            ...(lastDestinationWorkspaceId === undefined ? {} : { lastDestinationWorkspaceId }),
+            ...(lastDestinationParentId === undefined ? {} : { lastDestinationParentId }),
+          }),
+        ),
+      },
     } satisfies components['schemas']['SaveWorkspaceArrangementRequest'],
     invalidates: [arrangementKey],
   });

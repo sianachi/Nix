@@ -23,6 +23,11 @@ import { CreationStudioPage } from './views/wizard/creation-studio-page';
 import { RequireSession } from './shell/require-session';
 import { AppShell } from './shell/app-shell';
 import { LegacyWorkspaceRedirect, WorkspaceGate } from './workspaces/workspace-gate';
+import {
+  WorkspaceGroupPage,
+  WorkspaceGroupsPage,
+  LegacyWorkspaceGroupRedirect,
+} from './workspaces/workspace-group-page';
 import { ArchivedWorkspacesPage } from './workspaces/archived-workspaces-page';
 import { AccessibleWorkspacesProvider } from './workspaces/workspace-context';
 import { PetCompanion } from './pets/pet-companion';
@@ -81,6 +86,8 @@ export function App(): ReactElement {
               <Route element={<RequireSession />}>
                 <Route path="/offline" element={<OfflineNotesPage />} />
                 <Route element={<AccessibleWorkspacesProvider />}>
+                  <Route path="/workspaces/groups" element={<WorkspaceGroupsPage />} />
+                  <Route path="/workspaces/groups/:groupId" element={<WorkspaceGroupPage />} />
                   <Route path="/workspaces/archived" element={<ArchivedWorkspacesPage />} />
                   <Route
                     path="/w/:workspaceId"
@@ -136,6 +143,10 @@ export function App(): ReactElement {
                     lazy-loaded, for the rail destinations' reason - the screen is small, and a
                     Suspense boundary around nothing is a fallback that can only ever flash. */}
                     <Route path="settings" element={<SettingsPage />} />
+                    <Route
+                      path="workspace-groups/:groupId"
+                      element={<LegacyWorkspaceGroupRedirect />}
+                    />
 
                     {/* The caller's own rules in this workspace (ADR-0051 section 6). A place of its
                     own rather than a settings tab: a rule has an editor and a run log, and the

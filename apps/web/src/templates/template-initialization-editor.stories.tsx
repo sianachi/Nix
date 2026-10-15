@@ -89,6 +89,7 @@ const root: TemplateItem = {
         expression: null,
         aggregate: null,
         source: null,
+        choiceSource: null,
       },
       {
         key: 'status',
@@ -99,6 +100,7 @@ const root: TemplateItem = {
         expression: null,
         aggregate: null,
         source: null,
+        choiceSource: null,
       },
     ],
     declared: [],

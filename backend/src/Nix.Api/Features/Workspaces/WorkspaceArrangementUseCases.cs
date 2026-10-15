@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Nix.Abstractions;
+using Nix.Domain.Items;
 using Nix.Domain.Primitives;
+using Nix.Domain.Tenancy;
 using Nix.Domain.Workspaces;
 using Nix.Messaging;
 using Nix.Serialization;
@@ -43,7 +45,12 @@ public static class WorkspaceArrangementValidation
         {
             if (group is null || group.Id == Guid.Empty || !groupIds.Add(group.Id)
                 || string.IsNullOrWhiteSpace(group.Name) || group.Name.Length > MaximumNameLength
-                || group.WorkspaceIds is null || group.WorkspaceIds.Count > MaximumWorkspaces)
+                || group.WorkspaceIds is null || group.WorkspaceIds.Count > MaximumWorkspaces
+                || group.ConversationItemIds is { Count: > 200 }
+                || group.ConversationItemIds?.Any(id => id == Guid.Empty) == true
+                || group.ConversationItemIds is { } chats && chats.Distinct().Count() != chats.Count
+                || group.LastDestinationWorkspaceId == Guid.Empty || group.LastDestinationParentId == Guid.Empty
+                || group.LastDestinationParentId is not null && group.LastDestinationWorkspaceId is null)
             {
                 return false;
             }
@@ -78,7 +85,7 @@ public static class WorkspaceArrangementValidation
 }
 
 /// <summary>Reads only the session owner's arrangement.</summary>
-public sealed class GetWorkspaceArrangementHandler(IWorkspaceArrangementStore store, INixSessionContextAccessor session)
+public sealed class GetWorkspaceArrangementHandler(IWorkspaceArrangementStore store, INixSessionContextAccessor session, IItemTree? tree = null, IPermissionResolver? permissions = null)
     : IQueryHandler<GetWorkspaceArrangement, WorkspaceArrangementResponse>
 {
     /// <inheritdoc />
@@ -86,9 +93,40 @@ public sealed class GetWorkspaceArrangementHandler(IWorkspaceArrangementStore st
     {
         var context = session.Current ?? throw new InvalidOperationException("A session is required.");
         var row = await store.FindAsync(context.TenantId, context.PrincipalId, cancellationToken).ConfigureAwait(false);
-        return row is null
-            ? new(0, [], [])
-            : new(row.Revision, WorkspaceArrangementValidation.Deserialize(row.GroupsJson), row.PinnedWorkspaceIds);
+        if (row is null)
+        {
+            return new(0, [], []);
+        }
+
+        var groups = WorkspaceArrangementValidation.Deserialize(row.GroupsJson);
+        if (tree is not null && permissions is not null)
+        {
+            var filtered = new List<WorkspaceGroupDto>();
+            foreach (var group in groups)
+            {
+                var readable = new List<Guid>();
+                foreach (var id in group.ConversationItemIds ?? [])
+                {
+                    var item = await tree.FindAsync(new ItemId(id), cancellationToken).ConfigureAwait(false);
+                    if (item is not null && Nix.Features.Conversations.ConversationService.Configuration(item) is not null
+                        && await permissions.CanReadWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
+                    {
+                        readable.Add(id);
+                    }
+                }
+                var destination = group.LastDestinationWorkspaceId is { } destinationId
+                    && await permissions.CanWriteWorkspaceAsync(new WorkspaceId(destinationId), cancellationToken).ConfigureAwait(false)
+                    ? group.LastDestinationWorkspaceId : null;
+                filtered.Add(group with
+                {
+                    ConversationItemIds = readable,
+                    LastDestinationWorkspaceId = destination,
+                    LastDestinationParentId = destination is null ? null : group.LastDestinationParentId
+                });
+            }
+            groups = filtered;
+        }
+        return new(row.Revision, groups, row.PinnedWorkspaceIds);
     }
 }
 
@@ -110,7 +148,7 @@ public sealed class SaveWorkspaceArrangementHandler(IWorkspaceArrangementStore s
 
         var context = session.Current ?? throw new InvalidOperationException("A session is required.");
         var revision = command.ExpectedRevision + 1;
-        var groups = command.Arrangement.Groups.Select(group => group with { Name = group.Name.Trim() }).ToArray();
+        var groups = command.Arrangement.Groups.Select(group => group with { Name = group.Name.Trim(), ConversationItemIds = group.ConversationItemIds ?? [] }).ToArray();
         var saved = await store.SaveAsync(new WorkspaceArrangement
         {
             TenantId = context.TenantId,

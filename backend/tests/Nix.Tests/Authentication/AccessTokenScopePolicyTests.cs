@@ -31,6 +31,16 @@ public sealed class AccessTokenScopePolicyTests
     /// </remarks>
     private static readonly Dictionary<string, Requirement> ExpectedByOperation = new(StringComparer.Ordinal)
     {
+        ["CreateConversation"] = Requirement.Write,
+        ["ImportConversation"] = Requirement.Write,
+        ["ConfigureConversation"] = Requirement.Write,
+        ["GetConversation"] = Requirement.Read,
+        ["GetConversationMessages"] = Requirement.Read,
+        ["WatchConversation"] = Requirement.Read,
+        ["SendConversation"] = Requirement.InteractiveOnly,
+        ["CancelConversation"] = Requirement.Write,
+        ["ChangeConversationSources"] = Requirement.Write,
+
         // Reads: everything a read-only agent may do.
         ["GetHealthCheck"] = Requirement.Read,
         ["GetServiceStatus"] = Requirement.Read,

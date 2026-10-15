@@ -67,13 +67,14 @@ export const fieldSpecSchema = z
       .min(1)
       .max(64)
       .regex(/^[a-z][a-z0-9_]*$/)
-      // Short on purpose: the pattern already says the shape, and every byte is in the pet's
-      // tool schema budget.
-      .describe('Task key = type; else free.')
       .optional(),
     type: z.enum(FIELD_SPEC_TYPES),
     options: z.array(z.string().min(1).max(60)).min(1).max(30).optional(),
     required: z.boolean().optional(),
+    choiceSource: z
+      .object({ itemId: z.uuid().optional(), field: z.string().min(1).max(160).optional() })
+      .strict()
+      .optional(),
     formula: z.string().min(1).max(1024).optional(),
     rollup: z
       .object({
@@ -107,8 +108,15 @@ export const fieldSpecSchema = z
       });
     }
 
+    if (field.choiceSource && !['text', 'select', 'multi_select'].includes(field.type)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['choiceSource'],
+        message: 'Only text and choice fields can have a choice source.',
+      });
+    }
     const takesOptions = field.type === 'select' || field.type === 'multi_select';
-    if (takesOptions && field.options === undefined) {
+    if (takesOptions && field.options === undefined && field.choiceSource === undefined) {
       context.addIssue({
         code: 'custom',
         path: ['options'],

@@ -1,3 +1,5 @@
+import { SaveInsightNote } from '../views/chat/save-insight-note';
+import { NewChatNote } from '../views/chat/new-chat-note';
 // The conversation with the pet - header, messages, composer and the settings and history
 // sub-panels - kept apart from the floating launcher in `pet-companion.tsx` so a page can render
 // the same conversation without the launcher, the drag handling or the panel positioning. How it
@@ -206,6 +208,8 @@ export function Conversation({
     retryWatch,
   } = runtimeApi;
   const [panel, setPanel] = useState<ConversationPanel>('chat');
+  const [insight, setInsight] = useState<string | null>(null);
+  const [saveChat, setSaveChat] = useState(false);
   // The draft lives in a small in-memory store rather than here so it survives the
   // conversation moving between the floating panel and its page.
   const [draft, setDraft] = usePetDraft(workspaceId, pet.id, noteScope?.rootItemId);
@@ -657,6 +661,11 @@ export function Conversation({
 
   const menuItems: MenuEntry[] = [
     {
+      label: 'Save as chat note',
+      disabled: running || busy || !messages.length,
+      onSelect: () => { setSaveChat(true); },
+    },
+    {
       label: 'New conversation',
       disabled: busy || running,
       onSelect: () => {
@@ -773,6 +782,16 @@ export function Conversation({
       aria-label={`Conversation with ${pet.name}`}
       className={dialogClass}
     >
+      {insight !== null ? (
+        <SaveInsightNote text={insight} onClose={() => { setInsight(null); }} />
+      ) : null}
+      {saveChat ? (
+        <NewChatNote
+          sourceWorkspaceIds={[workspaceId]}
+          messages={messages.map((message) => ({ role: message.role, text: message.text }))}
+          onClose={() => { setSaveChat(false); }}
+        />
+      ) : null}
       <ContextMenu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
         {(target) => (
           <div
@@ -1010,51 +1029,58 @@ export function Conversation({
                 const row = (message: (typeof messages)[number], index: number) => {
                   const edit = editing?.id === message.id ? editing : null;
                   return (
-                    <PetMessageRow
-                      key={message.id}
-                      message={message}
-                      petName={pet.name}
-                      workspaceId={workspaceId}
-                      latest={index === messages.length - 1}
-                      editor={
-                        edit ? (
-                          <PetMessageEditor
-                            text={edit.text}
-                            enterToSend={!touchLikeComposer}
-                            busy={running || busy}
-                            onChange={(text) => {
-                              setEditing({ id: message.id, text });
-                            }}
-                            onSend={() => {
-                              setEditing(null);
-                              void resendTurn(edit.text, message.id);
-                            }}
-                            onCancel={() => {
-                              setEditing(null);
-                            }}
-                          />
-                        ) : undefined
-                      }
-                      action={
-                        !idle || edit
-                          ? undefined
-                          : index === lastUserIndex
-                            ? {
-                                label: 'Edit',
-                                icon: Pencil,
-                                onClick: () => {
-                                  setEditing({ id: message.id, text: message.text });
-                                },
-                              }
-                            : index === lastReplyIndex
+                    <div key={message.id} className="flex flex-col gap-2">
+                      <PetMessageRow
+                        key={message.id}
+                        message={message}
+                        petName={pet.name}
+                        workspaceId={workspaceId}
+                        latest={index === messages.length - 1}
+                        editor={
+                          edit ? (
+                            <PetMessageEditor
+                              text={edit.text}
+                              enterToSend={!touchLikeComposer}
+                              busy={running || busy}
+                              onChange={(text) => {
+                                setEditing({ id: message.id, text });
+                              }}
+                              onSend={() => {
+                                setEditing(null);
+                                void resendTurn(edit.text, message.id);
+                              }}
+                              onCancel={() => {
+                                setEditing(null);
+                              }}
+                            />
+                          ) : undefined
+                        }
+                        action={
+                          !idle || edit
+                            ? undefined
+                            : index === lastUserIndex
                               ? {
-                                  label: 'Regenerate',
-                                  icon: RefreshCw,
-                                  onClick: retryLastTurn,
+                                  label: 'Edit',
+                                  icon: Pencil,
+                                  onClick: () => {
+                                    setEditing({ id: message.id, text: message.text });
+                                  },
                                 }
-                              : undefined
-                      }
-                    />
+                              : index === lastReplyIndex
+                                ? {
+                                    label: 'Regenerate',
+                                    icon: RefreshCw,
+                                    onClick: retryLastTurn,
+                                  }
+                                : undefined
+                        }
+                      />
+                      {message.role === 'assistant' && idle ? (
+                        <Button variant="ghost" onClick={() => { setInsight(message.text); }}>
+                          Save insight as note
+                        </Button>
+                      ) : null}
+                    </div>
                   );
                 };
                 return (

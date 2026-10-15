@@ -12,6 +12,7 @@ import type { TenantScope } from './db/tenant-scope.ts';
 import { RateWindow } from './documents/limits.ts';
 import { createDocumentRegistry, type DocumentHub } from './documents/registry.ts';
 import { startRetentionSweep } from './documents/retention.ts';
+import { createConversationBodyAuthorizer } from './http/routes/conversation-bodies.ts';
 import { createServer } from './http/server.ts';
 import { createImportBodyService } from './imports/bodies.ts';
 import { createCoreImportClient } from './imports/core.ts';
@@ -123,6 +124,7 @@ registry = createDocumentRegistry({
 const activeScopes = new Map<string, TenantScope>();
 
 const app = createServer({
+  conversationBodyAuthorizer: createConversationBodyAuthorizer(config),
   pool,
   sessions,
   core: createCoreClient({ coreBaseUrl: config.coreBaseUrl }),

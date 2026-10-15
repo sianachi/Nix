@@ -12,12 +12,16 @@ import {
   ChartGantt,
   ListFilter,
   MousePointerClick,
+  MessagesSquare,
   Table2,
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+import { Text } from '@nix/ui';
+import { useWorkspace } from '../../workspaces/workspace-context';
+import { ChatView } from '../chat/chat-view';
 import { BoardView } from '../board/board-view';
 import { normalizeChartView } from '../chart/chart-options';
 import { ChartView } from '../chart/chart-view';
@@ -299,7 +303,28 @@ const DRIVE_LAYOUT_LABELS: Record<DriveLayout, string> = {
   grid: 'Grid',
 };
 
+function ChatRenderer({ container }: ViewRendererProps): ReactNode {
+  const { workspaceId } = useWorkspace();
+  return container.itemId === null ? (
+    <Text role="status">Create a chat note to start a conversation.</Text>
+  ) : (
+    <ChatView
+      key={`${workspaceId}:${container.itemId}`}
+      itemId={container.itemId}
+      workspaceId={workspaceId}
+    />
+  );
+}
+
 export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
+  {
+    kind: 'chat',
+    label: 'Chat',
+    icon: MessagesSquare,
+    render: (props) => <ChatRenderer {...props} />,
+    configures: [],
+    chooses: [],
+  },
   {
     kind: 'list',
     label: 'List',

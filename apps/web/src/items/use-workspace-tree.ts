@@ -744,6 +744,7 @@ export function useWorkspaceTree(): WorkspaceTree {
               properties: setup.properties.map((property) => ({
                 ...property,
                 options: property.options.length === 0 ? null : property.options,
+                choiceSource: property.choiceSource ?? null,
               })),
             },
             views: { views: setup.views.map(toViewRequest), default: setup.defaultView },

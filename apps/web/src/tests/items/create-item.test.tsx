@@ -146,7 +146,7 @@ describe('the new-item menu', () => {
 
     expect(screen.getByRole('menuitem', { name: 'Note…' })).toHaveFocus();
     await user.keyboard('{End}');
-    expect(screen.getByRole('menuitem', { name: 'From a template…' })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'Chat…' })).toHaveFocus();
     await user.keyboard('{Home}');
     expect(screen.getByRole('menuitem', { name: 'Note…' })).toHaveFocus();
     await user.keyboard('{Escape}');
@@ -154,7 +154,7 @@ describe('the new-item menu', () => {
     expect(trigger).toHaveFocus();
   });
 
-  it('offers six entries: the three kinds, upload, structured items and templates', async () => {
+  it('offers seven entries including live chat notes', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT] });
     renderAt(<App />, `/?item=${PARENT.id}`);
@@ -169,6 +169,7 @@ describe('the new-item menu', () => {
       'Upload files…',
       'Structured…',
       'From a template…',
+      'Chat…',
     ]);
   });
 

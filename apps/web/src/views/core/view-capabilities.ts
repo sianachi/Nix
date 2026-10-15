@@ -31,6 +31,7 @@ const NONE: ViewCapabilities = {
 };
 
 export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
+  chat: NONE,
   list: { ...ACTIONS, drag: 'parent' },
   gallery: ACTIONS,
   checklist: ACTIONS,

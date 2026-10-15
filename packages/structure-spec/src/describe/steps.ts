@@ -45,6 +45,20 @@ function fieldDescriptor(property: StructureProperty): string {
   return `${property.label} (${propertyTypeWord(property.type)})`;
 }
 
+function fieldSettings(field: StructureProperty): string {
+  return [
+    `Name ${field.label}`,
+    `type ${propertyTypeWord(field.type)}`,
+    `required ${field.required ? 'yes' : 'no'}`,
+    ...(field.type === 'select' || field.type === 'multi_select'
+      ? [`options ${field.options.length ? field.options.join(', ') : 'none'}`]
+      : []),
+    ...(field.expression ? [`formula ${field.expression}`] : []),
+    ...(field.aggregate ? [`rollup ${field.aggregate} of ${field.source ?? 'children'}`] : []),
+    `suggestions ${field.choiceSource ? `${field.choiceSource.itemId ?? 'this note'}, field ${field.choiceSource.field}` : 'none'}`,
+  ].join('; ');
+}
+
 /** "a" -> "a"; "a", "b" -> "a and b"; "a", "b", "c" -> "a, b and c" (no Oxford comma, matching the copy used elsewhere in the pet surface). */
 function formatList(items: readonly string[]): string {
   if (items.length === 0) return '';
@@ -202,6 +216,26 @@ export function describeStep(step: Step, context: DescribeContext): PreviewNode 
         children: [],
       };
     }
+    case 'setItemSchema': {
+      return {
+        label: 'Edit fields',
+        detail: step.changes.map((field) => {
+          const before = context.existing?.effective.find((property) => property.key === field.key);
+          return `${field.label}: ${before?.type ?? 'unknown'} to ${field.type}${field.choiceSource ? `; suggestions from ${field.choiceSource.itemId ?? 'this note'}.${field.choiceSource.field}` : ''}`;
+        }),
+        children: step.changes.map((field) => {
+          const before = context.existing?.effective.find((property) => property.key === field.key);
+          return {
+            label: field.label,
+            detail: [
+              `Before: ${before ? fieldSettings(before) : 'unavailable'}`,
+              `After: ${fieldSettings(field)}`,
+            ],
+            children: [],
+          };
+        }),
+      };
+    }
     case 'setNodeSchema': {
       return {
         label: 'Set inherited fields',
@@ -278,6 +312,9 @@ function countSteps(steps: readonly Step[]): PreviewModel['counts'] {
       case 'createItem':
         items += 1;
         entries += 1;
+        break;
+      case 'setItemSchema':
+        fields += step.changes.length;
         break;
       case 'setNodeSchema':
         fields += step.schema.properties.length;
@@ -464,6 +501,21 @@ export function describeSteps(steps: readonly Step[], context: DescribeContext):
       neverDoes: [],
     };
   }
+
+  const edit = steps.length === 1 ? steps[0] : undefined;
+  if (edit?.kind === 'setItemSchema')
+    return {
+      headline: 'Edit existing fields',
+      destination: context.destination,
+      counts: { items: 0, fields: edit.changes.length, views: 0, entries: 0, writes: 1 },
+      tree: [describeStep(edit, context)],
+      notes: [
+        'Existing values are retained without conversion. Values incompatible with the new type may need correction. Unmentioned fields and views stay unchanged.',
+      ],
+      warnings: context.warnings,
+      problems: context.problems,
+      neverDoes: ['Remove fields', 'Delete existing values', 'Convert existing values'],
+    };
 
   const single = steps.length === 1 ? (steps[0] ?? null) : null;
   if (single !== null && single.kind === 'createStructuredItem') {

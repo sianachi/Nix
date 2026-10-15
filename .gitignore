@@ -13,6 +13,7 @@ docs
 !/docs/nix/nix-architecture.nix
 !/docs/nix/nix-reference.nix
 !/docs/nix/nix-pets.nix
+!/docs/nix/nix-live-chat-decision.nix
 !/docs/nix/catalog.json
 # Site content snapshots from scripts/export-site-content.sh, Markdown included.
 !/docs/site/

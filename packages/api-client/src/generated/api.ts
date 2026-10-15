@@ -104,6 +104,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/conversations': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CreateConversation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/conversations/import': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['ImportConversation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/views/{viewId}/public-link': {
     parameters: {
       query?: never;
@@ -1172,12 +1204,12 @@ export interface paths {
     };
     /**
      * The views a container offers
-     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist' and 'outline') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
+     * @description Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'chat', 'habit_tracker', 'gallery', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist' and 'outline') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.
      */
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist', 'outline', 'matrix' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from, a matrix needs a property for its columns and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable. 'hideDocument' hides the document tab and nothing else: it is not an access control, and the body stays readable everywhere it already was. Absent leaves the stored flag as it is; true makes the first view open when the default was the document, and fails with 'views.document_cannot_be_hidden' when there are no views or the default explicitly names the document. Replacing the set with no views clears the flag. An optional expectedVersion from the views read atomically rejects stale replacements with views.version_conflict (409); absent preserves legacy unconditional replacement.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'chat', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist', 'outline', 'matrix' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from, a matrix needs a property for its columns and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable. 'hideDocument' hides the document tab and nothing else: it is not an access control, and the body stays readable everywhere it already was. Absent leaves the stored flag as it is; true makes the first view open when the default was the document, and fails with 'views.document_cannot_be_hidden' when there are no views or the default explicitly names the document. Replacing the set with no views clears the flag. An optional expectedVersion from the views read atomically rejects stale replacements with views.version_conflict (409); absent preserves legacy unconditional replacement.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -1508,6 +1540,118 @@ export interface paths {
     };
     get: operations['WatchPetNoteRuntime'];
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/conversations/{itemId}/configure': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['ConfigureConversation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/conversations/{itemId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetConversation'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/conversations/{itemId}/messages': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetConversationMessages'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/conversations/{itemId}/watch': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['WatchConversation'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/conversations/{itemId}/turns': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['SendConversation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/conversations/{itemId}/cancel': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CancelConversation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/conversations/{itemId}/sources': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['ChangeConversationSources'];
     post?: never;
     delete?: never;
     options?: never;
@@ -3498,12 +3642,70 @@ export interface components {
       rule: null | components['schemas']['RecurrenceRuleResponse'];
       occurredOn: string;
     };
+    ConfigureConversationRequest: {
+      sourceWorkspaceIds: string[];
+      /** Format: uuid */
+      petId: string;
+    };
     ContainerViewsResponse: {
       views: components['schemas']['ViewResponse'][];
       unrenderable: string[];
       default: string;
       hideDocument: boolean;
       version: string;
+    };
+    ConversationImportMessage: {
+      role: string;
+      text: string;
+    };
+    ConversationMessageResponse: {
+      /** Format: uuid */
+      id: string;
+      role: string;
+      text: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: uuid */
+      authorId: null | string;
+      /** @default  */
+      seq: string;
+      /** Format: uuid */
+      requestId?: null | string;
+    };
+    ConversationMessagesResponse: {
+      items: components['schemas']['ConversationMessageResponse'][];
+      nextCursor: null | string;
+    };
+    ConversationResponse: {
+      /** Format: uuid */
+      itemId: string;
+      /** Format: uuid */
+      workspaceId: string;
+      title: string;
+      sourceWorkspaceIds: string[];
+      /** Format: uuid */
+      petId: string;
+      /** Format: int64 */
+      revision: number | string;
+      canSend: boolean;
+      turn: null | components['schemas']['ConversationTurnResponse'];
+      /** @default false */
+      canEdit: boolean;
+    };
+    ConversationSourcesRequest: {
+      sourceWorkspaceIds: string[];
+      /** Format: int64 */
+      expectedRevision: number | string;
+    };
+    ConversationTurnResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      requestId: string;
+      status: string;
+      error: null | string;
+      /** @default  */
+      text: string;
     };
     CreateAccessTokenRequest: {
       name: null | string;
@@ -3523,6 +3725,17 @@ export interface components {
       windowPastDays: null | number | string;
       /** Format: int32 */
       windowFutureDays: null | number | string;
+    };
+    CreateConversationRequest: {
+      title: string;
+      /** Format: uuid */
+      parentId: null | string;
+      sourceWorkspaceIds: string[];
+      /** Format: uuid */
+      petId: string;
+      /** Format: uuid */
+      groupId?: null | string;
+      messages?: null | components['schemas']['ConversationImportMessage'][];
     };
     CreatedAccessTokenResponse: {
       token: string;
@@ -4685,6 +4898,11 @@ export interface components {
       /** @description Identifier of the server-side trace that produced this failure. */
       traceId?: string;
     };
+    PropertyChoiceSource: {
+      /** Format: uuid */
+      itemId: null | string;
+      field: string;
+    };
     PropertyDefinitionRequest: {
       key: string;
       label: string;
@@ -4694,6 +4912,7 @@ export interface components {
       expression?: null | string;
       aggregate?: null | string;
       source?: null | string;
+      choiceSource?: null | components['schemas']['PropertyChoiceSource'];
     };
     PropertyDefinitionResponse: {
       key: string;
@@ -4704,6 +4923,7 @@ export interface components {
       expression: null | string;
       aggregate: null | string;
       source: null | string;
+      choiceSource?: null | components['schemas']['PropertyChoiceSource'];
     };
     PublicFormBlockResponse: {
       id: string;
@@ -4922,6 +5142,14 @@ export interface components {
       /** Format: int32 */
       limit: number | string;
       truncated: boolean;
+    };
+    SendConversationRequest: {
+      /** Format: uuid */
+      requestId: string;
+      text: string;
+      model?: null | string;
+      /** Format: uuid */
+      petId?: null | string;
     };
     ServiceStatusResponse: {
       service: string;
@@ -5366,6 +5594,7 @@ export interface components {
       expression: null | string;
       aggregate: null | string;
       source: null | string;
+      choiceSource?: null | components['schemas']['PropertyChoiceSource'];
     };
     TemplatePropertySchemaResponse: {
       properties: components['schemas']['TemplatePropertyDefinitionResponse'][];
@@ -5671,6 +5900,11 @@ export interface components {
       id: string;
       name: string;
       workspaceIds: string[];
+      conversationItemIds?: null | string[];
+      /** Format: uuid */
+      lastDestinationWorkspaceId?: null | string;
+      /** Format: uuid */
+      lastDestinationParentId?: null | string;
     };
     WorkspaceInvitationResponse: {
       /** Format: uuid */
@@ -5982,6 +6216,58 @@ export interface operations {
         };
         content: {
           'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CreateConversation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateConversationRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationResponse'];
+        };
+      };
+    };
+  };
+  ImportConversation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateConversationRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationResponse'];
         };
       };
     };
@@ -10116,6 +10402,175 @@ export interface operations {
         };
         content: {
           'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ConfigureConversation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ConfigureConversationRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationResponse'];
+        };
+      };
+    };
+  };
+  GetConversation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationResponse'];
+        };
+      };
+    };
+  };
+  GetConversationMessages: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationMessagesResponse'];
+        };
+      };
+    };
+  };
+  WatchConversation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationResponse'];
+        };
+      };
+    };
+  };
+  SendConversation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SendConversationRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationResponse'];
+        };
+      };
+    };
+  };
+  CancelConversation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationResponse'];
+        };
+      };
+    };
+  };
+  ChangeConversationSources: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ConversationSourcesRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConversationResponse'];
         };
       };
     };

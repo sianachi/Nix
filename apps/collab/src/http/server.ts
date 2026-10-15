@@ -8,6 +8,7 @@ import { createHandshakeHub } from '../ws/handshake-hub.ts';
 import { CLOSE_CODES } from '../ws/protocol.ts';
 import { attachWebSocketServer } from '../ws/server.ts';
 import type { RouteDependencies, ServerDependencies } from './context.ts';
+import { registerConversationBodyRoutes } from './routes/conversation-bodies.ts';
 import { registerExportRoutes } from './routes/exports.ts';
 import { registerHistoryRoutes } from './routes/history.ts';
 import { registerInternalImportRoutes } from './routes/internal-imports.ts';
@@ -24,7 +25,8 @@ export type { ServerDependencies } from './context.ts';
  * in `context.ts`: nothing here decides who may read or write a document; it forwards the
  * caller's token and believes the answer, which keeps one authorization code path in the
  * system. `/healthz` and `/metrics` are open. The internal routes are gated by the service
- * secret (`internalCaller` in `auth.ts`), and those acting for a user also forward their token.
+ * secret (`internalCaller` in `auth.ts`). User operations forward their token; durable
+ * conversation reads reauthorize the persisted turn and its actor through Core.
  */
 export function createServer(deps: ServerDependencies): FastifyInstance {
   const app = Fastify({
@@ -103,6 +105,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
     registerTemplateRoutes(app, routes, deps.templates);
   }
 
+  registerConversationBodyRoutes(app, routes);
   registerExportRoutes(app, routes);
   registerUpdateRoutes(app, routes);
   registerHistoryRoutes(app, routes);

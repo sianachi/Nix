@@ -40,7 +40,10 @@ export function useWorkspaceArrangement(): WorkspaceArrangementState {
   const load = useCallback(
     async (signal: AbortSignal) => {
       try {
-        const response = await client.query(arrangementResource.arrangement(), { signal });
+        const response = await client.query(arrangementResource.arrangement(), {
+          signal,
+          forceRefresh: true,
+        });
         if (!isAborted(signal)) setSaved(response);
       } catch (cause) {
         if (isAborted(signal) || isCanceledError(cause)) return;
@@ -58,10 +61,14 @@ export function useWorkspaceArrangement(): WorkspaceArrangementState {
     queueMicrotask(() => {
       if (!isAborted(controller.signal)) void load(controller.signal);
     });
+    const unsubscribe = client.cache.subscribeInvalidation((prefix) => {
+      if (prefix[0] === 'me' && prefix[1] === 'workspace-arrangement') void load(controller.signal);
+    });
     return () => {
+      unsubscribe();
       controller.abort();
     };
-  }, [load]);
+  }, [client, load]);
 
   async function save(value: WorkspaceArrangementInput): Promise<boolean> {
     const controller = lifetime.current;

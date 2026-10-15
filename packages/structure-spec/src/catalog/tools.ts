@@ -27,7 +27,7 @@ import { LIMITS, WORKSPACE_OPERATIONS, type WorkspaceOperation } from './tables.
  * downstream of the worker changes.
  */
 
-const TASK_KEYS_DESCRIPTION = ` Task fields use their type as the key: ${TASK_SEMANTIC_FIELD_TYPES.join(', ')}; omit key or set it to that type, with any label. ${PROPERTY_FORMULA_GUIDANCE}`;
+const TASK_KEYS_DESCRIPTION = ` choiceSource:{} learns this field from sibling entries; set itemId for another note and field for a child field or title. Task fields use their type as the key: ${TASK_SEMANTIC_FIELD_TYPES.join(', ')}; omit key or set it to that type, with any label. ${PROPERTY_FORMULA_GUIDANCE}`;
 const FORM_MODE_DESCRIPTION =
   ' For form and interactive_form views, mode:"temporary" keeps answers in memory and creates no entry; mode:"saved" creates entries. Put calculations in formula schema fields, not input blocks.';
 const HABIT_DESCRIPTION =
@@ -204,7 +204,7 @@ function booleanProperty(description: string): JsonObject {
 
 const ITEM_ID_DESCRIPTION =
   'The exact item UUID. Discover it with nix_list_items or nix_search first if not already known.';
-const PARENT_ID_DESCRIPTION = 'Parent UUID; omit/empty for root.';
+const PARENT_ID_DESCRIPTION = 'Parent, or root.';
 const TEMPLATE_ID_DESCRIPTION = 'The template item UUID.';
 
 interface ToolBuild {
@@ -350,9 +350,9 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
   create_structured: () => ({
     description: `Create a new item with a recipe, fields and up to ${String(LIMITS.viewsPerNode)} views per call, under parentId (omit for the workspace root). Items support at most ${String(LIMITS.viewsPerContainer)} views total. Shown for approval before it runs.${TASK_KEYS_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
     properties: {
-      title: stringProperty('The new item title.'),
+      title: stringProperty(),
       spec: jsonSchemaOf(structuredSpecSchema),
-      parentId: stringProperty(PARENT_ID_DESCRIPTION),
+      parentId: stringProperty(),
     },
     required: ['title', 'spec'],
   }),
@@ -381,6 +381,15 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
       spec: jsonSchemaOf(entriesSpecSchema),
     },
     required: ['parentId', 'spec'],
+  }),
+  edit_fields: () => ({
+    description:
+      'Edit existing locally declared fields, including type and choiceSource. Read nix_read_structure first and supply exact keys and complete field definitions. Existing values are retained without conversion; always requires approval. Cannot remove fields.',
+    properties: {
+      itemId: stringProperty(ITEM_ID_DESCRIPTION),
+      spec: jsonSchemaOf(fieldsSpecSchema),
+    },
+    required: ['itemId', 'spec'],
   }),
   add_fields: () => ({
     description:
@@ -426,7 +435,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
       'Apply a template to create a new item under parentId (omit for the workspace root), filling any inputs the template declares. Shown for approval before it runs.',
     properties: {
       templateId: stringProperty(TEMPLATE_ID_DESCRIPTION),
-      title: stringProperty('The new item title.'),
+      title: stringProperty(),
       parentId: stringProperty(PARENT_ID_DESCRIPTION),
       spec: jsonSchemaOf(applySpecSchema),
     },
@@ -436,7 +445,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     description: `Build a whole design (items, fields, views and samples) in one approval, under Pet drafts unless parentId names a parent. Nix checks it before the owner sees it: a design with problems comes back declined with every problem listed; fix them all and call once more. Up to ${String(LIMITS.viewsPerNode)} views per node, ${String(LIMITS.viewsPerBlueprint)} per blueprint.${TASK_KEYS_DESCRIPTION}${HABIT_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
     properties: {
       blueprint: blueprintProperty(),
-      parentId: stringProperty('The parent item UUID, or omit to build under Pet drafts.'),
+      parentId: stringProperty('Parent UUID; default Pet drafts.'),
     },
     required: ['blueprint'],
   }),

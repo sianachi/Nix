@@ -350,6 +350,10 @@ const templatePropertyDefinitionSchema = z.object({
   expression: z.string().nullable().default(null),
   aggregate: z.string().nullable().default(null),
   source: z.string().nullable().default(null),
+  choiceSource: z
+    .object({ itemId: z.uuid().nullable(), field: z.string().min(1).max(160) })
+    .nullable()
+    .default(null),
 });
 
 const storedTemplateSchemaSchema = z.object({

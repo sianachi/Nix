@@ -28,6 +28,7 @@ export interface StructureProperty {
   label: string;
   type: string;
   options: string[];
+  choiceSource?: { itemId: string | null; field: string } | null | undefined;
   required: boolean;
   expression?: string | null;
   aggregate?: string | null;

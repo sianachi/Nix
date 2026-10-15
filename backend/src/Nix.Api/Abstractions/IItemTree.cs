@@ -173,6 +173,11 @@ public interface IItemTree
     /// <returns>A task that completes when both are written.</returns>
     public ValueTask InsertAsync(Item item, CancellationToken cancellationToken);
 
+    /// <summary>Atomically replaces only Core's reserved durable conversation configuration.</summary>
+    public ValueTask UpdateConversationConfigurationAsync(ItemId id, string configuration,
+        Nix.Domain.Identity.PrincipalId actor, DateTimeOffset at, CancellationToken cancellationToken) =>
+        ValueTask.FromException(new NotSupportedException("This item tree does not implement conversation configuration."));
+
     /// <summary>Replaces an item's property bag.</summary>
     /// <param name="id">The item.</param>
     /// <param name="properties">The new bag.</param>

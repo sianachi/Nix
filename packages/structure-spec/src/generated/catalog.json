@@ -236,6 +236,13 @@
   ],
   "viewKinds": [
     {
+      "kind": "chat",
+      "label": "Chat",
+      "requires": null,
+      "optional": [],
+      "description": "Message children using the chat message schema."
+    },
+    {
       "kind": "list",
       "label": "List",
       "requires": null,
@@ -467,6 +474,7 @@
     "add_view",
     "create_entries",
     "add_fields",
+    "edit_fields",
     "edit_form",
     "update_view",
     "set_recurrence",
@@ -506,7 +514,7 @@
   "neverOperations": [
     "Publish a public link",
     "Delete anything permanently",
-    "Remove or retype a field",
+    "Remove a field",
     "Delete a view"
   ],
   "formulaFunctions": [

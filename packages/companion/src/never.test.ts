@@ -31,6 +31,16 @@ describe('pet executor never-operation guard', () => {
         expect(source).toMatch(/structure\.setItemSchema\(targetId/);
         expect(source).toMatch(/nodeItems\.get\(raw\.target\.nodeId\)/);
         expect(source.replace('setItemSchema', ''), file).not.toMatch(forbidden);
+      } else if (file.endsWith('/structure/edit-fields.ts')) {
+        // Explicit field edits use the shared compiler and are approval-fenced by run.ts.
+        expect(source).toMatch(/compileEditFields/);
+        expect(source).toMatch(/step\?\.kind !== 'setItemSchema'/);
+        expect(
+          source
+            .replaceAll("'setItemSchema'", "'approvedSchemaEdit'")
+            .replace('setItemSchema(step.itemId', 'writeSchema(step.itemId'),
+          file,
+        ).not.toMatch(forbidden);
       } else if (file.endsWith('/structure/update-view.ts')) {
         // A strict settings patch compiles the complete current view set in the same order.
         // The shared run loop fences every setting; the compiler cannot remove or create a view.

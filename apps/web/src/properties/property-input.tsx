@@ -1,3 +1,4 @@
+import { useFieldChoices } from './use-field-choices';
 import {
   Button,
   Field,
@@ -131,6 +132,45 @@ const cellSelectClasses = cn(
 );
 
 export function PropertyInput(props: PropertyInputProps): ReactNode {
+  if (
+    props.property.choiceSource &&
+    ['text', 'select', 'multi_select'].includes(props.property.type)
+  ) {
+    return <SourcedValue {...props} />;
+  }
+  return <PropertyControl {...props} />;
+}
+
+function SourcedValue(props: PropertyInputProps): ReactNode {
+  const [enabled, setEnabled] = useState(false);
+  const source = useFieldChoices(props.property, props.item.parentId, enabled);
+  const property = {
+    ...props.property,
+    options: [...new Set([...props.property.options, ...source.values])],
+  };
+  return (
+    <div
+      className="flex min-w-0 flex-col gap-1"
+      onFocusCapture={() => {
+        setEnabled(true);
+      }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setEnabled(false);
+      }}
+    >
+      {property.type === 'multi_select' ? (
+        <MultiSelectValue {...props} property={property} custom />
+      ) : (
+        <TypedValue {...props} kind="text" suggestions={property.options} />
+      )}
+      <Text variant="note" tone="muted" role="status">
+        {source.hint}
+      </Text>
+    </div>
+  );
+}
+
+function PropertyControl(props: PropertyInputProps): ReactNode {
   switch (props.property.type) {
     case 'text':
       return <TypedValue {...props} kind="text" />;
@@ -398,9 +438,15 @@ function useMultiSelectDraft(
 
 type TypedKind = 'text' | 'url' | 'number';
 
-function TypedValue(props: PropertyInputProps & { readonly kind: TypedKind }): ReactNode {
+function TypedValue(
+  props: PropertyInputProps & {
+    readonly kind: TypedKind;
+    readonly suggestions?: readonly string[];
+  },
+): ReactNode {
   const { item, property, onCommit, disabled = false, density = 'panel', kind } = props;
 
+  const suggestionsId = useId();
   const stored = readPropertyText(item, property.key);
   const { draft, setDraft, sent, send } = useDraft(stored, onCommit);
 
@@ -437,26 +483,36 @@ function TypedValue(props: PropertyInputProps & { readonly kind: TypedKind }): R
   return (
     <ValueShell {...props}>
       {(control) => (
-        <Input
-          {...control}
-          tabIndex={props.tabIndex}
-          type={kind}
-          tone={density === 'cell' ? 'plain' : 'default'}
-          value={draft}
-          required={property.required}
-          disabled={disabled}
-          onChange={(event) => {
-            setDraft(event.target.value);
-          }}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            // Enter is the explicit action for somebody who types and does not move on.
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              commit();
-            }
-          }}
-        />
+        <>
+          <Input
+            {...control}
+            tabIndex={props.tabIndex}
+            type={kind}
+            list={props.suggestions === undefined ? undefined : suggestionsId}
+            tone={density === 'cell' ? 'plain' : 'default'}
+            value={draft}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              setDraft(event.target.value);
+            }}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              // Enter is the explicit action for somebody who types and does not move on.
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commit();
+              }
+            }}
+          />
+          {props.suggestions === undefined ? null : (
+            <datalist id={suggestionsId}>
+              {props.suggestions.map((value) => (
+                <option key={value} value={value} />
+              ))}
+            </datalist>
+          )}
+        </>
       )}
     </ValueShell>
   );
@@ -800,13 +856,16 @@ function PriorityValue(props: PropertyInputProps): ReactNode {
   );
 }
 
-function MultiSelectValue(props: PropertyInputProps): ReactNode {
+function MultiSelectValue(props: PropertyInputProps & { readonly custom?: boolean }): ReactNode {
   const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
 
+  const [newValue, setNewValue] = useState('');
   const raw: unknown = item.properties[property.key];
   const stored = Array.isArray(raw)
     ? raw.filter((entry): entry is string => typeof entry === 'string')
-    : [];
+    : typeof raw === 'string' && raw.length > 0
+      ? [raw]
+      : [];
 
   const { selection, toggle } = useMultiSelectDraft(stored, onCommit);
 
@@ -863,6 +922,39 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
           {error}
         </Text>
       )}
+      {props.custom ? (
+        <div className="flex items-end gap-2">
+          <Field label={`New value for ${property.label}`} className="min-w-0 flex-1">
+            {(control) => (
+              <Input
+                {...control}
+                value={newValue}
+                onChange={(event) => {
+                  setNewValue(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (newValue.trim() && !selection.includes(newValue.trim())) {
+                      toggle(newValue.trim(), true);
+                      setNewValue('');
+                    }
+                  }
+                }}
+              />
+            )}
+          </Field>
+          <Button
+            disabled={disabled || !newValue.trim() || selection.includes(newValue.trim())}
+            onClick={() => {
+              toggle(newValue.trim(), true);
+              setNewValue('');
+            }}
+          >
+            Add
+          </Button>
+        </div>
+      ) : null}
     </fieldset>
   );
 }

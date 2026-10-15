@@ -20,6 +20,7 @@ export interface ReadStructureField {
   expression: string | null;
   aggregate: string | null;
   source: string | null;
+  choiceSource?: { itemId: string | null; field: string } | null;
 }
 
 export interface ReadStructureFormPage {
@@ -130,6 +131,7 @@ export async function readStructure(
     expression: property.expression ?? null,
     aggregate: property.aggregate ?? null,
     source: property.source ?? null,
+    ...(property.choiceSource ? { choiceSource: property.choiceSource } : {}),
   }));
 
   const viewList = containerViews.views.map((raw) => describeView(raw, containerViews, labelByKey));
