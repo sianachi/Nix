@@ -103,6 +103,52 @@ export const CalendarSelection = {
     canvas.getByRole('toolbar', { name: 'Selected items' });
   },
 };
+/** Exercises the shared selection tray so axe sees timeline selection controls. */
+export const TimelineSelection = {
+  render: (): ReactNode => {
+    const now = new Date();
+    const date = `${String(now.getFullYear()).padStart(4, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const view: View = {
+      id: 'timeline-selection',
+      name: 'Plans',
+      kind: 'timeline',
+      columns: [],
+      groupBy: null,
+      groupOrder: [],
+      dateProperty: 'starts',
+      endDateProperty: 'ends',
+      sortBy: null,
+      sortDescending: false,
+      mode: null,
+      coverProperty: null,
+      cardSize: null,
+      layout: null,
+      filters: [],
+    };
+    return (
+      <MemoryRouter>
+        <div className={VIEW_GUTTER}>
+          <ContainerView
+            container={storyContainer(
+              [storyItem('today', 'Today', 1, { starts: date, ends: date })],
+              [
+                { key: 'starts', label: 'Starts', type: 'date', options: [], required: false },
+                { key: 'ends', label: 'Ends', type: 'date', options: [], required: false },
+              ],
+            )}
+            view={view}
+            onOpen={() => undefined}
+          />
+        </div>
+      </MemoryRouter>
+    );
+  },
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('checkbox', { name: 'Select Today' }));
+    canvas.getByRole('toolbar', { name: 'Selected items' });
+  },
+};
 export const CalendarPhone = {
   ...Calendar,
   parameters: { viewport: { defaultViewport: 'mobile1' } },
