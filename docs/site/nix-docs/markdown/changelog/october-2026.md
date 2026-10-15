@@ -1,5 +1,7 @@
 # October 2026
 
+# October 2026
+
 ## Offline notes
 
 - The installed app can download every note you have access to, open them with no connection, edit and create notes offline, and sync when you are back. See [Collaboration and offline](nix://item/01a130b0-0b97-7da4-aaf4-8ece03849441).
@@ -18,6 +20,10 @@
 - Charts gained column, pie, line and area types, a time axis, series split by a choice field, and a year grid. Habit insights show a year grid too.
 - Spreadsheet view cells are edited with controls that match each field's type.
 - Ad-hoc queries and aggregates across a workspace.
+- Each view has an "Open items" setting: Auto, Full page, Dialog, Beside, New tab or None. Graph nodes have their own control.
+- Multi-select in lists, galleries, boards and checklists with Shift or checkboxes, and a floating tray for bulk move and delete. Items that cannot move say why.
+- Resizable columns in list and spreadsheet views, remembered per device. Drag list rows onto each other to reparent them.
+- Rename, Move to and Delete are available from every view that supports them.
 
 ## Formulas
 
@@ -39,6 +45,10 @@
 - A rebuilt graph: camera with fit, pan and zoom, folding branches, neighbourhoods, size by references, a time view and new layouts.
 - Hide an item's children from your workspace tree.
 - Improved finance and habit workflows, and clearer daily note errors.
+- A Markdown editing mode for notes, with a dialog listing anything Markdown cannot hold, a warning when someone else edits, one-step undo and a `[[` link picker.
+- The New menu groups every item type under headings, including a Chart recipe.
+- Personal workspace groups and pins in the workspace menu, managed under Settings > Workspace.
+- Graph labels stay readable at every zoom and no longer collide.
 
 ## The companion pet
 
@@ -46,6 +56,11 @@
 - Block-level note edits, with the changed block shown before and after on the approval card.
 - The pet can read your calendar, complete tasks, and inspect and refine views.
 - Apply without asking, for one conversation at a time.
+- Claude and OpenRouter join the existing providers, each person using their own key. Models that cannot use tools are labelled.
+- Chat threads: name, search, resume and reopen past conversations, including as a tab beside your note.
+- Chat reads the open note, searches before answering and cites sources. Attach several notes to one message.
+- Regenerate or edit the last turn. Code in replies is highlighted and can be copied.
+- "Apply changes without asking" can be set per pet, including in note chats.
 
 ## nixctl
 
@@ -59,4 +74,22 @@
 
 - Fewer services to run: search now runs inside PostgreSQL, so the separate search index and its worker are gone, as is the central logging stack.
 - CI rebuilds only the images whose sources changed, and retags the rest.
+
+## MCP
+
+- A remote MCP endpoint over Streamable HTTP, with note and item tools and a Settings > MCP tab for tokens. Setup guides cover Claude Code, Codex and other clients.
+
+## Settings
+
+- Tabs are regrouped and device-only settings are marked. Interface settings now sync across your devices.
+- A "Keep notes on this device" toggle and a Publishing toggle for sites.
+- Operators see nightly backup status in Settings.
+
+## Fixes and security
+
+- Items under a closed lock no longer appear in trash or plugin metadata, and collaboration recovers from a lost lock session.
+- Google Calendar all-day events sync correctly and no longer push twice.
+- Sites keep serving when one stored page fails.
+- One account's settings no longer show up for another on a shared browser.
+- Workspace arrangement, provider keys and MCP tokens can be changed only interactively, not with a personal access token. Provider keys are stored protected and never shown again.
 
