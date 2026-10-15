@@ -6,7 +6,7 @@ import { ErrorPanel } from '../components/states/status-panels';
 import { settingsPanelWidth } from '../layout/regions';
 import { BacklinksPane } from '../links/backlinks-panel';
 import { PropertyPanel } from '../properties/property-panel';
-import { useSitesVisible } from '../settings/publishing-preference';
+import { useSitesVisible } from '../settings/publishing/publishing-preference';
 import { SitePane } from '../sites/site-pane';
 import type { ItemProperties } from '../properties/use-item-properties';
 import type { ContainerData } from '../views/core/use-container';

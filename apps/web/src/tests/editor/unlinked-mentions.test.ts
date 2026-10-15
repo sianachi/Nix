@@ -20,7 +20,7 @@ import {
   UnlinkedMentions,
   type MentionLookup,
 } from '../../editor/unlinked-mentions';
-import { useChoiceOrderPreference } from '../../settings/suggestion-preferences';
+import { useChoiceOrderPreference } from '../../settings/editor/suggestion-preferences';
 
 /**
  * Unlinked mentions against a real editor: typed text, a faked idle timer, a lookup that answers

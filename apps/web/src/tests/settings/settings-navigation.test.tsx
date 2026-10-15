@@ -52,6 +52,7 @@ describe('reaching the settings screen', () => {
       'Workspace',
       'Daily notes',
       'Editor',
+      'Preferences',
       'Pets',
       'Notifications',
       'Calendars',

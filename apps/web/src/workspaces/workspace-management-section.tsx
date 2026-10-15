@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router';
 
 import { useApiClient } from '../api/api-client-provider';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../components/states/status-panels';
-import { DailyNotesSwitch } from '../settings/daily-notes-switch';
+import { DailyNotesSwitch } from '../settings/daily-notes/daily-notes-switch';
 import { useWorkspace } from './workspace-context';
 import { useWorkspaceAdministration } from './use-workspace-administration';
 import { WorkspaceGroupsSection } from './workspace-groups-section';

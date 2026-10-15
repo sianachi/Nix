@@ -6,8 +6,8 @@ import { aContainer } from '../../container-fixture';
 import { aView } from '../../view-fixture';
 import { FormView } from '../../../views/form/form-view';
 import { rememberSubmission } from '../../../views/form/form-memory';
-import { useViewSuggestionPreference } from '../../../settings/suggestion-preferences';
-import { useChoiceOrderPreference } from '../../../settings/suggestion-preferences';
+import { useViewSuggestionPreference } from '../../../settings/editor/suggestion-preferences';
+import { useChoiceOrderPreference } from '../../../settings/editor/suggestion-preferences';
 import { CATEGORY, memoryStorage } from '../suggest/suggest-fixtures';
 
 /**

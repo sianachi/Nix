@@ -2,14 +2,15 @@ import { Tabs, Text } from '@nix/ui';
 import { type ReactElement } from 'react';
 
 import { paneScroller } from '../layout/regions';
-import { AccessTokensSection } from '../settings/access-tokens-section';
-import { BackupsSection } from '../settings/backups-section';
-import { McpSection } from '../settings/mcp-section';
-import { CalendarsSection } from '../settings/calendars-section';
-import { DailyNotesSection } from '../settings/daily-notes-section';
-import { EditorPreferencesSection } from '../settings/editor-preferences-section';
-import { PublishingSection } from '../settings/publishing-section';
-import { NotificationsSection } from '../settings/notifications-section';
+import { AccessTokensSection } from '../settings/access-tokens/access-tokens-section';
+import { BackupsSection } from '../settings/backups/backups-section';
+import { McpSection } from '../settings/mcp/mcp-section';
+import { CalendarsSection } from '../settings/calendars/calendars-section';
+import { DailyNotesSection } from '../settings/daily-notes/daily-notes-section';
+import { EditorPreferencesSection } from '../settings/editor/editor-preferences-section';
+import { PublishingSection } from '../settings/publishing/publishing-section';
+import { PreferencesSection } from '../settings/preferences/PreferencesSection';
+import { NotificationsSection } from '../settings/notifications/notifications-section';
 import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
 import { PetSettingsSection } from '../pets/pet-settings-section';
 import { useCapabilities } from '../session/capabilities-context';
@@ -23,6 +24,7 @@ const settingsTabs: readonly { id: SettingsTab; label: string; closable: false; 
   { id: 'workspace', label: 'Workspace', closable: false },
   { id: 'daily-notes', label: 'Daily notes', closable: false },
   { id: 'editor', label: 'Editor', closable: false },
+  {id: 'preferences', label: 'Preferences', closable: false },
   { id: 'pets', label: 'Pets', closable: false },
   { id: 'notifications', label: 'Notifications', closable: false },
   { id: 'integrations', label: 'Calendars', closable: false },
@@ -75,6 +77,7 @@ export function SettingsPage(): ReactElement {
       >
         {activeTab === 'workspace' ? <WorkspaceManagementSection /> : null}
         {activeTab === 'editor' ? <EditorPreferencesSection /> : null}
+        {activeTab === 'preferences' ? <PreferencesSection /> : null}
         {activeTab === 'notifications' ? <NotificationsSection /> : null}
         {activeTab === 'daily-notes' ? <DailyNotesSection /> : null}
         {activeTab === 'pets' ? <PetSettingsSection /> : null}

@@ -86,7 +86,7 @@ import { LockDialog } from '../locks/lock-dialog';
 import { LockedBody } from '../locks/locked-body';
 import { useForgetLockedBody } from '../locks/use-forget-locked-body';
 import { useItemLock } from '../locks/use-item-lock';
-import { useSitesVisible } from '../settings/publishing-preference';
+import { useSitesVisible } from '../settings/publishing/publishing-preference';
 import { focusSitePaneHeading } from '../sites/site-pane';
 import { useItemHasSite } from '../sites/use-item-site';
 import { historyPanelWidth } from '../layout/regions';

@@ -1,7 +1,7 @@
 import { Checkbox, Field, Select, Text } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 
-import { DeviceOnlyNote } from '../settings/preference-toggle';
+import { DeviceOnlyNote } from '../settings/shared/preference-toggle';
 import {
   PET_SURFACE_OPTIONS,
   readDevicePreference,

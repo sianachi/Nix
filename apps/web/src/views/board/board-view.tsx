@@ -22,7 +22,7 @@ import { canGroupBy } from '../core/property-types';
 import { staleMembers, type StaleMember } from '../../lib/suggest/staleness';
 import { readDismissals, rememberDismissal } from '../../lib/suggestion-dismissals';
 import { suggestSourceOf, type CreateSuggestSource } from '../suggest/suggest-source';
-import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
+import { useViewSuggestionPreference } from '../../settings/editor/suggestion-preferences';
 import { StaleCardHint } from './stale-card-hint';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import type { ContainerData } from '../core/use-container';

@@ -5,6 +5,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 import { clearBodyCache, openBodyCache } from '../../editor/body-cache';
 import { useOfflinePreference } from '../../offline/offline-preference';
+import { useGeneralPreferences } from '../../settings/preferences/general-preferences';
 import { OfflineStatus } from '../../offline/offline-status';
 import { rememberOfflineAccount } from '../../offline/offline-store';
 import { signedIn } from '../render-with-router';
@@ -40,6 +41,7 @@ beforeEach(async () => {
     email: 'test@example.test',
   });
   useOfflinePreference.setState({ enabled: true, saved: true });
+  useGeneralPreferences.setState({ footerVisible: true });
 });
 
 function renderFooter() {
@@ -58,6 +60,13 @@ it('shows the sync footer while notes are kept on this device', () => {
 
 it('renders nothing at all, spacing included, once device sync is turned off', () => {
   useOfflinePreference.setState({ enabled: false });
+  const { container } = renderFooter();
+  expect(container).toBeEmptyDOMElement();
+  expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+});
+
+it('renders nothing at all when general preferences footerVisible is false', () => {
+  useGeneralPreferences.setState({ footerVisible: false });
   const { container } = renderFooter();
   expect(container).toBeEmptyDOMElement();
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
