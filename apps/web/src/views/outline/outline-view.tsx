@@ -17,6 +17,10 @@ import { sortItems, type Item, type View } from '../core/container-model';
 import type { ContainerData } from '../core/use-container';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { ContainerNotices, resolveLoadState } from '../core/view-chrome';
+import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { useClickSelects } from '../core/item-open-click';
+import { SelectCheckbox } from '../core/select-checkbox';
+import { rowGestures } from '../core/use-item-selection';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import {
   describeOutlineRefusal,
@@ -86,6 +90,9 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
   const { container, view, onOpen, source } = props;
   const rootId = container.itemId;
   const itemActions = useItemContextActions(onOpen);
+  const selection = useOptionalItemSelection();
+  const clickSelects = useClickSelects();
+  const openBeside = selection?.openBeside;
 
   const [nested, setNested] = useState<ReadonlyMap<string, readonly Item[]>>(() => new Map());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -468,6 +475,7 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col gap-3">
+      <ShownItems ids={rows.map((row) => row.item.id)} />
       <ContainerNotices container={container} subject="this outline" />
 
       <OutlineToolbar
@@ -539,6 +547,20 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
           {rows.map((row, position) => {
             const id = row.item.id;
             const isOpen = expanded.has(id);
+            const selectOrOpen = rowGestures(
+              selection,
+              id,
+              selection?.shown ?? [],
+              () => {
+                onOpen(id);
+              },
+              openBeside === undefined
+                ? undefined
+                : () => {
+                    openBeside(id);
+                  },
+              clickSelects,
+            );
             const indentation = `min(${String((row.level - 1) * 1.5)}rem, 25%)`;
             // The top level of a truncated container is a sample, so its size is not claimed.
             const sizeKnown = !(row.level === 1 && container.truncated);
@@ -613,17 +635,21 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
                       onFocus={() => {
                         setFocusedId(id);
                       }}
-                      onClick={() => {
+                      onClick={(event) => {
                         setFocusedId(id);
+                        selectOrOpen.onClick(event);
                       }}
                       onKeyDown={(event) => {
+                        selectOrOpen.onKeyDown(event);
+                        if (event.defaultPrevented) return;
                         onRowKeyDown(event, row);
                       }}
+                      onKeyUp={selectOrOpen.onKeyUp}
                       onDoubleClick={() => {
                         onOpen(id);
                       }}
                       className={cn(
-                        'flex min-h-(--control-sm) min-w-0 flex-wrap items-center gap-1 rounded-sm py-1 pointer-coarse:min-h-(--control-lg)',
+                        'group flex min-h-(--control-sm) min-w-0 flex-wrap items-center gap-1 rounded-sm py-1 pointer-coarse:min-h-(--control-lg)',
                         id === activeId ? 'bg-foreground/7' : '',
                         focusRing,
                       )}
@@ -643,6 +669,13 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
                         {row.item.hasChildren ? (
                           <Icon icon={isOpen ? ChevronDown : ChevronRight} size="sm" />
                         ) : null}
+                      </span>
+                      <span
+                        onClick={(event) => {
+                          event.stopPropagation();
+                        }}
+                      >
+                        <SelectCheckbox item={row.item} />
                       </span>
                       <Text as="span" variant="body" className="min-w-0 flex-1">
                         {titleOf(row.item)}
