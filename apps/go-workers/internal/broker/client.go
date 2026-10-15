@@ -23,6 +23,12 @@ const (
 
 type Handler func(context.Context, Envelope) DeliveryAction
 
+type publisherChannel interface {
+	PublishWithContext(context.Context, string, string, bool, bool, amqp.Publishing) error
+	IsClosed() bool
+	Close() error
+}
+
 type Client struct {
 	url             string
 	maxMessageBytes int
@@ -32,7 +38,7 @@ type Client struct {
 	connectionMu    sync.Mutex
 	connection      *amqp.Connection
 	publishMu       sync.Mutex
-	publisher       *amqp.Channel
+	publisher       publisherChannel
 	confirmations   <-chan amqp.Confirmation
 	returns         <-chan amqp.Return
 }
@@ -242,6 +248,7 @@ func (client *Client) publish(ctx context.Context, exchange, routingKey, message
 		}
 		return nil
 	case <-ctx.Done():
+		client.resetPublisher()
 		return ctx.Err()
 	}
 }
@@ -259,7 +266,7 @@ func (client *Client) channel(ctx context.Context) (*amqp.Channel, error) {
 	return channel, nil
 }
 
-func (client *Client) publisherChannel(ctx context.Context) (*amqp.Channel, error) {
+func (client *Client) publisherChannel(ctx context.Context) (publisherChannel, error) {
 	if client.publisher != nil && !client.publisher.IsClosed() {
 		return client.publisher, nil
 	}
