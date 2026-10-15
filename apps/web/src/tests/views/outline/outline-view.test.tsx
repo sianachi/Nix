@@ -186,6 +186,8 @@ describe('OutlineTree', () => {
 
     await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
     expect(screen.getByRole('toolbar', { name: 'Selected items' })).toHaveTextContent('1 selected');
+    await user.keyboard(' ');
+    expect(screen.getByRole('checkbox', { name: 'Select Alpha' })).not.toBeChecked();
   });
 
   it('opens and moves the row whose context menu was requested', async () => {
@@ -384,6 +386,7 @@ describe('OutlineTree', () => {
     renderAt(<Harness onOpen={onOpen} />);
 
     await user.click(row('Charlie'));
+    expect(onOpen).not.toHaveBeenCalled();
     expect(screen.getByText('Acting on “Charlie”')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Open' }));
 

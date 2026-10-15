@@ -127,20 +127,38 @@ function treeItem(id: string, title: string, parentId: string | null): TreeItem 
 function CommandHarness({ action }: { readonly action: 'move' | 'delete' }) {
   const [children, setChildren] = useState([habit]);
   const destination = treeItem(DESTINATION_ID, 'Archive', null);
-  const treeItems = [treeItem(habit.id, habit.title, 'container-1'), destination];
-  const tree = {
+  const treeItems = [
+    treeItem('container-1', 'Habits', null),
+    treeItem(habit.id, habit.title, 'container-1'),
+    destination,
+  ];
+  const tree: WorkspaceTree = {
     status: 'ready',
     error: null,
     items: treeItems,
     find: (id: string) => treeItems.find((entry) => entry.id === id) ?? null,
     childrenOf: (parentId: string | null) =>
       treeItems.filter((entry) => entry.parentId === parentId),
+    isExpanded: () => false,
     isLoadingChildren: () => false,
+    isLocked: () => false,
+    breadcrumbs: () => [],
+    reveal: () => Promise.resolve(),
+    revealOf: () => null,
+    retryReveal: () => Promise.resolve(),
+    isCreating: false,
+    isSaving: false,
+    toggle: () => Promise.resolve(),
     expand: () => Promise.resolve(),
+    create: () => Promise.reject(new Error('Unexpected create')),
+    createStructured: () => Promise.reject(new Error('Unexpected structured create')),
     rename: vi.fn(() => Promise.resolve()),
     move: commandMove,
     remove: () => Promise.resolve({ refusal: null }),
-  } as unknown as WorkspaceTree;
+    restore: () => Promise.resolve({ refusal: null }),
+    setProtection: () => Promise.resolve({ refusal: null }),
+    reload: () => Promise.resolve(),
+  };
 
   return (
     <ItemCommandsProvider
@@ -153,7 +171,13 @@ function CommandHarness({ action }: { readonly action: 'move' | 'delete' }) {
         setChildren((current) => current.filter((item) => !deleted.includes(item.id)));
         return deleted;
       }}
-      onMoved={action === 'move' ? () => setChildren([]) : undefined}
+      onMoved={
+        action === 'move'
+          ? () => {
+              setChildren([]);
+            }
+          : undefined
+      }
     >
       <ContainerView container={aContainer({ children })} view={view} onOpen={vi.fn()} />
     </ItemCommandsProvider>
@@ -249,6 +273,7 @@ describe('habit tracker user flows', () => {
       }),
     );
     const dialog = await screen.findByRole('dialog', { name: 'Move item' });
+    await user.click(within(dialog).getByRole('button', { name: 'Up one level' }));
     await user.click(within(dialog).getByRole('button', { name: 'Archive' }));
     await user.click(within(dialog).getByRole('button', { name: 'Move here' }));
 
