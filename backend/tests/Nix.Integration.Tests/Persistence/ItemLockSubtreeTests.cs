@@ -24,7 +24,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// grandchild, through the ordinary create command so the closure table is maintained the way it is
 /// in production.
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class ItemLockSubtreeTests(NixPostgresFixture fixture) : IAsyncLifetime
 {
     /// <summary>The browser session that sets the lock, and so has it open.</summary>

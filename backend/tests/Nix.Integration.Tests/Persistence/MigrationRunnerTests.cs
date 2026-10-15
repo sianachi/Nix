@@ -7,7 +7,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// Migrations run as the schema-owning role, from a separate process, and refuse to run as
 /// anything else.
 /// </summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class MigrationRunnerTests
 {
     private readonly NixPostgresFixture _fixture;

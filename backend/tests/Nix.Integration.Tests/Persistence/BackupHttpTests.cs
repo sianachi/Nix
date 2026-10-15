@@ -7,7 +7,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// Backup status is instance-wide, so the gate fails closed: only principals listed in
 /// <c>Nix:Sites:Operators</c> pass, and an empty list means nobody, tenant administrators included.
 /// </summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class BackupHttpTests(NixPostgresFixture fixture) : IAsyncLifetime
 {
     public async ValueTask InitializeAsync()

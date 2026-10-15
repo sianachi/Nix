@@ -8,7 +8,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// The hand-written-SQL path: tenant-scoped like everything else, streamed rather than
 /// materialised.
 /// </summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class NixSqlExecutorTests : IAsyncLifetime
 {
     private readonly NixPostgresFixture _fixture;

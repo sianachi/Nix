@@ -30,6 +30,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// runtime-role connection and transaction, so changes to EF filters or projection cannot drift
 /// away from the evidence.
 /// </remarks>
+[Trait("Category", "PlanEvidence")]
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class ItemVisibilityPlanEvidenceTests : IAsyncLifetime
 {

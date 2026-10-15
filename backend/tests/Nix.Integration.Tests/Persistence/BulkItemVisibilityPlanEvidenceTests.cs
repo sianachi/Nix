@@ -8,7 +8,8 @@ using NpgsqlTypes;
 namespace Nix.Integration.Tests.Persistence;
 
 /// <summary>Runtime-role plans for the bulk reads that apply derived item visibility.</summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Trait("Category", "PlanEvidence")]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
 {
     private const int CorpusSize = 3_200;

@@ -30,7 +30,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// this pair exists to prevent.
 /// </para>
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class M0SchemaIsolationTests : IAsyncLifetime
 {
     private readonly NixPostgresFixture _fixture;
@@ -96,7 +96,9 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
-    public async ValueTask InitializeAsync()
+    private static readonly SeedOnce Seeded = new();
+
+    public ValueTask InitializeAsync() => new(Seeded.RunAsync(async () =>
     {
         await _fixture.ResetAsync();
         await M0SchemaSeed.SeedBothTenantsAsync(_fixture);
@@ -104,7 +106,7 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
         await M0SchemaSeed.SeedContentVersionsAsync(_fixture);
         await M0SchemaSeed.SeedCurrentSchemaRowsAsync(_fixture);
         await M0SchemaSeed.SeedSitesAsync(_fixture);
-    }
+    }));
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 

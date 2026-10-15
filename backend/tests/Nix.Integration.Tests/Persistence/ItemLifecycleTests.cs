@@ -21,7 +21,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// its own child, deleting a note and wanting it back - so they are tested as operations rather than
 /// as store calls.
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class ItemLifecycleTests : IAsyncLifetime
 {
     private static readonly Guid OtherWorkspace = new("3a3a3a3a-1111-4111-8111-3a3a3a3a3a3a");

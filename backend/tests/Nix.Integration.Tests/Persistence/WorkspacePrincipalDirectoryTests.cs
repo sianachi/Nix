@@ -9,7 +9,7 @@ using NpgsqlTypes;
 
 namespace Nix.Integration.Tests.Persistence;
 
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class WorkspacePrincipalDirectoryTests : IAsyncLifetime
 {
     private static readonly Guid Direct = new("90909090-1111-4111-8111-909090909091");

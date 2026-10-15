@@ -20,7 +20,7 @@ using Npgsql;
 namespace Nix.Integration.Tests.Persistence;
 
 /// <summary>Browser approval and CLI refresh over real Core HTTP and Postgres.</summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class CliBrowserLoginTests(NixPostgresFixture fixture) : IAsyncLifetime
 {
     private const string Origin = "https://nix.cli.test";

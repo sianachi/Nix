@@ -24,7 +24,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// for the wrong reason and prove nothing about the constraint.
 /// </para>
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class CrossTenantReferenceTests : IAsyncLifetime
 {
     private readonly NixPostgresFixture _fixture;

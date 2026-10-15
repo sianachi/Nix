@@ -21,7 +21,8 @@ namespace Nix.Integration.Tests.Persistence;
 /// of them locked; and the closure rows of all of it. Tenant Beta: 5,000 items, so row security
 /// has something to exclude.
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Trait("Category", "PlanEvidence")]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class CalendarSyncPlanEvidenceTests(NixPostgresFixture fixture, ITestOutputHelper output) : IAsyncLifetime
 {
     private static readonly Guid Connection = new("ca1e0000-1111-4111-8111-000000000001");
@@ -30,12 +31,14 @@ public sealed class CalendarSyncPlanEvidenceTests(NixPostgresFixture fixture, IT
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
-    public async ValueTask InitializeAsync()
+    private static readonly SeedOnce Seeded = new();
+
+    public ValueTask InitializeAsync() => new(Seeded.RunAsync(async () =>
     {
         await fixture.ResetAsync();
         await M0SchemaSeed.SeedBothTenantsAsync(fixture);
         await SeedAsync();
-    }
+    }));
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
