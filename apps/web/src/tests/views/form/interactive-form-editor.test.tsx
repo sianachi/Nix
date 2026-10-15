@@ -14,7 +14,7 @@ import {
   InteractiveFormRespondentPreview,
 } from '../../../views/form/interactive-form-editor';
 import { renderAt } from '../../render-with-router';
-import { useChoiceOrderPreference } from '../../../settings/suggestion-preferences';
+import { useChoiceOrderPreference } from '../../../settings/editor/suggestion-preferences';
 import { memoryStorage } from '../suggest/suggest-fixtures';
 
 vi.mock('../../../workspaces/workspace-context', () => ({

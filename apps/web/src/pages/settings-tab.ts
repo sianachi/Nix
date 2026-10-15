@@ -10,6 +10,7 @@ import { z } from 'zod';
 export const SettingsTabSchema = z.enum([
   'workspace',
   'editor',
+  'preferences',
   'notifications',
   'daily-notes',
   'pets',

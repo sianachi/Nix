@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiClientOverrideProvider } from '../../api/api-client-provider';
 import { CANDIDATE_POOL, linkFrecencyNamespace, ReferenceMenu } from '../../editor/reference-menu';
 import { frecencyScores, recordPick } from '../../lib/frecency';
-import { useChoiceOrderPreference } from '../../settings/suggestion-preferences';
+import { useChoiceOrderPreference } from '../../settings/editor/suggestion-preferences';
 
 /**
  * The picker's re-rank against a real editor and a fake client: it asks for a pool larger than it

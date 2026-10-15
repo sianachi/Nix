@@ -14,7 +14,7 @@ import {
 import { PROPERTY_FORMULA_HELP, SHEET_ERROR_CODES, type SheetErrorCode } from '@nix/sheet';
 import { useId, useState, type ReactElement, type ReactNode } from 'react';
 
-import { useWorkspaceMembers } from '../settings/use-workspace-members';
+import { useWorkspaceMembers } from '../settings/members/use-workspace-members';
 import { rollupAggregateLabel } from '../views/core/property-types';
 import { readTimestampValue, readerZone, writeTimestampValue } from '../views/core/timestamps';
 

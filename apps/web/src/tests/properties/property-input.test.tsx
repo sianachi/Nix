@@ -8,7 +8,7 @@ import {
   useWorkspaceMembers,
   type WorkspaceMember,
   type WorkspaceMembersState,
-} from '../../settings/use-workspace-members';
+} from '../../settings/members/use-workspace-members';
 
 // A date-or-time property is read and written in the reader's own zone, so it needs one fixed for
 // the round trip to be predictable - the same reason collated-calendar.test.tsx fixes one.
@@ -20,7 +20,7 @@ process.env.TZ = 'Pacific/Honolulu';
  * hook itself reaches them - that read is `use-workspace-members.ts`'s own concern and is exercised
  * end to end by `members-section.test.tsx`.
  */
-vi.mock('../../settings/use-workspace-members', () => ({
+vi.mock('../../settings/members/use-workspace-members', () => ({
   useWorkspaceMembers: vi.fn(),
 }));
 

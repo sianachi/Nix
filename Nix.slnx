@@ -47,6 +47,7 @@
   </Folder>
 
   <Folder Name="/scripts/">
+      <File Path="scripts/dev.sh" />
     <File Path="scripts/check-byte-array-markers.sh" />
     <File Path="scripts/check-frontend-layering.sh" />
     <File Path="scripts/check-frontend-layering.test.sh" />

@@ -14,7 +14,7 @@ import { useAutomateEntry } from '../../automations/automate-entry';
 import { useOptionalItemCommands } from '../../items/item-commands-context';
 import { useOptionalItemSelection } from './item-selection-context';
 import { bookmarkEntry, copyLinkEntry } from '../../items/item-menu-entries';
-import { useMuteRemindersEntry } from '../../settings/mute-reminders-entry';
+import { useMuteRemindersEntry } from '../../settings/notifications/mute-reminders-entry';
 import { useOptionalWorkspace } from '../../workspaces/workspace-context';
 import { useHiddenItems } from '../../items/use-hidden-items';
 

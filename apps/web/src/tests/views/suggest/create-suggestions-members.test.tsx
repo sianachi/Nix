@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CreateItemControl } from '../../../views/core/create-item-control';
 import type { PropertyDefinition } from '../../../views/core/container-model';
-import { useViewSuggestionPreference } from '../../../settings/suggestion-preferences';
+import { useViewSuggestionPreference } from '../../../settings/editor/suggestion-preferences';
 import { WORKSPACE_ID, anItem } from './suggest-fixtures';
 
 /**
@@ -16,7 +16,7 @@ import { WORKSPACE_ID, anItem } from './suggest-fixtures';
 
 const reads = vi.hoisted(() => ({ count: 0 }));
 
-vi.mock('../../../settings/use-workspace-members', () => ({
+vi.mock('../../../settings/members/use-workspace-members', () => ({
   useWorkspaceMembers: () => {
     useEffect(() => {
       reads.count += 1;

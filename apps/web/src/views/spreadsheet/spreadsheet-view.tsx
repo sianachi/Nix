@@ -37,7 +37,7 @@ import { isComputedType } from '../core/property-types';
 import { CreateItemControl } from '../core/create-item-control';
 import { FILL_SERIES_SHORTCUT } from '../../keyboard/shortcut-registry';
 import { formatShortcut } from '../../lib/shortcuts';
-import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
+import { useViewSuggestionPreference } from '../../settings/editor/suggestion-preferences';
 import { FillSeriesOffer } from './fill-series-offer';
 import { suggestSourceOf } from '../suggest/suggest-source';
 import type { ContainerData, PlanOutcome, PlanWrite } from '../core/use-container';

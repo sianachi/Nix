@@ -13,7 +13,7 @@ import {
   SlashMenu,
 } from '../../editor/slash-menu';
 import { frecencyScores, recordPick } from '../../lib/frecency';
-import { useChoiceOrderPreference } from '../../settings/suggestion-preferences';
+import { useChoiceOrderPreference } from '../../settings/editor/suggestion-preferences';
 
 describe('the slash menu', () => {
   it('offers every block the schema defines a way to insert', () => {

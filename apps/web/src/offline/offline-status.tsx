@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import { useSessionStore } from '../auth/session-store';
 
 import { useOfflinePreference } from './offline-preference';
+import { useGeneralPreferences } from '../settings/preferences/general-preferences';
 import { getOfflineSnapshot, subscribeOfflineNotes } from './offline-store';
 import { requestOfflineSync } from './offline-runtime';
 import { useNetworkOnline } from './use-network-online';
@@ -18,8 +19,9 @@ export function OfflineStatus({ showOpen = true }: { readonly showOpen?: boolean
   const storageUnavailable =
     authenticated && snapshot.account === null && snapshot.status === 'error';
   const enabled = useOfflinePreference((state) => state.enabled);
+  const footerVisible = useGeneralPreferences((state) => state.footerVisible);
   // Off means no footer at all, spacing included; what is saved stays until it is cleared.
-  if (!enabled) return null;
+  if (!enabled || !footerVisible) return null;
   if (!accountMatches && !storageUnavailable) return null;
 
   const busy = snapshot.status === 'downloading' || snapshot.status === 'syncing';
