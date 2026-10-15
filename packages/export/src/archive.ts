@@ -81,10 +81,8 @@ export async function* writeArchive(input: {
     }
   });
 
-  // Every entry carries the export's own timestamp rather than the clock. An archive of unchanged
-  // content should be byte-identical to the last one, which is what makes the round-trip test in
-  // this package an equality assertion instead of a structural one.
-  const mtime = new Date(manifest.exportedAt);
+  // Fixed ZIP metadata avoids time-zone and DST normalization; the manifest owns exportedAt.
+  const mtime = new Date(1980, 0, 1);
 
   const expected = new Set(manifest.items.map((entry) => entry.id));
   const fileItemIds = new Set((manifest.files ?? []).map((entry) => entry.itemId));
