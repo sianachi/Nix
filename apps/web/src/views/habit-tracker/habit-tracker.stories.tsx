@@ -8,10 +8,13 @@ import {
 } from '@nix/api-client';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { useState, type ReactElement } from 'react';
+import { within } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
 import { ApiClientOverrideProvider } from '../../api/api-client-provider';
 import { WorkspaceProvider } from '../../workspaces/workspace-context';
 import type { ContainerData } from '../core/use-container';
 import type { View } from '../core/container-model';
+import { ContainerView } from '../core/container-view';
 import { HabitTrackerView } from './habit-tracker-view';
 import { HabitInsights } from './habit-insights';
 import { habitDateRange, habitDays, shiftHabitDay } from './habit-progress';
@@ -238,7 +241,7 @@ export const Today = {
                 }}
               >
                 <Stage>
-                  <HabitTrackerView container={container} view={view} onOpen={noop} />
+                  <ContainerView container={container} view={view} onOpen={noop} />
                 </Stage>
               </WorkspaceProvider>
             }
@@ -247,6 +250,15 @@ export const Today = {
       </MemoryRouter>
     </ApiClientOverrideProvider>
   ),
+};
+/** Exercises the shared selection tray so the browser story's axe pass includes its controls. */
+export const Selection = {
+  ...Today,
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('checkbox', { name: 'Select Walk outside' }));
+    canvas.getByRole('toolbar', { name: 'Selected items' });
+  },
 };
 function InsightsStory({
   empty = false,

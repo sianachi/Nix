@@ -3,6 +3,8 @@ import { items } from '@nix/api-client';
 import { Check, CheckCircle2, Circle, CircleAlert, Clock3 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useItemOpenProps } from '../core/item-open-click';
+import { ShownItems } from '../core/item-selection-context';
+import { SelectCheckbox } from '../core/select-checkbox';
 import type { ContainerData } from '../core/use-container';
 import type { View } from '../core/container-model';
 import { useItemContextActions } from '../core/use-item-context-actions';
@@ -167,6 +169,10 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
     if (!showArchived && tracker?.status === 'archived') return [];
     return tracker === undefined ? [] : [{ ...item, tracker }];
   });
+  const shownHabitIds =
+    screen === 'checkins' && (state.status === 'ready' || state.status === 'partial')
+      ? habits.map((item) => item.id)
+      : [];
 
   const renderHabitDay = (habitId: string, day: string, tracker: HabitTracker): ReactNode => (
     <table className="block w-full border-collapse @lg:table" aria-label="Edit historical check-in">
@@ -314,6 +320,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           </div>
         ) : null}
       </header>
+      <ShownItems ids={shownHabitIds} />
       {showSetup ? (
         <HabitSetup
           onCreate={async (title, settings) => {
@@ -645,7 +652,11 @@ function HabitRow({
           }
         >
           {(contextTarget) => (
-            <div {...contextTarget} className="flex min-w-0 items-start justify-between gap-3">
+            <div
+              {...contextTarget}
+              className="group flex min-w-0 items-start justify-between gap-3"
+            >
+              <SelectCheckbox item={{ id: itemId, title }} className="mt-1" />
               <div className="min-w-0">
                 <Button
                   variant="ghost"

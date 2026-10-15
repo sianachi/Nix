@@ -15,6 +15,24 @@ describe('view capabilities', () => {
     expect(capabilitiesOf(undefined).move).toBe(true);
   });
 
+  it('offers item actions only where these views render individual items', () => {
+    expect(capabilitiesOf('habit_tracker')).toMatchObject({
+      select: true,
+      move: true,
+      delete: true,
+    });
+    expect(capabilitiesOf('chart')).toMatchObject({
+      select: false,
+      move: false,
+      delete: false,
+    });
+    expect(capabilitiesOf('form')).toMatchObject({
+      select: false,
+      move: false,
+      delete: false,
+    });
+  });
+
   /** The matrix in docs/site/nix-docs/markdown/features/items-and-views.md is this table. */
   it('matches the documented capability matrix', () => {
     const rows = Object.entries(VIEW_CAPABILITIES).map(
