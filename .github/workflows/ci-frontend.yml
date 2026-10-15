@@ -216,7 +216,36 @@ jobs:
         # unrun.
         env:
           NIX_COLLAB_SKIP_DB_TESTS: '1'
-        run: pnpm test
+        run: pnpm -r --if-present --filter '!@nix/web' test
+
+  # The web app is 380 of the repo's test files and about nine tenths of the unit time, so it runs
+  # as three shards beside the other packages instead of ahead of them. Vitest splits files by a
+  # hash of the path, which measured within 20% on CPU time; the required check names are
+  # "frontend web unit (1)" to "(3)".
+  frontend-web-unit:
+    name: frontend web unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    needs: frontend-static
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Web unit tests (shard ${{ matrix.shard }} of 3)
+        run: pnpm --filter @nix/web test --shard=${{ matrix.shard }}/3
 
   frontend-storybook:
     name: frontend storybook
