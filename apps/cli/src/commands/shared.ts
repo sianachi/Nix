@@ -63,12 +63,18 @@ export async function requireAccessToken(session: Session): Promise<string> {
 }
 
 /** Reads all of stdin as UTF-8, for commands that take their input piped in. */
-export async function readStdin(): Promise<string> {
+export async function readStdin(maxBytes?: number): Promise<string> {
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of process.stdin) {
-    chunks.push(chunk as Buffer);
+    const bytes = Buffer.from(chunk as Buffer);
+    total += bytes.byteLength;
+    if (maxBytes !== undefined && total > maxBytes) {
+      throw new RangeError(`Standard input exceeds ${String(maxBytes)} bytes.`);
+    }
+    chunks.push(bytes);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks, total).toString('utf8');
 }
 
 const TIME_OF_DAY = /^([01]\d|2[0-3]):[0-5]\d$/;
