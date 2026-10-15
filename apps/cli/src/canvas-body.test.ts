@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
+import { z } from 'zod';
 
 import {
   parseCanvasElements,
@@ -81,7 +82,10 @@ describe('canvas body', () => {
     remote.getMap('elements').set('concurrent', element('concurrent'));
     const fetchImpl = vi.fn((url: string, init?: RequestInit) => {
       if (url.includes('?after=')) return Promise.resolve(page(saved));
-      const body = JSON.parse(String(init?.body)) as { expectedDocId: string; update: string };
+      if (typeof init?.body !== 'string') throw new Error('Expected a JSON request body');
+      const body = z
+        .object({ expectedDocId: z.string(), update: z.string() })
+        .parse(JSON.parse(init.body));
       expect(body.expectedDocId).toBe(DOC_ID);
       expect(body).not.toHaveProperty('expectedHeadSeq');
       Y.applyUpdate(remote, new Uint8Array(Buffer.from(body.update, 'base64')));

@@ -47,7 +47,7 @@ const checkpointSchema = z.object({
   update: base64Schema(MAX_SNAPSHOT_BYTES),
 });
 const pageSchema = z.object({
-  docId: z.string().uuid(),
+  docId: z.uuid(),
   headSeq: sequenceSchema,
   schemaVersion: z.number().int().nonnegative(),
   updates: z.array(updateSchema),

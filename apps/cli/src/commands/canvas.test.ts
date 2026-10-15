@@ -19,9 +19,15 @@ const server = setupServer(
   ),
 );
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: 'error' });
+});
+afterEach(() => {
+  server.resetHandlers();
+});
+afterAll(() => {
+  server.close();
+});
 
 function item(type: string): Record<string, unknown> {
   return {
