@@ -12,7 +12,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// per-tenant cap, hostnames that cannot be squatted or aimed at the app, purges that would
 /// orphan a live site, concurrent publishes, and the audit trail of an update.
 /// </summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class SiteHardeningTests(NixPostgresFixture fixture) : IAsyncLifetime
 {
     private const string AppHost = "app.example.org";

@@ -14,7 +14,7 @@ week; a patch (`0.x.y`) for fixes. No fixed calendar.
 
 ## Stabilisation criteria
 
-- `main` green: CI frontend, backend and images workflows.
+- `main` green: CI frontend, backend and images workflows, including the post-merge backend plan evidence job.
 - The deploy smoke (`release-tools smoke`) passes on the target host against the release SHA.
 - No open [SEC] finding on surfaces the release touches; migrations reviewed by the backend-data
   specialist.

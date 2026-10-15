@@ -33,6 +33,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// sequential pass, and that grouping and folding stay one pass over the match.
 /// </para>
 /// </remarks>
+[Trait("Category", "PlanEvidence")]
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class WorkspaceQueryPlanEvidenceTests : IAsyncLifetime
 {

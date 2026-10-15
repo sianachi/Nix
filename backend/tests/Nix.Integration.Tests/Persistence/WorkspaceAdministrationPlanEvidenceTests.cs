@@ -7,6 +7,7 @@ using NpgsqlTypes;
 
 namespace Nix.Integration.Tests.Persistence;
 
+[Trait("Category", "PlanEvidence")]
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
 {

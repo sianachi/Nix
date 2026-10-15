@@ -205,4 +205,33 @@ jobs:
           trap 'kill "$diagnostic_pid" 2>/dev/null || true' EXIT
           # A test stuck past four minutes is aborted and named, instead of the step timing out silently.
           dotnet test tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj --configuration Release \
+            --filter "Category!=PlanEvidence" \
+            --blame-hang --blame-hang-timeout 4m --blame-hang-dump-type none --logger "console;verbosity=normal"
+
+  # ── Stage 3b: query-plan evidence ──────────────────────────────────────────
+  # EXPLAIN-based proof that hot statements use their indexes over a large seeded corpus. It
+  # measures performance rather than behaviour, takes about nine minutes, and the functional
+  # classes already cover what each statement returns, so it runs after merge instead of
+  # holding every pull request.
+  backend-plan-evidence:
+    name: backend plan evidence
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    needs: backend-static
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Pre-pull the Postgres image
+        run: docker pull pgvector/pgvector:pg16
+
+      - name: Plan evidence tests
+        working-directory: backend
+        run: |
+          dotnet test tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj --configuration Release \
+            --filter "Category=PlanEvidence" \
             --blame-hang --blame-hang-timeout 4m --blame-hang-dump-type none --logger "console;verbosity=normal"

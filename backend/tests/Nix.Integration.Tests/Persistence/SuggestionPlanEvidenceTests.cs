@@ -26,7 +26,8 @@ namespace Nix.Integration.Tests.Persistence;
 /// 3,000-source hub - are recorded in <c>SearchSql</c>, measured on a throwaway database.
 /// </para>
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Trait("Category", "PlanEvidence")]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class SuggestionPlanEvidenceTests : IAsyncLifetime
 {
     private const int CorpusSize = 3_200;

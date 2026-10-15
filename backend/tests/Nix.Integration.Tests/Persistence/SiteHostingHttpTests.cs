@@ -12,7 +12,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// Custom hostnames and first-publish approval through the real pipeline (ADR-0063 M5): DNS is a
 /// fake Core queries itself, Cloudflare is an in-memory API, everything else is the application.
 /// </summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class SiteHostingHttpTests(NixPostgresFixture fixture) : IAsyncLifetime
 {
     private readonly FakeDns _dns = new();

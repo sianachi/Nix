@@ -24,7 +24,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// handed out two connections.
 /// </para>
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class SetLocalScopingTests : IAsyncLifetime
 {
     private readonly NixPostgresFixture _fixture;

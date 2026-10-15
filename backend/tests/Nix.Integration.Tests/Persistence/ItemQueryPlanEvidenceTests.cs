@@ -24,7 +24,8 @@ namespace Nix.Integration.Tests.Persistence;
 /// escape hatch is an <c>@&gt;</c> containment arm plus a GIN <c>jsonb_path_ops</c> index in a
 /// later goal's migration.
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Trait("Category", "PlanEvidence")]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class ItemQueryPlanEvidenceTests : IAsyncLifetime
 {
     /// <summary>

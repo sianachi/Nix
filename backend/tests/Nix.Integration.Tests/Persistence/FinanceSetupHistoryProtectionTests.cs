@@ -10,7 +10,7 @@ using Nix.Messaging;
 namespace Nix.Integration.Tests.Persistence;
 
 /// <summary>Finance setup writes preserve figures and records for months that have been closed.</summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class FinanceSetupHistoryProtectionTests : IAsyncLifetime
 {
     private readonly NixPostgresFixture _fixture;

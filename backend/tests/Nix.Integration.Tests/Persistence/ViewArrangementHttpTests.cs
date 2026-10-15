@@ -22,7 +22,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// and their mapping onto the domain are internal to <c>Nix.Api</c>, and this is where a client's
 /// JSON - including the nulls a hand-written client can send - meets them.
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class ViewArrangementHttpTests : IAsyncLifetime
 {
     private readonly NixPostgresFixture _fixture;

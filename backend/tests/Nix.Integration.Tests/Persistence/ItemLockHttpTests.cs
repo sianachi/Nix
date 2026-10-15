@@ -27,7 +27,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// would fail and so would this suite.
 /// </para>
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class ItemLockHttpTests : IAsyncLifetime
 {
     private const string InternalSecret = "item-lock-http-internal-secret";

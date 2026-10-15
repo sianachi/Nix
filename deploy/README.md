@@ -123,6 +123,20 @@ the current Compose manifest needs and refuses the release up front if any is un
 The host needs the matching checkout for its manifest/scripts but no `pnpm install`; smoke
 tools come from the `release-tools` image.
 
+### Backend integration tests in CI
+
+`ci-backend.yml` runs the Postgres integration suite (`backend/tests/Nix.Integration.Tests`) in two jobs:
+
+- **backend integration** (every PR and push): everything except `Category=PlanEvidence`, about 8 minutes locally.
+- **backend plan evidence** (pushes to `main` only): the `*PlanEvidenceTests` classes, which assert `EXPLAIN (ANALYZE, BUFFERS)` plans over large seeded corpora. They measure index use, not behaviour, so a plan regression is caught after merge, not on the PR. Treat a red run as a blocker for the next release, and run it before tagging.
+
+How the suite stays fast, which a new test must respect:
+
+- Test classes sit in one of two serial collections, `postgres` and `postgres-secondary`. Each has its own Testcontainers Postgres and the two run in parallel. Balance by measured time when adding a class; never split a class across them.
+- Most classes reset the database before every test (Respawn). A class that only reads what its seed built may use `SeedOnce` (`Harness/SeedOnce.cs`) to reset and seed once. A test there that writes rows another test reads needs the per-test reset back.
+- `StructureRuleParityHttpTests` must keep a web host per test: the API rate-limits token exchange per host, so a shared host returns 429.
+- New plan-evidence classes need `[Trait("Category", "PlanEvidence")]`.
+
 A release is one command, `deploy/compose/release.sh <full-40-char-sha>`, run on the host from a
 checkout of that SHA. Secrets and release details stay apart: the secrets file is never edited
 per release, and the image tags come from the SHA argument.

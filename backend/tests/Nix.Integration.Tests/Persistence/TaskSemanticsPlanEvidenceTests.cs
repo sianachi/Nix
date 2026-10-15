@@ -30,6 +30,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// days around the query day; a third completed.
 /// </para>
 /// </remarks>
+[Trait("Category", "PlanEvidence")]
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
 {
@@ -56,12 +57,14 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         _output = output;
     }
 
-    public async ValueTask InitializeAsync()
+    private static readonly SeedOnce Seeded = new();
+
+    public ValueTask InitializeAsync() => new(Seeded.RunAsync(async () =>
     {
         await _fixture.ResetAsync();
         await M0SchemaSeed.SeedBothTenantsAsync(_fixture);
         await SeedCorpusAsync();
-    }
+    }));
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 

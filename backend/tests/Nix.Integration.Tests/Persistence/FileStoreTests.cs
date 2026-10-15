@@ -11,7 +11,7 @@ using Nix.Persistence.ObjectStorage;
 namespace Nix.Integration.Tests.Persistence;
 
 /// <summary>Universal files remain tenant-scoped, versioned, quota-bound, and idempotent.</summary>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class FileStoreTests(NixPostgresFixture fixture) : IAsyncLifetime
 {
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;

@@ -31,7 +31,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// legitimate body fits under it.
 /// </para>
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class SearchSuggestionHttpTests : IAsyncLifetime
 {
     private const int SuggestionsPerMinute = 3;

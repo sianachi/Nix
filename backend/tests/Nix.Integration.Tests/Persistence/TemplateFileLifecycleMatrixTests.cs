@@ -12,7 +12,7 @@ using Nix.Persistence.Templates;
 
 namespace Nix.Integration.Tests.Persistence;
 
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class TemplateFileLifecycleMatrixTests : IAsyncLifetime
 {
     private static readonly Guid RootSource = new("81111111-1111-4111-8111-111111111111");

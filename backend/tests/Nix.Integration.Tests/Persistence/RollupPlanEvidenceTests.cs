@@ -36,6 +36,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// naming an index is a hypothesis.
 /// </para>
 /// </remarks>
+[Trait("Category", "PlanEvidence")]
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class RollupPlanEvidenceTests : IAsyncLifetime
 {
@@ -82,12 +83,14 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
         _output = output;
     }
 
-    public async ValueTask InitializeAsync()
+    private static readonly SeedOnce Seeded = new();
+
+    public ValueTask InitializeAsync() => new(Seeded.RunAsync(async () =>
     {
         await _fixture.ResetAsync();
         await M0SchemaSeed.SeedBothTenantsAsync(_fixture);
         await SeedCorpusAsync();
-    }
+    }));
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 

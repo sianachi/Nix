@@ -21,7 +21,8 @@ namespace Nix.Integration.Tests.Persistence;
 /// page pruned, as retention does to a long-idle body. Tenant Beta: 2,000 items, so row security
 /// has something to exclude.
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Trait("Category", "PlanEvidence")]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class SiteEligibilityPlanEvidenceTests(NixPostgresFixture fixture, ITestOutputHelper output) : IAsyncLifetime
 {
     private static readonly Guid SiteId = new("51e51e51-aaaa-4aaa-8aaa-51e51e51aaaa");
@@ -32,12 +33,14 @@ public sealed class SiteEligibilityPlanEvidenceTests(NixPostgresFixture fixture,
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
-    public async ValueTask InitializeAsync()
+    private static readonly SeedOnce Seeded = new();
+
+    public ValueTask InitializeAsync() => new(Seeded.RunAsync(async () =>
     {
         await fixture.ResetAsync();
         await M0SchemaSeed.SeedBothTenantsAsync(fixture);
         await SeedAsync();
-    }
+    }));
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 

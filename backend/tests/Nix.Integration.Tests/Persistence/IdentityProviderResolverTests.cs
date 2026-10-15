@@ -23,7 +23,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// passing test that should not pass.
 /// </para>
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class IdentityProviderResolverTests : IAsyncLifetime
 {
     private const string Resolver = "nix_resolve_identity_provider";

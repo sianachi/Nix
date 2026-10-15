@@ -35,7 +35,7 @@ namespace Nix.Integration.Tests.Persistence;
 /// <item>Target links to itself and to Outgoing - its own body, which is not a co-citation.</item>
 /// </list>
 /// </remarks>
-[Collection(PostgresCollectionDefinition.Name)]
+[Collection(PostgresSecondaryCollectionDefinition.Name)]
 public sealed class SearchSuggestionAuthorizationTests : IAsyncLifetime
 {
     private static readonly Guid PrivateWorkspace = new("5ec0c000-1111-4111-8111-5ec0c0000001");
