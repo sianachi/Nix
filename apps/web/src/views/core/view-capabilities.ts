@@ -43,7 +43,7 @@ export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
   drive: { ...ACTIONS, rename: false },
   // Query rows are other containers' items shown in place; they keep their own location.
   query: { ...ACTIONS, select: false, move: false },
-  habit_tracker: { ...NONE, rename: true, delete: true },
+  habit_tracker: ACTIONS,
   sheet: ACTIONS,
   // These kinds draw aggregates or forms, not rows a person acts on.
   chart: NONE,

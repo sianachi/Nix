@@ -13,7 +13,7 @@ exports[`view capabilities > matches the documented capability matrix 1`] = `
   "| outline | yes | yes | yes | yes | parent-order |",
   "| drive | yes | yes | no | yes | none |",
   "| query | no | no | yes | yes | none |",
-  "| habit_tracker | no | no | yes | yes | none |",
+  "| habit_tracker | yes | yes | yes | yes | none |",
   "| sheet | yes | yes | yes | yes | none |",
   "| chart | no | no | no | no | none |",
   "| form | no | no | no | no | none |",

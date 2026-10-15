@@ -1,11 +1,16 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
+import { useState } from 'react';
 import type { HabitTracker } from '@nix/api-client';
+import { ItemCommandsProvider } from '../../../items/item-commands-context';
+import type { TreeItem, WorkspaceTree } from '../../../items/use-workspace-tree';
 import type { ContainerData } from '../../../views/core/use-container';
 import { aContainer } from '../../container-fixture';
 import { stubViewport } from '../../stub-viewport';
 import { HabitTrackerView } from '../../../views/habit-tracker/habit-tracker-view';
+import { ContainerView } from '../../../views/core/container-view';
 import type { View } from '../../../views/core/container-model';
 
 const saveHabit = vi.fn<() => Promise<string | null>>();
@@ -15,6 +20,9 @@ const setStatus = vi.fn<() => Promise<string | null>>();
 const refetchHabit = vi.fn<(habitId: string) => Promise<string | null>>();
 const execute = vi.fn<() => Promise<{ id: string }>>();
 const reload = vi.fn(() => Promise.resolve());
+const commandMove = vi.fn(() => Promise.resolve({ refusal: null }));
+const commandDelete = vi.fn<(ids: readonly string[]) => Promise<readonly string[]>>();
+const DESTINATION_ID = 'destination-1';
 let tracker: HabitTracker;
 // Set only by the test that checks a second habit is left alone; every other test's mock is a
 // single-habit tracker map, exactly as before.
@@ -104,6 +112,54 @@ const mount = (empty = false, suppliedContainer?: ContainerData) =>
     </MemoryRouter>,
   );
 
+function treeItem(id: string, title: string, parentId: string | null): TreeItem {
+  return {
+    id,
+    title,
+    type: 'note',
+    parentId,
+    hasChildren: false,
+    seq: 0,
+    lifecycleState: 'active',
+  };
+}
+
+function CommandHarness({ action }: { readonly action: 'move' | 'delete' }) {
+  const [children, setChildren] = useState([habit]);
+  const destination = treeItem(DESTINATION_ID, 'Archive', null);
+  const treeItems = [treeItem(habit.id, habit.title, 'container-1'), destination];
+  const tree = {
+    status: 'ready',
+    error: null,
+    items: treeItems,
+    find: (id: string) => treeItems.find((entry) => entry.id === id) ?? null,
+    childrenOf: (parentId: string | null) =>
+      treeItems.filter((entry) => entry.parentId === parentId),
+    isLoadingChildren: () => false,
+    expand: () => Promise.resolve(),
+    rename: vi.fn(() => Promise.resolve()),
+    move: commandMove,
+    remove: () => Promise.resolve({ refusal: null }),
+  } as unknown as WorkspaceTree;
+
+  return (
+    <ItemCommandsProvider
+      tree={tree}
+      onDeleteItem={vi.fn()}
+      onDeleteItems={async (items) => {
+        const deleted = items.map((item) => item.id);
+        commandDelete.mockResolvedValue(deleted);
+        await commandDelete(deleted);
+        setChildren((current) => current.filter((item) => !deleted.includes(item.id)));
+        return deleted;
+      }}
+      onMoved={action === 'move' ? () => setChildren([]) : undefined}
+    >
+      <ContainerView container={aContainer({ children })} view={view} onOpen={vi.fn()} />
+    </ItemCommandsProvider>
+  );
+}
+
 function openWeekDay(day: string): void {
   fireEvent.click(screen.getByRole('button', { name: 'Show week' }));
   fireEvent.click(screen.getByRole('button', { name: `Read, ${day}, not completed` }));
@@ -137,6 +193,8 @@ describe('habit tracker user flows', () => {
     setStatus.mockResolvedValue(null);
     refetchHabit.mockResolvedValue(null);
     execute.mockResolvedValue({ id: 'created-habit' });
+    commandMove.mockResolvedValue({ refusal: null });
+    commandDelete.mockResolvedValue([]);
   });
   afterEach(() => vi.useRealTimers());
 
@@ -146,6 +204,87 @@ describe('habit tracker user flows', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Edit schedule' }));
     expect(screen.getByRole('textbox', { name: 'Habit name' })).toHaveValue('Read');
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+  });
+
+  it('selects a habit row through the shared selection tray', async () => {
+    render(
+      <MemoryRouter>
+        <ContainerView container={aContainer({ children: [habit] })} view={view} onOpen={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Read' }));
+    const tray = screen.getByRole('toolbar', { name: 'Selected items' });
+    expect(within(tray).getByText('1 selected')).toBeVisible();
+    expect(within(tray).queryByRole('button', { name: 'Move to…' })).not.toBeInTheDocument();
+  });
+
+  it('does not expose selection controls when the container is locked', () => {
+    render(
+      <MemoryRouter>
+        <ContainerView
+          container={{ ...aContainer({ children: [habit] }), locked: true }}
+          view={view}
+          onOpen={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('This is locked')).toBeVisible();
+    expect(screen.queryByRole('checkbox', { name: 'Select Read' })).not.toBeInTheDocument();
+  });
+
+  it('moves selected habits through the shared command and drops the selection after its rows leave', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <CommandHarness action="move" />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Read' }));
+    await user.click(
+      within(screen.getByRole('toolbar', { name: 'Selected items' })).getByRole('button', {
+        name: 'Move to…',
+      }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Move item' });
+    await user.click(within(dialog).getByRole('button', { name: 'Archive' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Move here' }));
+
+    await waitFor(() => {
+      expect(commandMove).toHaveBeenCalledWith(habit.id, DESTINATION_ID, null);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('checkbox', { name: 'Select Read' })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
+  });
+
+  it('deletes selected habits through the shared confirmation and clears their selection', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <CommandHarness action="delete" />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Select Read' }));
+    await user.click(
+      within(screen.getByRole('toolbar', { name: 'Selected items' })).getByRole('button', {
+        name: 'Delete',
+      }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Delete 1 item?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Delete 1 item' }));
+
+    await waitFor(() => {
+      expect(commandDelete).toHaveBeenCalledWith([habit.id]);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('checkbox', { name: 'Select Read' })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
   });
 
   it('creates from the empty state and retries refused settings on the same item', async () => {
