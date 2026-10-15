@@ -21,7 +21,7 @@ describe('readStdin', () => {
   it('stops buffering when a caller provides a byte limit', async () => {
     const original = process.stdin[Symbol.asyncIterator];
     const iterator = vi.fn(async function* () {
-      yield Buffer.from('abcd');
+      yield await Promise.resolve(Buffer.from('abcd'));
       yield Buffer.from('efgh');
     });
     Object.defineProperty(process.stdin, Symbol.asyncIterator, {
