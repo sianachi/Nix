@@ -42,6 +42,7 @@ import {
   MONTH_CELL,
   MONTH_VISIBLE_ITEMS,
   MonthGrid,
+  buildWeeks,
   type DayCellSpec,
 } from './month-grid';
 import { RescheduleDialog } from './reschedule-dialog';
@@ -482,6 +483,23 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // The view's own grain, overridable by the address the way the view itself is - a link saying
   // "look at this week" should open on a week.
   const mode = readMode(urlMode ?? view.mode);
+  const shownDates = new Set(
+    narrow && !showGrid && mode === 'month'
+      ? [...byDate.keys()].filter((date) => date.startsWith(prefix))
+      : mode === 'month'
+        ? buildWeeks(month).flatMap((week) => week.map((cell) => cell.date))
+        : mode === 'week'
+          ? weekOf(anchor).map(dayText)
+          : [dayText(anchor)],
+  );
+  const shownItems = [
+    ...new Set([
+      ...unscheduled.map((item) => item.id),
+      ...[...byDate]
+        .filter(([date]) => shownDates.has(date))
+        .flatMap(([, dated]) => dated.map((item) => item.id)),
+    ]),
+  ];
 
   /** One step of whatever is on screen: a month, a week, or a day. */
   function step(delta: number): void {
@@ -498,7 +516,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     // the same shape - an optional error, a header row, then the view's content - and this was the
     // one drawn one step further apart than the rest for no stated reason.
     <div className="flex min-w-0 flex-col gap-3">
-      <ShownItems ids={items.map((item) => item.id)} />
+      <ShownItems ids={shownItems} />
       {container.writeError === null ? null : (
         // Alongside the calendar rather than instead of it: the write was refused and the item has
         // already been put back where it was, so the grid is correct and only the reason is missing.
@@ -1086,7 +1104,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
         onReschedule={setRescheduling}
       >
         {(contextTarget) => (
-          <div className="group/card relative">
+          <div className="group group/card relative">
             <SelectCheckbox
               item={item}
               className="absolute left-1 top-1 z-20 rounded-sm bg-surface"
@@ -1105,7 +1123,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
                 {...openProps(item.id)}
                 className={cn(
                   focusRing,
-                  'min-w-0 flex-1 truncate rounded-sm px-1.5 py-0.5 text-left text-xs',
+                  'min-w-0 flex-1 truncate rounded-sm py-0.5 pl-7 pr-1.5 text-left text-xs',
                 )}
               >
                 {time === null ? null : <span className="mr-1 text-muted">{time}</span>}
@@ -1142,7 +1160,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
       onReschedule={setRescheduling}
     >
       {(contextTarget) => (
-        <div className="group/card flex items-start gap-1">
+        <div className="group group/card flex items-start gap-1">
           <SelectCheckbox item={item} className="self-start" />
           <div
             {...contextTarget}
