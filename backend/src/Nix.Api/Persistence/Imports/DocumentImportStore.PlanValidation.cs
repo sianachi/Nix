@@ -1,7 +1,9 @@
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions.Importing;
 using Nix.Domain.Items;
 using Nix.Domain.Properties;
+using Nix.Domain.Views;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -91,6 +93,11 @@ public sealed partial class DocumentImportStore
                 plan.Schema,
                 plan.Views,
                 effective) is not null)
+            {
+                return false;
+            }
+            if (JsonNode.Parse(plan.Properties ?? "{}") is JsonObject properties && properties.ContainsKey("$chat_config")
+                && (ChatSchema.Refuse(effective) is not null || !ViewDefinitionsJson.Read(plan.Views).Views.Any(view => view.Kind == ViewKind.Chat)))
             {
                 return false;
             }

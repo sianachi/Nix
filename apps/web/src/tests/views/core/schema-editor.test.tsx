@@ -684,3 +684,79 @@ describe('the schema editor', () => {
     expect(within(picker).getByRole('option', { name: 'estimate' })).toBeInTheDocument();
   });
 });
+
+it('saves a field source without changing the field type or unrelated declarations', async () => {
+  const user = userEvent.setup();
+  const who = propertyOf({ key: 'who', label: 'Who offended you' });
+  const reason = propertyOf({ key: 'reason', label: 'Reason' });
+  const setSchema = vi.fn(() => Promise.resolve(null));
+  render(
+    <SchemaEditor
+      container={containerOf(
+        { properties: [who, reason], declared: [who, reason], inherit: true },
+        setSchema,
+      )}
+      open
+      onClose={vi.fn()}
+    />,
+  );
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Suggestions for Who offended you' }),
+    'previous',
+  );
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Source field for Who offended you' }),
+    'reason',
+  );
+  await user.click(screen.getByRole('button', { name: 'Save fields' }));
+  expect(setSchema).toHaveBeenCalledWith({
+    inherit: true,
+    properties: [{ ...who, choiceSource: { itemId: null, field: 'reason' } }, reason],
+  });
+});
+
+it('does not save an unfinished source-note selection', async () => {
+  const user = userEvent.setup();
+  const who = propertyOf({ key: 'who', label: 'Who' });
+  const setSchema = vi.fn(() => Promise.resolve(null));
+  render(
+    <SchemaEditor
+      container={containerOf({ properties: [who], declared: [who], inherit: true }, setSchema)}
+      open
+      onClose={vi.fn()}
+    />,
+  );
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Suggestions for Who' }), 'other');
+  await user.click(screen.getByRole('button', { name: 'Save fields' }));
+  expect(setSchema).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Choose a source note for Who before saving.',
+  );
+});
+
+it('keeps a new field learning from itself while its name is being edited', async () => {
+  const user = userEvent.setup();
+  const setSchema = vi.fn(() => Promise.resolve(null));
+  render(
+    <SchemaEditor
+      container={containerOf({ properties: [], declared: [], inherit: true }, setSchema)}
+      open
+      onClose={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Add a property' }));
+  await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Person');
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Suggestions for Person' }),
+    'previous',
+  );
+  await user.clear(screen.getByRole('textbox', { name: 'Name' }));
+  await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Who');
+  await user.click(screen.getByRole('button', { name: 'Save fields' }));
+  expect(setSchema).toHaveBeenCalledWith({
+    inherit: true,
+    properties: [
+      expect.objectContaining({ key: 'who', choiceSource: { itemId: null, field: 'who' } }),
+    ],
+  });
+});

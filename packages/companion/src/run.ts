@@ -1,3 +1,4 @@
+import * as editFields from './structure/edit-fields.js';
 import { z } from 'zod';
 import { items, search, structure } from '@nix/api-client';
 import {
@@ -145,6 +146,7 @@ export async function runWorkspaceTool(
       'create_structured',
       'create_entries',
       'add_fields',
+      'edit_fields',
       'edit_form',
       'update_view',
       'list_templates',
@@ -166,6 +168,7 @@ export async function runWorkspaceTool(
       'add_view',
       'create_entries',
       'add_fields',
+      'edit_fields',
       'edit_form',
       'update_view',
       'set_recurrence',
@@ -228,6 +231,19 @@ export async function runWorkspaceTool(
         args.parentId,
         spec,
         context.inheritedFields,
+        signal,
+      );
+    } else if (args.operation === 'edit_fields') {
+      const spec = fieldsSpecSchema.parse(rawSpec);
+      if (!context.existing) throw new Error('edit_fields preview context is missing.');
+      const report = validateSpec('edit_fields', spec, { ...context, today: ports.clock.today() });
+      if (!report.ok)
+        throw new WorkspaceToolRefusal(
+          report.problems.map((problem) => problem.message).join('\n'),
+        );
+      result = await editFields.execute(
+        ports,
+        editFields.compile(spec, { itemId: args.itemId, existing: context.existing }),
         signal,
       );
     } else if (args.operation === 'add_fields') {
@@ -293,6 +309,7 @@ export async function runWorkspaceTool(
     case 'create_structured':
     case 'add_view':
     case 'create_entries':
+    case 'edit_fields':
     case 'add_fields':
     case 'edit_form':
     case 'update_view':
@@ -594,9 +611,14 @@ export async function runWorkspaceTool(
       'create_entries',
     ].includes(args.operation)
       ? [args.parentId || null]
-      : ['add_view', 'update_view', 'add_fields', 'edit_form', 'set_recurrence'].includes(
-            args.operation,
-          )
+      : [
+            'add_view',
+            'update_view',
+            'add_fields',
+            'edit_fields',
+            'edit_form',
+            'set_recurrence',
+          ].includes(args.operation)
         ? [args.itemId]
         : [],
   };

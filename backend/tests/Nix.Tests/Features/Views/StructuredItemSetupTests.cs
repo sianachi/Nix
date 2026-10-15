@@ -31,7 +31,8 @@ public sealed class StructuredItemSetupTests
             tree,
             new WritablePermissions(),
             new Session(),
-            TimeProvider.System);
+            TimeProvider.System,
+            new FixedSchemas(PropertySchema.Empty));
 
         var result = await handler.HandleAsync(
             new CreateStructuredItem(Workspace, "note", "Launch board", null, schema, views, "board"),
@@ -218,6 +219,95 @@ public sealed class StructuredItemSetupTests
         Assert.Equal(PropertyErrors.SetupCollisionCode, result.Error.Code);
         Assert.Null(tree.WrittenSchema);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Chat_creation_requires_compatible_declared_or_inherited_fields(bool inherited)
+    {
+        var tree = new RecordingTree(null);
+        var messageSchema = ChatFields();
+        var handler = new CreateStructuredItemHandler(tree, new WritablePermissions(), new Session(), TimeProvider.System,
+            new FixedSchemas(inherited ? messageSchema : PropertySchema.Empty));
+        var chat = View("chat") with { Kind = ViewKind.Chat };
+        var result = await handler.HandleAsync(new CreateStructuredItem(Workspace, "note", "Conversation", null,
+            inherited ? PropertySchema.Empty : messageSchema, [chat], "chat"), Cancellation);
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(tree.Inserted);
+    }
+
+    [Fact]
+    public async Task Invalid_chat_creation_does_not_insert_an_item()
+    {
+        var tree = new RecordingTree(null);
+        var handler = new CreateStructuredItemHandler(tree, new WritablePermissions(), new Session(), TimeProvider.System,
+            new FixedSchemas(PropertySchema.Empty));
+        var result = await handler.HandleAsync(new CreateStructuredItem(Workspace, "note", "Conversation", null,
+            Schema(Property("description")), [View("chat") with { Kind = ViewKind.Chat }], "chat"), Cancellation);
+        Assert.True(result.IsFailure);
+        Assert.Equal(PropertyErrors.InvalidViewsCode, result.Error.Code);
+        Assert.Null(tree.Inserted);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Attaching_a_chat_view_validates_the_child_schema_before_writing(bool compatible)
+    {
+        var schema = compatible ? ChatFields() : PropertySchema.Empty;
+        var item = Container(PropertySchema.Empty, [View("list")]);
+        var tree = new RecordingTree(item);
+        var handler = new SetContainerViewsHandler(tree, new WritablePermissions(), new Session(), TimeProvider.System, new FixedSchemas(schema));
+        var result = await handler.HandleAsync(new SetContainerViews(item.Id, [View("chat") with { Kind = ViewKind.Chat }], "chat"), Cancellation);
+        Assert.Equal(compatible, result.IsSuccess);
+        Assert.Equal(compatible ? 1 : 0, tree.ViewsWrites);
+        if (!compatible)
+        {
+            Assert.Equal(PropertyErrors.InvalidViewsCode, result.Error.Code);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Chat_append_checks_existing_and_new_message_fields_before_any_write(bool compatible)
+    {
+        var schema = compatible ? ChatFields() : PropertySchema.Empty;
+        var item = Container(PropertySchema.Empty, [View("list")]);
+        var tree = new RecordingTree(item);
+        var handler = new AppendViewSetupHandler(tree, new FixedSchemas(schema), new WritablePermissions(), new Session(), TimeProvider.System);
+        var result = await handler.HandleAsync(new AppendViewSetup(item.Id, [], [View("chat") with { Kind = ViewKind.Chat }], false), Cancellation);
+        Assert.Equal(compatible, result.IsSuccess);
+        if (!compatible)
+        {
+            Assert.Null(tree.WrittenSchema);
+            Assert.Null(tree.WrittenViews);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Chat_replacement_checks_the_resulting_schema_before_any_write(bool compatible)
+    {
+        var item = Container(PropertySchema.Empty, [View("list")]);
+        var tree = new RecordingTree(item);
+        var handler = new ReplaceViewSetupHandler(tree, new FixedSchemas(PropertySchema.Empty), new WritablePermissions(), new Session(), TimeProvider.System);
+        var result = await handler.HandleAsync(new ReplaceViewSetup(item.Id, "list", compatible ? ChatFields() : PropertySchema.Empty,
+            [], [View("chat") with { Kind = ViewKind.Chat }]), Cancellation);
+        Assert.Equal(compatible, result.IsSuccess);
+        if (!compatible)
+        {
+            Assert.Null(tree.WrittenSchema);
+            Assert.Null(tree.WrittenViews);
+        }
+    }
+
+    private static PropertySchema ChatFields() => Schema(
+        new("chat_role", "Role", PropertyType.Select, ["user", "assistant", "system"], false),
+        Property("chat_text"),
+        new("chat_created_at", "Sent", PropertyType.Date, [], false),
+        Property("chat_author"));
 
     private static PropertyDefinition Property(string key) =>
         new(key, key, PropertyType.Text, [], false);

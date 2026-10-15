@@ -551,3 +551,6 @@ export type {
   FinanceTransactionsQuery,
   FinanceImportInput,
 } from './resources/finance.js';
+
+export * as conversations from './resources/conversations.js';
+export * from './schemas/conversations.js';

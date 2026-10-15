@@ -18,6 +18,10 @@ export const propertyDefinitionSchema = z.object({
   type: z.string(),
   options: z.array(z.string()),
   required: z.boolean(),
+  choiceSource: z
+    .object({ itemId: z.uuid().nullable(), field: z.string().min(1).max(160) })
+    .nullable()
+    .default(null),
 
   // For a formula property: the expression evaluated on read. Defaulted rather than merely
   // nullable, so a server from before the field answers schemas this still parses.
@@ -31,7 +35,9 @@ export const propertyDefinitionSchema = z.object({
   source: z.string().nullable().default(null),
 });
 
-export type PropertyDefinition = z.infer<typeof propertyDefinitionSchema>;
+export type PropertyDefinition = Omit<z.infer<typeof propertyDefinitionSchema>, 'choiceSource'> & {
+  choiceSource?: { itemId: string | null; field: string } | null | undefined;
+};
 
 export const effectiveSchemaSchema = z.object({
   properties: z.array(propertyDefinitionSchema),

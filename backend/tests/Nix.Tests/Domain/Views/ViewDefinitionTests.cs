@@ -45,6 +45,7 @@ public sealed class ViewDefinitionTests
     [InlineData(ViewKind.Checklist, "checklist")]
     [InlineData(ViewKind.Matrix, "matrix")]
     [InlineData(ViewKind.Outline, "outline")]
+    [InlineData(ViewKind.Chat, "chat")]
     public void A_kind_is_stored_under_the_name_the_contract_publishes(ViewKind kind, string name)
     {
         Assert.Equal(name, ViewKinds.ToText(kind));

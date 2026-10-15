@@ -154,6 +154,8 @@ export interface PropertyDefinition {
   /** Rollup operation and child property key; a count may omit its source. */
   readonly aggregate?: string | null;
   readonly source?: string | null;
+  readonly choiceSource?:
+    { readonly itemId: string | null; readonly field: string } | null | undefined;
 }
 
 /**

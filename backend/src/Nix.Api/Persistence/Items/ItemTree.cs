@@ -341,6 +341,7 @@ public sealed partial class ItemTree : IItemTree
         ArgumentNullException.ThrowIfNull(item);
 
         _dbContext.Items.Add(item);
+        _dbContext.Entry(item).Property(row => row.Properties).CurrentValue = ConversationImportProperties.Sanitize(item.Properties);
         await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         // The row has to exist before its edges do: item_closure references it both ways, and the
@@ -366,15 +367,24 @@ public sealed partial class ItemTree : IItemTree
     {
         ArgumentNullException.ThrowIfNull(properties);
 
-        await _dbContext.Items
-            .Where(item => item.Id == id)
-            .ExecuteUpdateAsync(
-                update => update
-                    .SetProperty(item => item.Properties, properties)
-                    .SetProperty(item => item.LastModifiedBy, actor)
-                    .SetProperty(item => item.LastModifiedAt, at),
-                cancellationToken)
-            .ConfigureAwait(false);
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE item SET properties = ({properties}::jsonb - '$chat_config') ||
+                CASE WHEN properties ? '$chat_config' THEN jsonb_build_object('$chat_config', properties -> '$chat_config') ELSE jsonb_build_object() END,
+                last_modified_by = {actor.Value}, last_modified_at = {at}
+            WHERE id = {id.Value} AND tenant_id = {Tenant.Value}
+            """, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask UpdateConversationConfigurationAsync(ItemId id, string configuration,
+        PrincipalId actor, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE item SET properties = jsonb_set(COALESCE(properties, jsonb_build_object()), ARRAY['$chat_config'], to_jsonb({configuration}::text)),
+                last_modified_by = {actor.Value}, last_modified_at = {at}
+            WHERE id = {id.Value} AND tenant_id = {Tenant.Value}
+            """, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -522,16 +532,25 @@ public sealed partial class ItemTree : IItemTree
         ItemLifecycleState state,
         PrincipalId actor,
         DateTimeOffset at,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken)
+    {
+        if (state != ItemLifecycleState.Active)
+        {
+            await new Nix.Persistence.Finance.FinanceLock(_dbContext).AcquireAsync(id, cancellationToken).ConfigureAwait(false);
+            var current = await FindStoredAsync(id, cancellationToken).ConfigureAwait(false);
+            var interrupted = ConversationImportProperties.InterruptConfiguration(current?.Properties);
+            if (interrupted is not null)
+            {
+                await UpdateConversationConfigurationAsync(id, interrupted, actor, at, cancellationToken).ConfigureAwait(false);
+            }
+        }
         await _dbContext.Items
             .Where(item => item.Id == id)
-            .ExecuteUpdateAsync(
-                update => update
-                    .SetProperty(item => item.LifecycleState, state)
-                    .SetProperty(item => item.LastModifiedBy, actor)
-                    .SetProperty(item => item.LastModifiedAt, at),
-                cancellationToken)
-            .ConfigureAwait(false);
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(item => item.LifecycleState, state)
+                .SetProperty(item => item.LastModifiedBy, actor)
+                .SetProperty(item => item.LastModifiedAt, at), cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Asks the database for a free position, returning zero when there is none.

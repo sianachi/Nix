@@ -46,6 +46,7 @@ function propertyDef(key: string, type: string): Record<string, unknown> {
     expression: null,
     aggregate: null,
     source: null,
+    choiceSource: null,
   };
 }
 
@@ -59,6 +60,7 @@ function formulaDef(key: string, expression: string): Record<string, unknown> {
     expression,
     aggregate: null,
     source: null,
+    choiceSource: null,
   };
 }
 
@@ -182,6 +184,7 @@ describe('nixctl structure read', () => {
       expression: null,
       aggregate: null,
       source: null,
+      choiceSource: null,
     };
     server.use(
       http.get(`${API}/api/v1/items/:itemId`, () => HttpResponse.json(item({}))),
@@ -306,6 +309,7 @@ describe('nixctl schema set', () => {
       expression: null,
       aggregate: 'sum',
       source: 'estimate',
+      choiceSource: null,
     };
     await writeFile(file, JSON.stringify({ properties: [rollup], inherit: true }), 'utf8');
     let sentBody: unknown;

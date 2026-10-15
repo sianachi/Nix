@@ -3,7 +3,13 @@ import { canApplyWithoutAsking, hasExternalLink } from './auto-apply.js';
 import { READ_ONLY_OPERATIONS, workspaceToolSchema } from './tool-args.js';
 
 const everyOperation = workspaceToolSchema.shape.operation.options;
-const alwaysAsk = ['trash_item', 'move_item', 'save_as_template', 'update_view'] as const;
+const alwaysAsk = [
+  'trash_item',
+  'move_item',
+  'save_as_template',
+  'update_view',
+  'edit_fields',
+] as const;
 
 describe('canApplyWithoutAsking', () => {
   it('never answers for a read: reads have their own switch', () => {

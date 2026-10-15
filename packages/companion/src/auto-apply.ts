@@ -9,7 +9,7 @@ import { READ_ONLY_OPERATIONS, type WorkspaceToolArgs } from './tool-args.js';
  * delete, remove or retype a field, delete a view) is not here because no tool can do those. */
 const ALWAYS_ASK_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set<
   WorkspaceToolArgs['operation']
->(['trash_item', 'move_item', 'save_as_template', 'update_view']);
+>(['trash_item', 'move_item', 'save_as_template', 'update_view', 'edit_fields']);
 
 /** Whether a pending write may run without a click once its preview has loaded clean. Reads
  * are governed separately (`readWithoutAsking`); this only answers for writes. Lives in this

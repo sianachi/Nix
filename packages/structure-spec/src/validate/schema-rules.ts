@@ -230,11 +230,22 @@ export function refuseSchema(schema: StructureSchema): string | null {
     }
 
     const hasOptions = property.type === 'select' || property.type === 'multi_select';
-    if (hasOptions && property.options.length === 0) {
+    if (hasOptions && property.options.length === 0 && !property.choiceSource) {
       return `'${property.label}' is a select and needs at least one option.`;
     }
     if (!hasOptions && property.options.length > 0) {
       return `'${property.label}' is not a select, so it cannot carry options.`;
+    }
+
+    if (
+      property.choiceSource &&
+      (!['text', 'select', 'multi_select'].includes(property.type) ||
+        property.choiceSource.field.trim().length === 0 ||
+        property.choiceSource.field.length > 160 ||
+        property.choiceSource.field.startsWith('$') ||
+        property.choiceSource.itemId === '00000000-0000-0000-0000-000000000000')
+    ) {
+      return `'${property.label}' needs a text or choice type and a valid source field.`;
     }
 
     if (property.type === 'formula') {

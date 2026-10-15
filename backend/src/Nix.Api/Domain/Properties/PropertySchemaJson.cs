@@ -152,6 +152,15 @@ public static class PropertySchemaJson
                 entry[SourceKey] = property.Source;
             }
 
+            if (property.ChoiceSource is { } choices)
+            {
+                entry["choiceSource"] = new JsonObject
+                {
+                    ["itemId"] = choices.ItemId?.ToString(),
+                    ["field"] = choices.Field,
+                };
+            }
+
             properties.Add(entry);
         }
 
@@ -248,7 +257,24 @@ public static class PropertySchemaJson
             required,
             expression,
             aggregate,
-            source);
+            source,
+            ReadChoiceSource(property["choiceSource"]));
+    }
+
+    private static PropertyChoiceSource? ReadChoiceSource(JsonNode? node)
+    {
+        if (node is not JsonObject source || ReadString(source["field"]) is not { Length: > 0 } field)
+        {
+            return null;
+        }
+
+        var id = ReadString(source["itemId"]);
+        if (id is not null && !Guid.TryParse(id, out _))
+        {
+            return null;
+        }
+
+        return new PropertyChoiceSource(id is null ? null : Guid.Parse(id), field);
     }
 
     private static string? ReadString(JsonNode? node) =>

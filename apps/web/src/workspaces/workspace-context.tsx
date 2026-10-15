@@ -269,20 +269,22 @@ export function WorkspaceProvider({
   }, [client, workspace.id]);
 
   return (
-    <WorkspaceContext
-      value={{
-        workspaceId: workspace.id,
-        workspace,
-        workspaces: state.workspaces,
-        listStatus: state.status,
-        listWarning: state.error,
-        reload: state.reload,
-        workspaceCreated: state.workspaceCreated,
-        workspaceUpdated: state.workspaceUpdated,
-        workspaceRemoved: state.workspaceRemoved,
-      }}
-    >
-      {children}
-    </WorkspaceContext>
+    <AccessibleWorkspacesContext value={state}>
+      <WorkspaceContext
+        value={{
+          workspaceId: workspace.id,
+          workspace,
+          workspaces: state.workspaces,
+          listStatus: state.status,
+          listWarning: state.error,
+          reload: state.reload,
+          workspaceCreated: state.workspaceCreated,
+          workspaceUpdated: state.workspaceUpdated,
+          workspaceRemoved: state.workspaceRemoved,
+        }}
+      >
+        {children}
+      </WorkspaceContext>
+    </AccessibleWorkspacesContext>
   );
 }

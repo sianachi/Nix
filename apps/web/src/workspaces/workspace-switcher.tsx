@@ -1,7 +1,7 @@
 import { Icon, Menu, Text, focusRing, type MenuEntry } from '@nix/ui';
 import { Archive, Check, ChevronDown, Pin, PinOff, Plus, Settings } from 'lucide-react';
 import type { Workspace } from '@nix/api-client';
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { arrangeWorkspaces, togglePin } from './arrangement';
@@ -28,6 +28,7 @@ export function WorkspaceSwitcher(): ReactNode {
   const archivedCount = workspaces.filter((entry) => entry.lifecycleState === 'archived').length;
   // The person's own groups and pins (requirements 4 and 5), laid over what they can see now.
   const { arrangement, save } = useWorkspaceArrangement();
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set());
   const arranged = arrangeWorkspaces(activeWorkspaces, arrangement);
   const pinnedIds = new Set(arrangement.pinnedWorkspaceIds);
 
@@ -96,24 +97,52 @@ export function WorkspaceSwitcher(): ReactNode {
             ) : null}
             {arranged.groups.map((group) => (
               <section key={group.id} aria-labelledby={`workspaces-group-${group.id}`}>
-                <Text
-                  as="h3"
-                  variant="kicker"
-                  tone="muted"
-                  className="px-3 pt-1"
-                  id={`workspaces-group-${group.id}`}
+                <div className="flex items-center gap-1 px-1">
+                  <button
+                    type="button"
+                    id={`workspaces-group-${group.id}`}
+                    aria-expanded={!collapsedGroups.has(group.id)}
+                    aria-controls={`workspaces-group-content-${group.id}`}
+                    onClick={() => {
+                      setCollapsedGroups((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(group.id)) next.delete(group.id);
+                        else next.add(group.id);
+                        return next;
+                      });
+                    }}
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-muted hover:bg-foreground/7 ${focusRing}`}
+                  >
+                    <Icon
+                      icon={ChevronDown}
+                      size="sm"
+                      className={collapsedGroups.has(group.id) ? '-rotate-90' : ''}
+                    />
+                    <span className="truncate">{group.name}</span>
+                  </button>
+                  <Link
+                    to={`/workspaces/groups/${group.id}`}
+                    aria-label={`Manage group ${group.name}`}
+                    onClick={close}
+                    className={`flex size-(--control-sm) shrink-0 items-center justify-center text-muted hover:bg-foreground/7 pointer-coarse:size-(--control-lg) ${focusRing}`}
+                  >
+                    <Icon icon={Settings} size="sm" />
+                  </Link>
+                </div>
+                <div
+                  id={`workspaces-group-content-${group.id}`}
+                  hidden={collapsedGroups.has(group.id)}
                 >
-                  {group.name}
-                </Text>
-                {group.workspaces.length === 0 ? (
-                  <Text as="p" variant="caption" tone="muted" className="px-3 py-2">
-                    No workspaces in this group yet.
-                  </Text>
-                ) : (
-                  <ul aria-labelledby={`workspaces-group-${group.id}`}>
-                    {group.workspaces.map((entry) => row(entry, close))}
-                  </ul>
-                )}
+                  {group.workspaces.length === 0 ? (
+                    <Text as="p" variant="caption" tone="muted" className="px-3 py-2">
+                      No workspaces in this group yet.
+                    </Text>
+                  ) : (
+                    <ul aria-labelledby={`workspaces-group-${group.id}`}>
+                      {group.workspaces.map((entry) => row(entry, close))}
+                    </ul>
+                  )}
+                </div>
               </section>
             ))}
             {arranged.groups.length > 0 && arranged.ungrouped.length > 0 ? (
@@ -149,6 +178,14 @@ export function WorkspaceSwitcher(): ReactNode {
               </button>
             </div>
           ) : null}
+
+          <Link
+            to="/workspaces/groups"
+            onClick={close}
+            className={`block border-t border-divider px-3 py-2 text-sm text-accent-text ${focusRing}`}
+          >
+            Workspace groups
+          </Link>
 
           {archivedCount > 0 ? (
             <Link

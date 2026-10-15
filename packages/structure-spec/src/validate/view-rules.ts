@@ -111,6 +111,20 @@ function refuseKindRequirement(
   view: StructureView,
   effective: readonly StructureProperty[],
 ): string | null {
+  if (view.kind === 'chat') {
+    const role = findByKey(effective, 'chat_role');
+    if (
+      role?.type !== 'select' ||
+      role.choiceSource != null ||
+      !['user', 'assistant', 'system'].every((option) => role.options.includes(option)) ||
+      findByKey(effective, 'chat_text')?.type !== 'text' ||
+      findByKey(effective, 'chat_created_at')?.type !== 'date' ||
+      findByKey(effective, 'chat_author')?.type !== 'text'
+    ) {
+      return `'${view.name}': a chat needs chat_role (select: user, assistant, system), chat_text (text), chat_created_at (date), and chat_author (text) fields.`;
+    }
+  }
+
   if (view.kind === 'board') {
     const property = findByKey(effective, view.groupBy);
     if (property === undefined || !canGroupBy(property.type)) {

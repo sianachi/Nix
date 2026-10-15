@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Nix.Abstractions;
 using Nix.Abstractions.Files;
 using Nix.Abstractions.Importing;
 using Nix.Abstractions.Templates;
@@ -8,9 +10,14 @@ using Nix.Abstractions.Workers;
 using Nix.Domain.Files;
 using Nix.Domain.Importing;
 using Nix.Domain.Items;
+using Nix.Domain.Primitives;
+using Nix.Domain.Properties;
 using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
+using Nix.Features.Conversations;
+using Nix.Features.Pets;
 using Nix.Integration.Tests.Harness;
+using Nix.Messaging;
 using Nix.Persistence.ObjectStorage;
 using Npgsql;
 
@@ -29,6 +36,116 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Native_chat_envelopes_round_trip_settings_messages_and_views_without_reviving_turns_or_granting_source_access(bool unavailableSource)
+    {
+        Guid importedId;
+        var petId = Guid.NewGuid();
+        await using (var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var preferences = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), Cancellation);
+            var saved = await dispatcher.SendAsync<SavePetSettings, PetSettingsResponse>(new(preferences.Revision,
+                new(true, petId, "system", [new(petId, "Analyst", "cat", "calm", "balanced", "")])), Cancellation);
+            Assert.True(saved.IsSuccess);
+            var created = await dispatcher.SendAsync<CreateConversation, ConversationResponse>(new(TestTenants.AlphaWorkspace,
+                new("Portable chat", null, [TestTenants.AlphaWorkspace], petId, Messages: [new("user", "Compare priorities"), new("assistant", "Saved insight")])), Cancellation);
+            Assert.True(created.IsSuccess);
+            var tree = work.Resolve<IItemTree>();
+            var original = Assert.IsType<Item>(await tree.FindAsync(ItemId.From(created.Value.ItemId), Cancellation));
+            var children = await tree.ListChildrenAsync(original.WorkspaceId, original.Id, false, null, 20, Cancellation);
+            Assert.Equal(2, children.Count);
+            var archivedBag = JsonNode.Parse(original.Properties!)!.AsObject();
+            var archivedConfig = JsonNode.Parse(archivedBag["$chat_config"]!.GetValue<string>())!.AsObject();
+            archivedConfig["turn"] = new JsonObject
+            {
+                ["id"] = Guid.NewGuid(),
+                ["requestId"] = Guid.NewGuid(),
+                ["actorId"] = TestTenants.BetaPrincipal,
+                ["status"] = "running",
+                ["expiresAt"] = "2099-01-01T00:00:00Z"
+            };
+            archivedConfig["completedRequestIds"] = new JsonArray(JsonValue.Create(Guid.NewGuid()));
+            archivedConfig["providerThreadId"] = "must-not-import";
+            if (unavailableSource)
+            {
+                archivedConfig["sourceWorkspaceIds"] = new JsonArray(JsonValue.Create(TestTenants.BetaWorkspace));
+            }
+            archivedBag["$chat_config"] = archivedConfig.ToJsonString();
+            archivedBag["$chat_config_extra"] = "must-not-import";
+            var plans = new List<ImportEnvelopePlan> { new("chat", null, 0, "Portable chat", original.Type, archivedBag.ToJsonString(),
+                original.Schema, original.Views, "active", false, null) };
+            plans.AddRange(children.Select((child, index) => new ImportEnvelopePlan($"message-{index}", "chat", index,
+                ItemProperties.ReadTitle(child.Properties), child.Type, child.Properties, child.Schema, child.Views, "active", false, null)));
+            var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "conversation.nix", 128, plans.Count);
+            var stage = Assert.IsType<DocumentImportStageRecord>(await imports.StageAsync(new(DocumentImportId.From(operation.Id), new string('b', 64), digest, plans), Cancellation));
+            importedId = stage.RootItemId;
+            var staged = await work.DbContext.Items.IgnoreQueryFilters().AsNoTracking().SingleAsync(item => item.Id == ItemId.From(importedId), Cancellation);
+            var stagedBag = JsonNode.Parse(staged.Properties!)!.AsObject();
+            var stagedConfig = JsonNode.Parse(stagedBag["$chat_config"]!.GetValue<string>())!.AsObject();
+            Assert.Null(stagedConfig["turn"]);
+            Assert.Empty(stagedConfig["completedRequestIds"]!.AsArray());
+            Assert.False(stagedConfig.ContainsKey("providerThreadId"));
+            Assert.False(stagedBag.ContainsKey("$chat_config_extra"));
+            Assert.IsType<DocumentImportRecord>(await imports.FinalizeAsync(DocumentImportId.From(operation.Id), Cancellation));
+            await work.CommitAsync(Cancellation);
+        }
+        await using (var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation))
+        {
+            var service = work.Resolve<ConversationService>();
+            var read = await service.Read(importedId, Cancellation);
+            Assert.True(read.IsSuccess);
+            Assert.Equal(petId, read.Value.PetId);
+            Assert.Null(read.Value.Turn);
+            Assert.True(read.Value.CanEdit);
+            Assert.Equal(!unavailableSource, read.Value.CanSend);
+            var messages = await service.Messages(importedId, null, 50, Cancellation);
+            Assert.Collection(messages.Value.Items, message => Assert.Equal("Compare priorities", message.Text), message => Assert.Equal("Saved insight", message.Text));
+            var restored = await work.Resolve<IItemTree>().FindAsync(ItemId.From(importedId), Cancellation);
+            Assert.Contains("chat", restored!.Views!, StringComparison.Ordinal);
+            if (unavailableSource)
+            {
+                var refused = await service.Begin(importedId, new(Guid.NewGuid(), "Do not reach inaccessible source"), Cancellation);
+                Assert.Equal("conversations.sources_unavailable", refused.Error.Code);
+            }
+        }
+        await using (var other = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.BetaContext, Cancellation))
+        {
+            var denied = await other.Resolve<ConversationService>().Read(importedId, Cancellation);
+            Assert.Equal("conversations.not_found", denied.Error.Code);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Native_configuration_cannot_turn_an_ordinary_item_into_a_chat_without_a_compatible_chat_view(bool compatibleSchema)
+    {
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var config = new JsonObject
+        {
+            ["petId"] = Guid.NewGuid(),
+            ["revision"] = 1,
+            ["sourceWorkspaceIds"] = new JsonArray(JsonValue.Create(TestTenants.AlphaWorkspace))
+        };
+        var properties = new JsonObject { ["$chat_config"] = config.ToJsonString() };
+        var schema = compatibleSchema ? PropertySchemaJson.Write(new PropertySchema
+        {
+            Inherit = true,
+            Properties = [
+            new("chat_role", "Role", PropertyType.Select, ["user", "assistant", "system"], false),
+            new("chat_text", "Message", PropertyType.Text, [], false),
+            new("chat_created_at", "Sent", PropertyType.Date, [], false),
+            new("chat_author", "Author", PropertyType.Text, [], false)]
+        }) : null;
+        var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "crafted-chat.nix", 128, itemCount: 1);
+        var ordinary = new ImportEnvelopePlan("ordinary", null, 0, "Ordinary note", "document", properties.ToJsonString(),
+            schema, null, "active", false, null);
+        Assert.Null(await imports.StageAsync(new(DocumentImportId.From(operation.Id), new string('b', 64), digest, [ordinary]), Cancellation));
+    }
 
     [Fact]
     public async Task Finance_properties_cannot_enter_through_document_imports()

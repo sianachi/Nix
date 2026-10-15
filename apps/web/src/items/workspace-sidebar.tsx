@@ -1,3 +1,4 @@
+import { NewChatNote } from '../views/chat/new-chat-note';
 import {
   Button,
   ContextMenu,
@@ -481,6 +482,8 @@ interface CreateMenuProps {
  */
 function CreateMenu({ childDestination, disabled, ...actions }: CreateMenuProps): ReactNode {
   const [mode, setMode] = useState<NewItemDialogMode | null>(null);
+  const [newChat, setNewChat] = useState(false);
+  const { workspaceId } = useWorkspace();
 
   const items: MenuEntry[] = MENU_ENTRIES.map((entry): MenuEntry => ({
     kind: 'action',
@@ -492,8 +495,12 @@ function CreateMenu({ childDestination, disabled, ...actions }: CreateMenuProps)
     },
   }));
 
+  items.push({ kind: 'action', key: 'chat', label: 'Chat…', onSelect: () => { setNewChat(true); } });
   return (
     <>
+      {newChat ? (
+        <NewChatNote sourceWorkspaceIds={[workspaceId]} onClose={() => { setNewChat(false); }} />
+      ) : null}
       <Menu label="New item" items={items}>
         {(trigger) => (
           <Button

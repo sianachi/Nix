@@ -48,6 +48,13 @@
       "itemCount": 10,
       "rootId": "23fb74be-85bf-57d3-ac5e-5e634e53c54a",
       "sourceRevision": "01fc66aca483748964e4b5c902e2f7511972440d"
+    },
+    {
+      "path": "docs/nix/nix-live-chat-decision.nix",
+      "sha256": "376a7b00ed5d44f1044184221e5f040d48ecce0b11743d319e7cdc6528c823fe",
+      "bytes": 5164,
+      "itemCount": 2,
+      "rootId": "057b4d53-b885-54c0-a8a8-0d63db8cfb47"
     }
   ],
   "pages": [
@@ -2227,6 +2234,25 @@
       },
       "localProofItemId": "01a12244-4dfc-738a-8cfb-d7d2c38ca836",
       "localProofSourceItemId": "01a12244-4dfc-7ebd-bada-bb47badc4476"
+    },
+    {
+      "sourcePath": "docs/adr/0062-live-chat-notes-and-workspace-groups.md",
+      "sourceSha256": "c2865355b82aab75c1e3c7a93f684b1b35d8212dc3a2741abf819ab57e107391",
+      "sourceBytes": 2552,
+      "title": "ADR-0062: Live chat notes and workspace-group analysis",
+      "archive": "docs/nix/nix-live-chat-decision.nix",
+      "itemId": "057b4d53-b885-54c0-a8a8-0d63db8cfb47",
+      "sourceItemId": "12f9ff76-fb1f-5b28-8496-b41fe2fd276d",
+      "disposition": "preserved proposal",
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Preserved proposal",
+        "source_path": "docs/adr/0062-live-chat-notes-and-workspace-groups.md",
+        "original_bytes": 2552,
+        "original_sha256": "c2865355b82aab75c1e3c7a93f684b1b35d8212dc3a2741abf819ab57e107391",
+        "decision_status": "Proposed",
+        "recorded_status": "Proposed 2026-10-15; owner-approved implementation plan for v0.3, implementation verification pending."
+      }
     }
   ],
   "verification": {
@@ -2678,7 +2704,7 @@
     ],
     "remainingRepositoryMarkdownInventoryVerified": 11
   },
-  "updatedAt": "2026-10-09T20:07:41.743Z",
+  "updatedAt": "2026-10-15T17:54:40.334333Z",
   "reader": {
     "language": "Go",
     "command": "go -C apps/go-workers run ./cmd/nix-docs",
@@ -3147,14 +3173,14 @@
   "containers": [
     {
       "slug": "architecture",
-      "title": "Nix architecture handbook — e037eb02",
+      "title": "Nix architecture handbook \u2014 e037eb02",
       "itemId": "394eaa52-acb0-5570-af4a-894bce3ab6f3",
       "archive": "docs/nix/nix-architecture.nix",
       "localProofItemId": "01a12247-5982-75fd-a1bc-ccc06429be09"
     },
     {
       "slug": "reference",
-      "title": "Nix repository reference — preserved snapshot",
+      "title": "Nix repository reference \u2014 preserved snapshot",
       "itemId": "cc38b350-5f54-5eeb-abaa-ac17ab083ba9",
       "archive": "docs/nix/nix-reference.nix",
       "localProofItemId": "01a12244-4dfc-70f3-af32-31d17a4d6ea5"

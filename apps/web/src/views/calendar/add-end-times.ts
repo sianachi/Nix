@@ -67,6 +67,7 @@ export async function addEndTimes(
           ].map((property) => ({
             ...property,
             options: property.options.length === 0 ? null : property.options,
+            choiceSource: property.choiceSource ?? null,
           })),
         },
         originalPropertyKeys: schema.data.declared.map((property) => property.key),

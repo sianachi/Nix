@@ -912,3 +912,22 @@ describe('validateSpec edit operations', () => {
     expect(presentValue.ok).toBe(true);
   });
 });
+
+describe('chat view schema', () => {
+  it('requires message fields instead of treating arbitrary children as messages', () => {
+    const fields = [
+      { key: 'chat_role', label: 'Role', type: 'select', options: ['user', 'assistant', 'system'] },
+      { key: 'chat_text', label: 'Message', type: 'text' },
+      { key: 'chat_created_at', label: 'Sent', type: 'date' },
+      { key: 'chat_author', label: 'Author', type: 'text' },
+    ];
+    expect(validateSpec('add_view', { views: [{ kind: 'chat' }] }, context()).ok).toBe(false);
+    expect(
+      validateSpec(
+        'create_structured',
+        { recipe: 'list', fields, views: [{ kind: 'chat' }] },
+        context(),
+      ).ok,
+    ).toBe(true);
+  });
+});

@@ -778,6 +778,14 @@ function parseProperty(value: unknown): PropertyDefinition {
     ...(body.expression === undefined ? {} : { expression: nullableText(body.expression) }),
     ...(body.aggregate === undefined ? {} : { aggregate: nullableText(body.aggregate) }),
     ...(body.source === undefined ? {} : { source: nullableText(body.source) }),
+    ...(body.choiceSource == null
+      ? {}
+      : {
+          choiceSource: {
+            itemId: nullableUuid(requiredRecord(body.choiceSource).itemId),
+            field: requiredText(requiredRecord(body.choiceSource).field),
+          },
+        }),
   };
 }
 

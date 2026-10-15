@@ -158,6 +158,9 @@ public enum ViewKind
     /// Requirement-free, because a tree of titles needs nothing from the schema.
     /// </remarks>
     Outline = 15,
+
+    /// <summary>Ordered message children rendered as a conversation.</summary>
+    Chat = 16,
 }
 
 /// <summary>
@@ -213,6 +216,7 @@ public static class ViewKinds
     public static readonly ImmutableArray<ViewKindDescriptor> All =
     [
         new ViewKindDescriptor(ViewKind.List, "list", Requirement: null),
+        new ViewKindDescriptor(ViewKind.Chat, "chat", Requirement: null),
         new ViewKindDescriptor(ViewKind.HabitTracker, "habit_tracker", Requirement: null),
 
         new ViewKindDescriptor(
@@ -667,6 +671,11 @@ public sealed record ViewDefinition(
         if (ViewKinds.Find(Kind) is not { } descriptor)
         {
             return false;
+        }
+
+        if (Kind == ViewKind.Chat)
+        {
+            return ChatSchema.Refuse(schema) is null;
         }
 
         if (descriptor.Requirement is not { } requirement)

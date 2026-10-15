@@ -10,6 +10,7 @@ import type { TemplateImportBodyService } from '../template-imports/bodies.ts';
 import type { TemplateService } from '../templates/service.ts';
 import type { SessionHub } from '../ws/server.ts';
 import type { SessionAuthenticator } from '../ws/session-auth.ts';
+import type { ConversationBodyAuthorizer } from './routes/conversation-bodies.ts';
 import { requestToken } from './auth.ts';
 import { isUuid } from './params.ts';
 import { problem } from './replies.ts';
@@ -35,10 +36,11 @@ export interface ServerDependencies {
   /**
    * The shared secret that says *which service* is calling the internal surface.
    *
-   * Paired with the caller's forwarded token, which says *on whose behalf* - the same two facts
-   * this service presents to Core, in the same order, for the same reason.
+   * Paired with the caller's forwarded token, or a running conversation turn reauthorized
+   * through Core. The secret alone never authorizes a body read.
    */
   readonly internalSecret: string;
+  readonly conversationBodyAuthorizer?: ConversationBodyAuthorizer;
 
   /** Injected so an export of unchanged content is byte-identical to the last one. */
   readonly now?: (() => Date) | undefined;

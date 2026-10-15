@@ -7,7 +7,7 @@
       "properties": {
         "parentId": {
           "type": "string",
-          "description": "Parent UUID; omit/empty for root."
+          "description": "Parent, or root."
         }
       },
       "required": [],
@@ -120,7 +120,7 @@
         },
         "parentId": {
           "type": "string",
-          "description": "Parent UUID; omit/empty for root."
+          "description": "Parent, or root."
         }
       },
       "required": ["title", "markdown"],
@@ -223,7 +223,7 @@
         },
         "parentId": {
           "type": "string",
-          "description": "Parent UUID; omit/empty for root."
+          "description": "Parent, or root."
         }
       },
       "required": ["itemId", "parentId"],
@@ -303,13 +303,12 @@
   },
   {
     "name": "nix_create_structured",
-    "description": "Create a new item with a recipe, fields and up to 6 views per call, under parentId (omit for the workspace root). Items support at most 12 views total. Shown for approval before it runs. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
+    "description": "Create a new item with a recipe, fields and up to 6 views per call, under parentId (omit for the workspace root). Items support at most 12 views total. Shown for approval before it runs. choiceSource:{} learns this field from sibling entries; set itemId for another note and field for a child field or title. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "title": {
-          "type": "string",
-          "description": "The new item title."
+          "type": "string"
         },
         "spec": {
           "type": "object",
@@ -342,8 +341,7 @@
                     "type": "string"
                   },
                   "key": {
-                    "type": "string",
-                    "description": "Task key = type; else free."
+                    "type": "string"
                   },
                   "type": {
                     "type": "string",
@@ -378,6 +376,18 @@
                   },
                   "required": {
                     "type": "boolean"
+                  },
+                  "choiceSource": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string"
+                      },
+                      "field": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "formula": {
                     "type": "string"
@@ -428,7 +438,8 @@
                       "habit_tracker",
                       "checklist",
                       "matrix",
-                      "outline"
+                      "outline",
+                      "chat"
                     ]
                   },
                   "name": {
@@ -722,8 +733,7 @@
           "additionalProperties": false
         },
         "parentId": {
-          "type": "string",
-          "description": "Parent UUID; omit/empty for root."
+          "type": "string"
         }
       },
       "required": ["title", "spec"],
@@ -732,7 +742,7 @@
   },
   {
     "name": "nix_add_view",
-    "description": "Add fields and up to 4 views per call to an item's existing schema, within its 12-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
+    "description": "Add fields and up to 4 views per call to an item's existing schema, within its 12-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view. choiceSource:{} learns this field from sibling entries; set itemId for another note and field for a child field or title. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -752,8 +762,7 @@
                     "type": "string"
                   },
                   "key": {
-                    "type": "string",
-                    "description": "Task key = type; else free."
+                    "type": "string"
                   },
                   "type": {
                     "type": "string",
@@ -788,6 +797,18 @@
                   },
                   "required": {
                     "type": "boolean"
+                  },
+                  "choiceSource": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string"
+                      },
+                      "field": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "formula": {
                     "type": "string"
@@ -839,7 +860,8 @@
                       "habit_tracker",
                       "checklist",
                       "matrix",
-                      "outline"
+                      "outline",
+                      "chat"
                     ]
                   },
                   "name": {
@@ -1215,7 +1237,7 @@
   },
   {
     "name": "nix_add_fields",
-    "description": "Add up to 20 new fields to an item's existing schema. Never removes or retypes an existing field. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned.",
+    "description": "Add up to 20 new fields to an item's existing schema. Never removes or retypes an existing field. choiceSource:{} learns this field from sibling entries; set itemId for another note and field for a child field or title. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1236,8 +1258,7 @@
                     "type": "string"
                   },
                   "key": {
-                    "type": "string",
-                    "description": "Task key = type; else free."
+                    "type": "string"
                   },
                   "type": {
                     "type": "string",
@@ -1272,6 +1293,126 @@
                   },
                   "required": {
                     "type": "boolean"
+                  },
+                  "choiceSource": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string"
+                      },
+                      "field": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "formula": {
+                    "type": "string"
+                  },
+                  "rollup": {
+                    "type": "object",
+                    "properties": {
+                      "aggregate": {
+                        "type": "string",
+                        "enum": ["count", "sum", "average", "min", "max", "any", "all"]
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["aggregate"],
+                    "additionalProperties": false
+                  },
+                  "help": {
+                    "type": "string"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                },
+                "required": ["label", "type"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["fields"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["itemId", "spec"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_edit_fields",
+    "description": "Edit existing locally declared fields, including type and choiceSource. Read nix_read_structure first and supply exact keys and complete field definitions. Existing values are retained without conversion; always requires approval. Cannot remove fields.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "fields": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "long_text",
+                      "number",
+                      "select",
+                      "multi_select",
+                      "date",
+                      "timestamp",
+                      "datetime",
+                      "checkbox",
+                      "url",
+                      "image",
+                      "due_date",
+                      "start_date",
+                      "completion",
+                      "priority",
+                      "estimate",
+                      "formula",
+                      "rollup",
+                      "reminder"
+                    ]
+                  },
+                  "options": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "choiceSource": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string"
+                      },
+                      "field": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "formula": {
                     "type": "string"
@@ -1312,7 +1453,7 @@
   },
   {
     "name": "nix_edit_form",
-    "description": "Replace one existing interactive form view, optionally adding new fields to the item at the same time. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned.",
+    "description": "Replace one existing interactive form view, optionally adding new fields to the item at the same time. choiceSource:{} learns this field from sibling entries; set itemId for another note and field for a child field or title. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1495,8 +1636,7 @@
                     "type": "string"
                   },
                   "key": {
-                    "type": "string",
-                    "description": "Task key = type; else free."
+                    "type": "string"
                   },
                   "type": {
                     "type": "string",
@@ -1531,6 +1671,18 @@
                   },
                   "required": {
                     "type": "boolean"
+                  },
+                  "choiceSource": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string"
+                      },
+                      "field": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "formula": {
                     "type": "string"
@@ -1985,12 +2137,11 @@
           "description": "The template item UUID."
         },
         "title": {
-          "type": "string",
-          "description": "The new item title."
+          "type": "string"
         },
         "parentId": {
           "type": "string",
-          "description": "Parent UUID; omit/empty for root."
+          "description": "Parent, or root."
         },
         "spec": {
           "type": "object",
@@ -2011,7 +2162,7 @@
   },
   {
     "name": "nix_build_blueprint",
-    "description": "Build a whole design (items, fields, views and samples) in one approval, under Pet drafts unless parentId names a parent. Nix checks it before the owner sees it: a design with problems comes back declined with every problem listed; fix them all and call once more. Up to 6 views per node, 20 per blueprint. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned. Habit configuration belongs on each child node.habit (frequency, weekdays, target, unit); habit_tracker has no column mappings. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
+    "description": "Build a whole design (items, fields, views and samples) in one approval, under Pet drafts unless parentId names a parent. Nix checks it before the owner sees it: a design with problems comes back declined with every problem listed; fix them all and call once more. Up to 6 views per node, 20 per blueprint. choiceSource:{} learns this field from sibling entries; set itemId for another note and field for a child field or title. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned. Habit configuration belongs on each child node.habit (frequency, weekdays, target, unit); habit_tracker has no column mappings. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2111,8 +2262,7 @@
                         "type": "string"
                       },
                       "key": {
-                        "type": "string",
-                        "description": "Task key = type; else free."
+                        "type": "string"
                       },
                       "type": {
                         "type": "string",
@@ -2147,6 +2297,18 @@
                       },
                       "required": {
                         "type": "boolean"
+                      },
+                      "choiceSource": {
+                        "type": "object",
+                        "properties": {
+                          "itemId": {
+                            "type": "string"
+                          },
+                          "field": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
                       },
                       "formula": {
                         "type": "string"
@@ -2200,7 +2362,8 @@
                           "habit_tracker",
                           "checklist",
                           "matrix",
-                          "outline"
+                          "outline",
+                          "chat"
                         ]
                       },
                       "name": {
@@ -2420,7 +2583,7 @@
         },
         "parentId": {
           "type": "string",
-          "description": "The parent item UUID, or omit to build under Pet drafts."
+          "description": "Parent UUID; default Pet drafts."
         }
       },
       "required": ["blueprint"],

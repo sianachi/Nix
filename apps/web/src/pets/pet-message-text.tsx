@@ -6,18 +6,18 @@ import { Check, Copy, X } from 'lucide-react';
 import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
-function workspaceHref(href: string, workspaceId: string): boolean {
+function workspaceHref(href: string, workspaceIds: readonly string[]): boolean {
   const match = /^\/w\/([a-f0-9-]{36})\/?\?item=[a-f0-9-]{36}$/.exec(href);
-  return match?.[1] === workspaceId;
+  return workspaceIds.includes(match?.[1] ?? '');
 }
 
-function plainText(text: string, workspaceId: string): ReactNode {
+function plainText(text: string, workspaceIds: readonly string[]): ReactNode {
   const pattern =
     /\[([^\]\n]{1,240})\]\((\/w\/([a-f0-9-]{36})\/?\?item=([a-f0-9-]{36}))\)|(?<![\w/:])(\/w\/([a-f0-9-]{36})\/?\?item=([a-f0-9-]{36}))/g;
   const parts: ReactNode[] = [];
   let start = 0;
   for (const match of text.matchAll(pattern)) {
-    if ((match[3] ?? match[6]) !== workspaceId) continue;
+    if (!workspaceIds.includes(match[3] ?? match[6] ?? '')) continue;
     parts.push(text.slice(start, match.index));
     parts.push(
       <Link key={match.index} to={match[2] ?? match[5] ?? ''} className="underline">
@@ -115,19 +115,19 @@ function messageHeading(value: unknown, outline: MessageHeading[]): 'h3' | 'h4' 
 /** Render a validated document through React; model HTML, images and external URLs stay inert. */
 function messageNode(
   node: DocumentNode,
-  workspaceId: string,
+  workspaceIds: readonly string[],
   outline: MessageHeading[],
 ): ReactNode {
   const children: ReactNode[] = [];
   node.forEach((child, _offset, index) => {
-    children.push(<Fragment key={index}>{messageNode(child, workspaceId, outline)}</Fragment>);
+    children.push(<Fragment key={index}>{messageNode(child, workspaceIds, outline)}</Fragment>);
   });
   switch (node.type.name) {
     case 'text': {
       const literal = node.marks.some(
         (mark) => mark.type.name === 'code' || mark.type.name === 'link',
       );
-      let content: ReactNode = literal ? node.text : plainText(node.text ?? '', workspaceId);
+      let content: ReactNode = literal ? node.text : plainText(node.text ?? '', workspaceIds);
       for (const mark of node.marks) {
         switch (mark.type.name) {
           case 'bold':
@@ -144,7 +144,7 @@ function messageNode(
             break;
           case 'link': {
             const href = typeof mark.attrs.href === 'string' ? mark.attrs.href : '';
-            if (workspaceHref(href, workspaceId))
+            if (workspaceHref(href, workspaceIds))
               content = (
                 <Link to={href} className="underline">
                   {content}
@@ -225,27 +225,30 @@ function messageNode(
   }
 }
 
-/** Assistant Markdown is formatting only; only citations in the current workspace navigate. */
+/** Assistant Markdown is formatting only; citations navigate within explicitly supplied workspaces. */
 export function PetMessageText({
   text,
   workspaceId,
   format = 'markdown',
+  sourceWorkspaceIds = [],
 }: {
   readonly text: string;
   readonly workspaceId: string;
   readonly format?: 'markdown' | 'plain';
+  readonly sourceWorkspaceIds?: readonly string[];
 }): ReactElement {
+  const workspaceIds = [workspaceId, ...sourceWorkspaceIds];
   const parsed = format === 'markdown' ? markdownToDocument(text) : undefined;
   if (!parsed?.ok) {
     return (
       <Text className="min-w-0 whitespace-pre-wrap wrap-anywhere">
-        {plainText(text, workspaceId)}
+        {plainText(text, workspaceIds)}
       </Text>
     );
   }
   return (
     <div className="flex min-w-0 max-w-full flex-col gap-3 wrap-anywhere">
-      {messageNode(nixSchema.nodeFromJSON(parsed.doc), workspaceId, [])}
+      {messageNode(nixSchema.nodeFromJSON(parsed.doc), workspaceIds, [])}
     </div>
   );
 }

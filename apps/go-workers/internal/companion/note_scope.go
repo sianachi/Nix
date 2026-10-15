@@ -17,7 +17,7 @@ func noteScopeRules(r Request) string {
 
 func noteScopedOperation(operation string) bool {
 	switch operation {
-	case "list_items", "search", "read_item", "read_note", "read_structure", "create_note", "append_note", "replace_section", "replace_passage", "rename_item", "move_item", "set_properties", "trash_item", "create_structured", "add_view", "update_view", "create_entries", "add_fields", "edit_form", "set_recurrence":
+	case "list_items", "search", "read_item", "read_note", "read_structure", "create_note", "append_note", "replace_section", "replace_passage", "rename_item", "move_item", "set_properties", "trash_item", "create_structured", "add_view", "update_view", "create_entries", "add_fields", "edit_fields", "edit_form", "set_recurrence":
 		return true
 	default:
 		return false
@@ -40,6 +40,9 @@ func noteScopeToolRefusal(c *conversation, flat string) string {
 
 func workspaceToolsForRequest(r Request) []any {
 	tools := workspaceTools()
+	if r.ConversationItemID != "" {
+		return conversationTools(tools)
+	}
 	if r.RootItemID == "" {
 		return tools
 	}

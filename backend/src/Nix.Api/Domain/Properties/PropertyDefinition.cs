@@ -54,10 +54,16 @@ public sealed record PropertyDefinition(
     bool Required,
     string? Expression = null,
     RollupAggregate? Aggregate = null,
-    string? Source = null)
+    string? Source = null,
+    PropertyChoiceSource? ChoiceSource = null)
 {
-    /// <summary>Whether this property's declared options include a value.</summary>
+    /// <summary>Whether a value is declared or this field allows new choices.</summary>
     /// <param name="value">The value to look for.</param>
-    /// <returns><see langword="true"/> when the value is one of the declared options.</returns>
-    public bool Allows(string value) => Options.Contains(value, StringComparer.Ordinal);
+    /// <returns><see langword="true"/> when the value is declared or the source allows new values.</returns>
+    public bool Allows(string value) => ChoiceSource is not null || Options.Contains(value, StringComparer.Ordinal);
 }
+
+/// <summary>Suggestions from direct children of a note. Null ItemId means the current container.</summary>
+/// <param name="ItemId">The source note, or null for siblings.</param>
+/// <param name="Field">A stored field key, or title for child titles.</param>
+public sealed record PropertyChoiceSource(Guid? ItemId, string Field);

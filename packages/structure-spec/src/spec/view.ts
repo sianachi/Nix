@@ -52,6 +52,7 @@ const VIEW_KINDS = [
   'checklist',
   'matrix',
   'outline',
+  'chat',
 ] as const;
 type ViewKind = (typeof VIEW_KINDS)[number];
 
@@ -78,6 +79,7 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   checklist: ['columns', 'doneProperty'],
   matrix: ['columns', 'rowBy', 'columnBy'],
   outline: [],
+  chat: [],
 };
 
 const ALL_KIND_GATED_FIELDS = [...new Set(Object.values(KIND_EXTRA_FIELDS).flat())] as const;

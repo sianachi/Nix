@@ -38,7 +38,7 @@ import {
   NO_FILTER,
   type GraphFilter,
 } from './graph-emphasis';
-import { labelPlacement, labelZoomBucket, pickLabels } from './graph-labels';
+import { labelPlacement } from './graph-labels';
 import {
   applyOffsets,
   moveEdges,
@@ -845,7 +845,6 @@ function GraphDrawing({
    */
   const [chosen, setChosen] = useState<View | null>(stored.view);
   const camera = chosen === null ? fitCamera(layout, pane) : cameraOf(chosen, pane);
-  const labelZoom = labelZoomBucket(camera.scale);
 
   const [offsets, setOffsets] = useState<ReadonlyMap<string, Offset>>(stored.offsets);
   const dragRef = useRef<Drag | null>(null);
@@ -971,19 +970,6 @@ function GraphDrawing({
   // "Open" button. `null` on every other pointer, since a mouse never leaves this set - it opens on
   // the first tap, same as before.
   const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  // The item last opened from here. Opening shows it in a dialog over the graph, so the drawing
-  // stays on screen behind it and should say which disc the dialog belongs to.
-  const [openedId, setOpenedId] = useState<string | null>(null);
-
-  // Labels keep one size on screen, so which fit depends on zoom; re-picked per zoom step. The
-  // focused, selected and opened nodes are always named, so the others make room for them.
-  const pinnedFocusId = representation === 'focused' ? focusId : null;
-  const labels = useMemo(
-    () =>
-      pickLabels(layout.nodes, layout.width / 2, labelZoom, [pinnedFocusId, selectedId, openedId]),
-    [layout, labelZoom, pinnedFocusId, selectedId, openedId],
-  );
 
   // The node under a mouse. React state rather than CSS because the neighbours have to know, and
   // discrete - it changes on entering and leaving a node, not on every pointer move.
@@ -1297,7 +1283,6 @@ function GraphDrawing({
   const open = useCallback(
     (itemId: string): void => {
       setSelectedId(null);
-      setOpenedId(itemId);
       onOpen(itemId);
     },
     [onOpen],
@@ -1845,17 +1830,8 @@ function GraphDrawing({
                   key={node.id}
                   node={node}
                   centreX={layout.width / 2}
-                  // Named without being asked: the labels the layout had room for, the node just
-                  // opened, and - while one node is being pointed at - it and everything it touches.
-                  // Everything else waits to be hovered. A class swap rather than a conditional
-                  // render, so the text node stays mounted and the transition has something to animate.
-                  named={
-                    labels.has(node.id) ||
-                    (representation === 'focused' && node.id === focusId) ||
-                    node.id === openedId ||
-                    (activeId !== null && lit?.has(node.id) === true)
-                  }
-                  flipped={labels.get(node.id) === true}
+                  named={node.id === hoveredId || node.id === focusedId || node.id === selectedId}
+                  flipped={false}
                   selected={node.id === selectedId}
                   lit={lit?.has(node.id) === true}
                   recency={recencyOf(node.lastModifiedAt, now)}

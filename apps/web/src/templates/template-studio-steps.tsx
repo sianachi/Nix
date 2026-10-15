@@ -394,5 +394,6 @@ function completePropertyDefinition(
     expression: property.expression ?? null,
     aggregate: property.aggregate ?? null,
     source: property.source ?? null,
+    choiceSource: property.choiceSource ?? null,
   };
 }

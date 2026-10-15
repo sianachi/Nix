@@ -13,6 +13,7 @@
  */
 
 import { Command, InvalidArgumentError } from 'commander';
+import { registerConversationCommands } from './commands/conversations.ts';
 import { login, logout, status } from './commands/auth.ts';
 import { readHealth } from './commands/health.ts';
 import {
@@ -211,6 +212,8 @@ export function buildProgram(): Command {
       const flags = globalFlags(command);
       await run(() => readHealth(options.apiUrl, outputOptions(flags.json)));
     });
+
+  registerConversationCommands(program, { flags: globalFlags, run, output: outputOptions });
 
   const auth = program.command('auth').description('Sign in, check who you are, and sign out.');
   const pet = program
