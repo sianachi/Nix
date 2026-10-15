@@ -657,7 +657,7 @@ function HabitRow({
               className="group flex min-w-0 items-start justify-between gap-3"
             >
               <SelectCheckbox item={{ id: itemId, title }} className="mt-1" />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <Button
                   variant="ghost"
                   className="max-w-full justify-start truncate px-0 text-left text-lg font-semibold"
