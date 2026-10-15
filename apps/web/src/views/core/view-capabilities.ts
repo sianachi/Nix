@@ -38,7 +38,7 @@ export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
   board: { ...ACTIONS, drag: 'group-value' },
   matrix: { ...ACTIONS, drag: 'row-col-values' },
   calendar: { ...ACTIONS, drag: 'date' },
-  timeline: { ...ACTIONS, select: false },
+  timeline: ACTIONS,
   outline: { ...ACTIONS, select: false, drag: 'parent-order' },
   drive: { ...ACTIONS, rename: false },
   // Query rows are other containers' items shown in place; they keep their own location.

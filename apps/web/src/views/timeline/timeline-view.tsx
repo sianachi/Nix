@@ -6,7 +6,10 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefOb
 import { PartialNotice } from '../../components/states/status-panels';
 import { CalendarEntryMenu } from '../calendar/calendar-entry-menu';
 import { PropertyInput } from '../../properties/property-input';
-import { useItemOpenProps } from '../core/item-open-click';
+import { useClickSelects } from '../core/item-open-click';
+import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { SelectCheckbox } from '../core/select-checkbox';
+import { rowGestures } from '../core/use-item-selection';
 import { dayFromText, dayLabel, dayText, type CalendarDay } from '../core/calendar-dates';
 import {
   readPropertyText,
@@ -95,7 +98,7 @@ const MAXIMUM_COLLAPSED_OFF_AXIS_ITEMS = 20;
 
 export function TimelineView(props: ViewRendererProps): ReactNode {
   const { container, view, onOpen } = props;
-  const openProps = useItemOpenProps(onOpen);
+  const openProps = useTimelineOpenProps(onOpen);
   const viewState = useViewState();
   const { mode: urlMode, setMode } = viewState;
 
@@ -220,6 +223,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
     // `min-h-0 flex-1` so the pane keeps the vertical axis: the wide axis is this view's and is
     // owned by the track below, and a second vertical scroller here would compete with the pane's.
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+      <ShownItems ids={placed.map((entry) => entry.item.id)} />
       <div className="flex flex-wrap items-center gap-2">
         <Text variant="h6" as="h2" className="min-w-0 break-words">
           {axis.label}
@@ -331,6 +335,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
               >
                 {(contextTarget) => (
                   <li {...contextTarget} className="flex min-w-0 flex-col gap-2 py-3">
+                    <SelectCheckbox item={entry.item} />
                     <Button
                       variant="ghost"
                       className="min-w-0 max-w-full justify-start whitespace-normal text-left wrap-anywhere"
@@ -767,6 +772,7 @@ function TimelineRow({ placed, columns, aside, virtualIndex }: TimelineRowProps)
             )}
           >
             <div className="flex items-center justify-between gap-2">
+              <SelectCheckbox item={item} />
               <Text variant="bodySmall" as="span" className="truncate">
                 {titleOf(item)}
               </Text>
@@ -954,7 +960,7 @@ interface BarProps {
  * have no way of knowing they had been.
  */
 function Bar({ placed, onOpen, continuesBefore, continuesAfter }: BarProps): ReactNode {
-  const openProps = useItemOpenProps(onOpen);
+  const openProps = useTimelineOpenProps(onOpen);
   return (
     <button
       type="button"
@@ -1009,7 +1015,7 @@ function Milestone({
   readonly placed: Placed;
   readonly onOpen: (itemId: string) => void;
 }): ReactNode {
-  const openProps = useItemOpenProps(onOpen);
+  const openProps = useTimelineOpenProps(onOpen);
   return (
     <button
       type="button"
@@ -1179,7 +1185,7 @@ function OffAxisEntry({
   readonly aside: AsideContext;
 }): ReactNode {
   const { item } = placed;
-  const openProps = useItemOpenProps(aside.onOpen);
+  const openProps = useTimelineOpenProps(aside.onOpen);
 
   return (
     <CalendarEntryMenu
@@ -1191,6 +1197,7 @@ function OffAxisEntry({
       {(contextTarget) => (
         <li {...contextTarget} className="flex min-w-0 flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
+            <SelectCheckbox item={item} />
             {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
             width is its text's, and a one- or two-character title lands under WCAG 2.5.8's 24px
             floor - the same widening as the calendar card's title, half a step each side so it
@@ -1217,6 +1224,29 @@ function OffAxisEntry({
       )}
     </CalendarEntryMenu>
   );
+}
+
+function useTimelineOpenProps(
+  onOpen: (itemId: string) => void,
+): (itemId: string) => ReturnType<typeof rowGestures> {
+  const selection = useOptionalItemSelection();
+  const clickSelects = useClickSelects();
+  const openBeside = selection?.openBeside;
+  return (itemId) =>
+    rowGestures(
+      selection,
+      itemId,
+      selection?.shown ?? [],
+      () => {
+        onOpen(itemId);
+      },
+      openBeside === undefined
+        ? undefined
+        : () => {
+            openBeside(itemId);
+          },
+      clickSelects,
+    );
 }
 
 /**
