@@ -2,14 +2,20 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { readGhostTextSetting, useGhostTextPreference } from '../../../editor/ghost-text-preference';
+import {
+  readGhostTextSetting,
+  useGhostTextPreference,
+} from '../../../editor/ghost-text-preference';
 import { useKeyboardModeStore } from '../../../editor/keyboard-mode-store';
 import { usePageGuidePreference } from '../../../editor/page-guide-preference';
 import { readDismissals, rememberDismissal } from '../../../lib/suggestion-dismissals';
 import { memoryStorage } from '../../views/suggest/suggest-fixtures';
 import { EditorPreferencesSection } from '../../../settings/editor/editor-preferences-section';
 import { PublishingSection } from '../../../settings/publishing/publishing-section';
-import { usePublishingPreference, useSitesVisible } from '../../../settings/publishing/publishing-preference';
+import {
+  usePublishingPreference,
+  useSitesVisible,
+} from '../../../settings/publishing/publishing-preference';
 import { CapabilitiesProvider } from '../../../session/capabilities-context';
 import {
   readChoiceOrderSetting,

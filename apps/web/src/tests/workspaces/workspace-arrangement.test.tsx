@@ -107,35 +107,67 @@ describe('the workspace menu', () => {
 });
 
 describe('workspace groups in settings', () => {
-  it('creates a group, assigns a workspace to it and removes the group without losing the workspace', async () => {
+  it('creates a group from a workspace row, renames it and removes it without losing the workspace', async () => {
     const user = userEvent.setup();
     stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
     renderAt(<App />, '/settings');
 
     const section = await screen.findByRole('region', { name: 'Workspace groups and pins' });
-    await user.type(within(section).getByRole('textbox', { name: 'New group' }), 'Clients');
-    await user.click(within(section).getByRole('button', { name: 'Add group' }));
-    const groups = await within(section).findByRole('list', { name: 'Workspace groups' });
-    expect(within(groups).getByRole('textbox', { name: 'Group name' })).toHaveValue('Clients');
+    // No groups yet: nothing to manage.
+    expect(within(section).queryByText('Manage groups')).not.toBeInTheDocument();
 
     await user.selectOptions(
       within(section).getByRole('combobox', { name: `Group for ${SHARED.name}` }),
+      'New group…',
+    );
+    await user.type(
+      within(section).getByRole('textbox', { name: `New group for ${SHARED.name}` }),
       'Clients',
     );
+    await user.click(within(section).getByRole('button', { name: 'Add' }));
+
+    // The new group is created and already holds the workspace it was made from.
+    const select = await within(section).findByRole('combobox', {
+      name: `Group for ${SHARED.name}`,
+    });
     await waitFor(() => {
-      expect(within(groups).getByText(SHARED.name)).toBeVisible();
+      expect(select).toHaveDisplayValue('Clients');
     });
 
-    await user.click(within(section).getByRole('button', { name: 'Remove group Clients' }));
+    await user.click(within(section).getByText('Manage groups'));
+    const name = within(section).getByRole('textbox', { name: 'Name of group Clients' });
+    await user.clear(name);
+    await user.type(name, 'Customers');
+    await user.tab();
     await waitFor(() => {
-      expect(
-        within(section).queryByRole('list', { name: 'Workspace groups' }),
-      ).not.toBeInTheDocument();
+      expect(select).toHaveDisplayValue('Customers');
     });
-    // Still here, still choosable: a removed group takes nothing with it.
+
+    await user.click(within(section).getByRole('button', { name: 'Remove group Customers' }));
+    await waitFor(() => {
+      expect(within(section).queryByText('Manage groups')).not.toBeInTheDocument();
+    });
+    // Still here, now ungrouped: a removed group takes nothing with it.
+    expect(select).toHaveDisplayValue('No group');
+    expect(within(section).getByText(SHARED.name)).toBeVisible();
+  });
+
+  it('cancels a pending new group with Escape', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
+    renderAt(<App />, '/settings');
+
+    const section = await screen.findByRole('region', { name: 'Workspace groups and pins' });
+    await user.selectOptions(
+      within(section).getByRole('combobox', { name: `Group for ${SHARED.name}` }),
+      'New group…',
+    );
+    await user.type(
+      within(section).getByRole('textbox', { name: `New group for ${SHARED.name}` }),
+      '{Escape}',
+    );
     expect(
       within(section).getByRole('combobox', { name: `Group for ${SHARED.name}` }),
-    ).toBeDisabled();
-    expect(within(section).getByText(SHARED.name)).toBeVisible();
+    ).toHaveDisplayValue('No group');
   });
 });

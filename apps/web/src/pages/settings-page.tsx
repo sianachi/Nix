@@ -24,7 +24,7 @@ const settingsTabs: readonly { id: SettingsTab; label: string; closable: false; 
   { id: 'workspace', label: 'Workspace', closable: false },
   { id: 'daily-notes', label: 'Daily notes', closable: false },
   { id: 'editor', label: 'Editor', closable: false },
-  {id: 'preferences', label: 'Preferences', closable: false },
+  { id: 'preferences', label: 'Preferences', closable: false },
   { id: 'pets', label: 'Pets', closable: false },
   { id: 'notifications', label: 'Notifications', closable: false },
   { id: 'integrations', label: 'Calendars', closable: false },
