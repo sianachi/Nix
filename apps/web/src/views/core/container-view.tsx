@@ -122,7 +122,13 @@ export function ContainerView({
         commands === null || !capabilities.delete
           ? undefined
           : () => {
-              void commands.deleteItems([...selection.selected]).then(dropDeleted);
+              void commands
+                .deleteItems(
+                  container.children
+                    .filter((item) => selection.selected.has(item.id))
+                    .map((item) => ({ ...item, seq: Number(item.seq) })),
+                )
+                .then(dropDeleted);
             }
       }
       onClear={selection.clear}
