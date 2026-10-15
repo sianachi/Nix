@@ -101,6 +101,19 @@ public sealed class SiteEligibilityPlanEvidenceTests(NixPostgresFixture fixture,
     }
 
     [Fact]
+    public async Task The_withheld_dated_post_report_stays_in_the_sites_subtree()
+    {
+        var plan = await ExplainAsRuntimeRoleAsync(SiteEligibilitySql.WithheldDatedPosts, withheld: true);
+        output.WriteLine("Withheld dated posts, 200 scheduled posts among 23,000 tenant items, runtime role:");
+        output.WriteLine(plan);
+
+        Assert.DoesNotContain("Seq Scan on item ", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on item_closure", plan, StringComparison.Ordinal);
+        Assert.Matches("Index Scan using \"IX_item_(tenant_id|workspace_id)_parent_id", plan);
+        Assert.Contains("Buffers:", plan, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task The_republish_planner_reads_each_sites_subtree_by_index()
     {
         // The planner's statement, lifted out of the SECURITY DEFINER function as installed, with
@@ -132,7 +145,8 @@ public sealed class SiteEligibilityPlanEvidenceTests(NixPostgresFixture fixture,
         }
     }
 
-    private async Task<string> ExplainAsRuntimeRoleAsync(string statement = SiteEligibilitySql.EligiblePages, bool file = false)
+    private async Task<string> ExplainAsRuntimeRoleAsync(
+        string statement = SiteEligibilitySql.EligiblePages, bool file = false, bool withheld = false)
     {
         var connection = await fixture.OpenApplicationConnectionAsync();
         await using (connection.ConfigureAwait(false))
@@ -150,6 +164,10 @@ public sealed class SiteEligibilityPlanEvidenceTests(NixPostgresFixture fixture,
                     if (file)
                     {
                         command.Parameters.Add(new NpgsqlParameter<Guid>("file_item_id", NpgsqlDbType.Uuid) { TypedValue = Image });
+                    }
+                    if (withheld)
+                    {
+                        command.Parameters.Add(new NpgsqlParameter<int>("limit", NpgsqlDbType.Integer) { TypedValue = 129 });
                     }
 
                     var plan = new StringBuilder();
