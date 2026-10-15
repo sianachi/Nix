@@ -13,9 +13,12 @@ import { CalendarView } from './calendar-view';
 export default { title: 'Nix/Views/Calendar and timeline', parameters: { layout: 'padded' } };
 
 function assertCheckboxReveals(checkbox: HTMLElement): void {
-  const wrapper = checkbox.parentElement;
-  if (wrapper === null || getComputedStyle(wrapper).opacity !== '1') {
-    throw new Error('Selecting controls must reveal on hover before an item is selected.');
+  const control = checkbox.closest('.group')?.querySelector<HTMLElement>('button');
+  if (control === null || control === undefined) throw new Error('Missing item focus target.');
+  control.focus();
+  const wrapper = checkbox.parentElement?.parentElement;
+  if (wrapper === null || wrapper === undefined || getComputedStyle(wrapper).opacity !== '1') {
+    throw new Error('Selecting controls must reveal on item focus before an item is selected.');
   }
 }
 

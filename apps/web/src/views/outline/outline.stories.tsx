@@ -153,12 +153,10 @@ export const Selection = {
   play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement);
     const checkbox = canvas.getByRole('checkbox', { name: 'Select Trip to Lisbon' });
-    await userEvent.hover(checkbox);
-    if (
-      checkbox.parentElement === null ||
-      getComputedStyle(checkbox.parentElement).opacity !== '1'
-    ) {
-      throw new Error('Selecting controls must reveal on hover before an item is selected.');
+    checkbox.closest<HTMLElement>('[role="treeitem"]')?.focus();
+    const wrapper = checkbox.parentElement?.parentElement;
+    if (wrapper === null || wrapper === undefined || getComputedStyle(wrapper).opacity !== '1') {
+      throw new Error('Selecting controls must reveal on item focus before an item is selected.');
     }
     await userEvent.click(checkbox);
     canvas.getByRole('toolbar', { name: 'Selected items' });

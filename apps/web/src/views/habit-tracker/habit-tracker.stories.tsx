@@ -15,7 +15,6 @@ import { WorkspaceProvider } from '../../workspaces/workspace-context';
 import type { ContainerData } from '../core/use-container';
 import type { View } from '../core/container-model';
 import { ContainerView } from '../core/container-view';
-import { HabitTrackerView } from './habit-tracker-view';
 import { HabitInsights } from './habit-insights';
 import { habitDateRange, habitDays, shiftHabitDay } from './habit-progress';
 import { formatShortDate } from '../../lib/date-format';

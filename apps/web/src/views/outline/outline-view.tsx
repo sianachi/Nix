@@ -1,4 +1,4 @@
-import { Button, ContextMenu, Icon, Input, Text, cn, focusRing } from '@nix/ui';
+import { Button, ContextMenu, Icon, Input, Text, cn, focusRing, isEditableTarget } from '@nix/ui';
 import {
   ArrowDown,
   ArrowUp,
@@ -547,12 +547,12 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
           {rows.map((row, position) => {
             const id = row.item.id;
             const isOpen = expanded.has(id);
-            const selectOrOpen = rowGestures(
+            const selectOrFocus = rowGestures(
               selection,
               id,
               selection?.shown ?? [],
               () => {
-                onOpen(id);
+                setFocusedId(id);
               },
               openBeside === undefined
                 ? undefined
@@ -637,14 +637,18 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
                       }}
                       onClick={(event) => {
                         setFocusedId(id);
-                        selectOrOpen.onClick(event);
+                        if (isEditableTarget(event.target)) return;
+                        selectOrFocus.onClick(event);
                       }}
                       onKeyDown={(event) => {
-                        selectOrOpen.onKeyDown(event);
+                        if (isEditableTarget(event.target)) return;
+                        selectOrFocus.onKeyDown(event);
                         if (event.defaultPrevented) return;
                         onRowKeyDown(event, row);
                       }}
-                      onKeyUp={selectOrOpen.onKeyUp}
+                      onKeyUp={(event) => {
+                        if (!isEditableTarget(event.target)) selectOrFocus.onKeyUp(event);
+                      }}
                       onDoubleClick={() => {
                         onOpen(id);
                       }}
@@ -670,13 +674,7 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
                           <Icon icon={isOpen ? ChevronDown : ChevronRight} size="sm" />
                         ) : null}
                       </span>
-                      <span
-                        onClick={(event) => {
-                          event.stopPropagation();
-                        }}
-                      >
-                        <SelectCheckbox item={row.item} />
-                      </span>
+                      <SelectCheckbox item={row.item} />
                       <Text as="span" variant="body" className="min-w-0 flex-1">
                         {titleOf(row.item)}
                       </Text>

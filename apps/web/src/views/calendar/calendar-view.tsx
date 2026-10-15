@@ -1120,7 +1120,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
             >
               <button
                 type="button"
-                {...openProps(item.id)}
+                {...openProps}
                 className={cn(
                   focusRing,
                   'min-w-0 flex-1 truncate rounded-sm py-0.5 pl-7 pr-1.5 text-left text-xs',
@@ -1179,7 +1179,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
               <Button
                 variant="ghost"
                 className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
-                {...openProps(item.id)}
+                {...openProps}
               >
                 <span className="truncate">{item.title || 'Untitled'}</span>
               </Button>
