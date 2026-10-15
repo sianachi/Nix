@@ -260,6 +260,23 @@ function zipEntries(entries: readonly { name: string; bytes: Uint8Array }[]): Pr
 }
 
 describe('the hostile archive reader', () => {
+  it('writes identical bytes across time zones even at a daylight-saving gap', async () => {
+    const originalZone = process.env.TZ;
+    const input = { ...manifest(), exportedAt: '2026-03-08T02:30:00.000Z' };
+    try {
+      process.env.TZ = 'UTC';
+      const utc = await collect(writeArchive({ manifest: input, bundles: bundles() }));
+      process.env.TZ = 'America/New_York';
+      const daylightSavingGap = await collect(
+        writeArchive({ manifest: input, bundles: bundles() }),
+      );
+      expect(daylightSavingGap).toEqual(utc);
+    } finally {
+      if (originalZone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalZone;
+    }
+  });
+
   it('retains chat views, message text and conversation configuration in a native round trip', async () => {
     const original = bundle(ROOT);
     const firstView = original.views?.views[0];
