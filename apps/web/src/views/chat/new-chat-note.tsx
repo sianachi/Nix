@@ -7,13 +7,15 @@ import {
   type CreateConversationInput,
   type Conversation,
 } from '@nix/api-client';
-import { Button, Checkbox, Field, Input, Select, Text } from '@nix/ui';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Button, Checkbox, Dialog, Field, Icon, Input, Select, Text } from '@nix/ui';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useWorkspaceArrangement } from '../../workspaces/use-workspace-arrangement';
 import { PetMessageText } from '../../pets/pet-message-text';
 import { Link, useNavigate } from 'react-router';
 import { useApiClient } from '../../api/api-client-provider';
-import { useAccessibleWorkspaces } from '../../workspaces/workspace-context';
+import { useAccessibleWorkspaces, useOptionalWorkspace } from '../../workspaces/workspace-context';
+import { readLastWorkspaceId } from '../../workspaces/last-workspace';
 
 export function ChatDestination({
   workspaceId,
@@ -117,13 +119,22 @@ export function NewChatNote({
 }): ReactNode {
   const client = useApiClient();
   const navigate = useNavigate();
-  const { workspaces } = useAccessibleWorkspaces();
+  const { workspaces, status: workspaceStatus } = useAccessibleWorkspaces();
+  const currentWorkspace = useOptionalWorkspace();
+  const [lastWorkspaceId] = useState(readLastWorkspaceId);
   const { arrangement } = useWorkspaceArrangement();
   const remembered = arrangement.groups.find((entry) => entry.id === groupId);
   const active = workspaces.filter((entry) => entry.lifecycleState === 'active');
   const [profiles, setProfiles] = useState<readonly PetProfile[]>([]);
   const [petId, setPetId] = useState('');
   const [sources, setSources] = useState<readonly string[]>(sourceWorkspaceIds);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [sourceSearch, setSourceSearch] = useState('');
+  const [destinationOpen, setDestinationOpen] = useState(false);
+  const formId = useId();
+  const sourcesId = useId();
+  const destinationId = useId();
+  const titleRef = useRef<HTMLInputElement>(null);
   const [chosenDestination, setChosenDestination] = useState<{
     workspaceId: string;
     parentId: string | null;
@@ -131,11 +142,19 @@ export function NewChatNote({
   const rememberedWorkspace = active.find(
     (entry) => entry.id === remembered?.lastDestinationWorkspaceId,
   );
-  const workspaceId = chosenDestination?.workspaceId ?? rememberedWorkspace?.id ?? '';
+  const current = active.find(
+    (entry) => entry.id === (currentWorkspace?.workspaceId ?? lastWorkspaceId),
+  );
+  const defaultDestination =
+    current ??
+    rememberedWorkspace ??
+    active.find((entry) => sourceWorkspaceIds.includes(entry.id)) ??
+    active[0];
+  const workspaceId = chosenDestination?.workspaceId ?? defaultDestination?.id ?? '';
   const parentId =
     chosenDestination !== null
       ? chosenDestination.parentId
-      : rememberedWorkspace
+      : !current && rememberedWorkspace
         ? (remembered?.lastDestinationParentId ?? null)
         : null;
   function setWorkspaceId(id: string): void {
@@ -148,6 +167,8 @@ export function NewChatNote({
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [parentItem, setParentItem] = useState<Item | null>(null);
+  const [unavailableParentId, setUnavailableParentId] = useState<string | null>(null);
   const [initialRequestId] = useState(() => crypto.randomUUID());
   const [createdChat, setCreatedChat] = useState<Conversation | null>(null);
   useEffect(() => {
@@ -168,7 +189,52 @@ export function NewChatNote({
     };
   }, [client]);
   const destination = active.find((entry) => entry.id === workspaceId);
+  useEffect(() => {
+    if (!parentId || existingItemId) return;
+    const controller = new AbortController();
+    void client
+      .query(items.itemById(parentId), { signal: controller.signal, forceRefresh: true })
+      .then((item) => {
+        if (item.workspaceId !== workspaceId)
+          throw new Error('Destination belongs to another workspace.');
+        if (!controller.signal.aborted) {
+          setParentItem(item);
+          setUnavailableParentId(null);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setUnavailableParentId(parentId);
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [client, parentId, workspaceId, existingItemId]);
+  const parentReady =
+    parentId === null ||
+    (parentItem?.id === parentId &&
+      parentItem.workspaceId === workspaceId &&
+      unavailableParentId !== parentId);
+  const selectedSources = active.filter((entry) => sources.includes(entry.id));
+  const sourceSummary =
+    selectedSources.length === 0
+      ? 'Choose workspaces'
+      : selectedSources.length === 1
+        ? selectedSources[0]?.name
+        : `${String(selectedSources.length)} workspaces`;
+  const unavailableSources = sources.filter((id) => !active.some((entry) => entry.id === id));
+  const filteredSources = active.filter((entry) =>
+    entry.name.toLocaleLowerCase().includes(sourceSearch.toLocaleLowerCase().trim()),
+  );
+  const disabled =
+    busy ||
+    !title.trim() ||
+    !petId ||
+    !sources.length ||
+    unavailableSources.length > 0 ||
+    (!existingItemId && (!destination || !parentReady)) ||
+    !confirmed;
   async function create(): Promise<void> {
+    if (disabled) return;
     setBusy(true);
     setError('');
     let saved = false;
@@ -208,176 +274,278 @@ export function NewChatNote({
     }
   }
   return (
-    <section
-      aria-label="New chat note"
-      className="flex flex-col gap-4 rounded-lg border border-divider bg-surface p-4"
+    <Dialog
+      open
+      title={existingItemId ? 'Set up this chat view' : messages ? 'Save as chat note' : 'New chat'}
+      initialFocus={titleRef}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      actions={
+        <>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={disabled} type="submit" form={formId}>
+            {busy
+              ? 'Saving…'
+              : createdChat
+                ? 'Retry first message'
+                : existingItemId
+                  ? 'Set up chat'
+                  : 'Create chat note'}
+          </Button>
+        </>
+      }
     >
-      <Text as="h2" variant="h4">
-        {existingItemId ? 'Set up this chat view' : messages ? 'Save as chat note' : 'New chat'}
-      </Text>
-      {messages ? (
-        <details>
-          <summary>Preview retained transcript</summary>
-          {messages.map((message, index) => (
-            <div key={index}>
-              <Text variant="kicker">{message.role}</Text>
-              <PetMessageText workspaceId={sourceWorkspaceIds[0] ?? ''} text={message.text} />
-            </div>
-          ))}
-        </details>
-      ) : null}
-      {messages ? (
-        <Text>
-          Only the retained visible messages will be copied. Older trimmed messages and hidden
-          provider context are unavailable. Your original private conversation is kept.
-        </Text>
-      ) : null}
-      <fieldset disabled={busy || createdChat !== null} className="flex flex-col gap-4">
-        {!existingItemId ? (
-          <Field label="Chat title">
-            {(control) => (
-              <Input
-                {...control}
-                value={title}
-                maxLength={240}
-                onChange={(event) => {
-                  setTitle(event.currentTarget.value);
-                }}
-              />
-            )}
-          </Field>
+      <form
+        id={formId}
+        className="flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void create();
+        }}
+      >
+        {messages ? (
+          <details>
+            <summary>Preview retained transcript</summary>
+            {messages.map((message, index) => (
+              <div key={index}>
+                <Text variant="kicker">{message.role}</Text>
+                <PetMessageText workspaceId={sourceWorkspaceIds[0] ?? ''} text={message.text} />
+              </div>
+            ))}
+          </details>
         ) : null}
-        <Field label="Pet">
-          {(control) => (
-            <Select
-              {...control}
-              value={petId}
-              onChange={(event) => {
-                setPetId(event.currentTarget.value);
-              }}
-            >
-              <option value="">Choose a pet</option>
-              {profiles.map((pet) => (
-                <option key={pet.id} value={pet.id}>
-                  {pet.name}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <fieldset className="flex flex-col gap-2">
-          <legend>Source workspaces</legend>
-          {active.map((entry) => (
-            <Checkbox
-              key={entry.id}
-              label={entry.name}
-              checked={sources.includes(entry.id)}
-              onChange={(event) => {
-                setSources(
-                  event.currentTarget.checked
-                    ? [...sources, entry.id]
-                    : sources.filter((id) => id !== entry.id),
-                );
-              }}
-            />
-          ))}
-        </fieldset>
-        <Text variant="note" tone="muted">
-          Analysis can read the selected workspaces. It cannot change their notes.
-        </Text>
-        {!existingItemId ? (
-          <Field label="Destination workspace">
+        {messages ? (
+          <Text>
+            Only the retained visible messages will be copied. Older trimmed messages and hidden
+            provider context are unavailable. Your original private conversation is kept.
+          </Text>
+        ) : null}
+        <fieldset disabled={busy || createdChat !== null} className="flex flex-col gap-4">
+          {!existingItemId ? (
+            <Field label="Chat title">
+              {(control) => (
+                <Input
+                  {...control}
+                  ref={titleRef}
+                  value={title}
+                  maxLength={240}
+                  onChange={(event) => {
+                    setTitle(event.currentTarget.value);
+                  }}
+                />
+              )}
+            </Field>
+          ) : null}
+          <Field label="Pet">
             {(control) => (
               <Select
                 {...control}
-                value={workspaceId}
+                value={petId}
                 onChange={(event) => {
-                  setWorkspaceId(event.currentTarget.value);
-                  setConfirmed(false);
+                  setPetId(event.currentTarget.value);
                 }}
               >
-                <option value="">Choose where to save</option>
-                {active.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.name}
+                <option value="">Choose a pet</option>
+                {profiles.map((pet) => (
+                  <option key={pet.id} value={pet.id}>
+                    {pet.name}
                   </option>
                 ))}
               </Select>
             )}
           </Field>
-        ) : null}
-        {!existingItemId && workspaceId ? (
-          <ChatDestination
-            workspaceId={workspaceId}
-            parentId={parentId}
-            onChange={(id) => {
-              setParentId(id);
-              setConfirmed(false);
-            }}
-          />
-        ) : null}
-        {existingItemId ? (
-          <>
-            <Text>
-              This conversation will be stored in the existing note. Anyone who can read it can read
-              the transcript, including content from the selected source workspaces.
-            </Text>
-            <Checkbox
-              label="I confirm this destination and its sharing"
-              checked={confirmed}
-              onChange={(event) => {
-                setConfirmed(event.currentTarget.checked);
+          <div className="flex flex-col gap-2">
+            <Button
+              variant="secondary"
+              className="justify-between"
+              aria-expanded={sourcesOpen}
+              aria-controls={sourcesOpen ? sourcesId : undefined}
+              onClick={() => {
+                setSourcesOpen(!sourcesOpen);
               }}
-            />
-          </>
-        ) : null}
-        {!existingItemId && destination ? (
-          <>
-            <Text>
-              {destination.kind === 'shared'
-                ? 'This is a shared workspace.'
-                : 'This is your personal workspace.'}{' '}
-              The saved transcript will be readable by everyone who can read the destination note,
-              including content drawn from other sources.
+            >
+              <Text as="span" variant="bodySmall" className="truncate">
+                Sources: {workspaceStatus === 'loading' ? 'Loading…' : sourceSummary}
+              </Text>
+              <Icon icon={sourcesOpen ? ChevronUp : ChevronDown} />
+            </Button>
+            {sourcesOpen ? (
+              <div id={sourcesId} className="flex flex-col gap-2 rounded border border-divider p-3">
+                <Input
+                  type="search"
+                  aria-label="Find a source workspace"
+                  placeholder="Find a workspace…"
+                  value={sourceSearch}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.preventDefault();
+                  }}
+                  onChange={(event) => {
+                    setSourceSearch(event.currentTarget.value);
+                  }}
+                />
+                <fieldset
+                  aria-label="Source workspaces"
+                  className="flex max-h-40 flex-col gap-1 overflow-y-auto"
+                >
+                  {filteredSources.map((entry) => (
+                    <Checkbox
+                      key={entry.id}
+                      label={entry.name}
+                      checked={sources.includes(entry.id)}
+                      onChange={(event) => {
+                        setSources(
+                          event.currentTarget.checked
+                            ? [...sources, entry.id]
+                            : sources.filter((id) => id !== entry.id),
+                        );
+                        setConfirmed(false);
+                      }}
+                    />
+                  ))}
+                  {!filteredSources.length ? (
+                    <Text variant="note">No matching workspaces.</Text>
+                  ) : null}
+                </fieldset>
+              </div>
+            ) : null}
+            {unavailableSources.length > 0 && workspaceStatus !== 'loading' ? (
+              <div>
+                <Text role="alert">Some source workspaces are no longer available.</Text>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setSources(selectedSources.map((entry) => entry.id));
+                    setConfirmed(false);
+                  }}
+                >
+                  Remove unavailable sources
+                </Button>
+              </div>
+            ) : null}
+            <Text variant="note" tone="muted">
+              Your pet can read these workspaces, without changing their notes.
             </Text>
-            <Checkbox
-              label="I confirm this destination and its sharing"
-              checked={confirmed}
-              onChange={(event) => {
-                setConfirmed(event.currentTarget.checked);
-              }}
-            />
-          </>
+          </div>
+          {!existingItemId ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Text variant="kicker">Save to</Text>
+                  <Text variant="bodySmall" className="break-words">
+                    {parentId
+                      ? `${parentReady ? (parentItem?.title ?? 'Untitled note') : 'Checking destination…'} · `
+                      : ''}
+                    {destination?.name ?? 'Choose a workspace'}
+                    {current?.id === workspaceId && !parentId ? ' (this workspace)' : ''}
+                  </Text>
+                </div>
+                <Button
+                  variant="ghost"
+                  className="shrink-0"
+                  aria-expanded={destinationOpen}
+                  aria-controls={destinationOpen ? destinationId : undefined}
+                  onClick={() => {
+                    setDestinationOpen(!destinationOpen);
+                  }}
+                >
+                  {destinationOpen ? 'Done' : 'Somewhere else…'}
+                </Button>
+              </div>
+              {destinationOpen ? (
+                <div
+                  id={destinationId}
+                  className="flex flex-col gap-3 rounded border border-divider p-3"
+                >
+                  <Field label="Destination workspace">
+                    {(control) => (
+                      <Select
+                        {...control}
+                        value={workspaceId}
+                        onChange={(event) => {
+                          setWorkspaceId(event.currentTarget.value);
+                          setConfirmed(false);
+                        }}
+                      >
+                        <option value="">Choose where to save</option>
+                        {active.map((entry) => (
+                          <option key={entry.id} value={entry.id}>
+                            {entry.name}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </Field>
+                  {workspaceId ? (
+                    <ChatDestination
+                      workspaceId={workspaceId}
+                      parentId={parentId}
+                      onChange={(id) => {
+                        setParentId(id);
+                        setConfirmed(false);
+                      }}
+                    />
+                  ) : null}
+                  {current && (workspaceId !== current.id || parentId !== null) ? (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setWorkspaceId(current.id);
+                        setConfirmed(false);
+                      }}
+                    >
+                      Use this workspace
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {existingItemId ? (
+            <>
+              <Text>
+                This conversation will be stored in the existing note. Anyone who can read it can
+                read the transcript, including content from the selected source workspaces.
+              </Text>
+              <Checkbox
+                label="I confirm this destination and its sharing"
+                checked={confirmed}
+                onChange={(event) => {
+                  setConfirmed(event.currentTarget.checked);
+                }}
+              />
+            </>
+          ) : null}
+          {!existingItemId && destination ? (
+            <>
+              <Text>
+                {destination.kind === 'shared' ? 'Shared workspace.' : 'Personal workspace.'}{' '}
+                Everyone who can read this note can read the chat and any content drawn from its
+                sources.
+              </Text>
+              <Checkbox
+                label="I confirm this destination and its sharing"
+                checked={confirmed}
+                onChange={(event) => {
+                  setConfirmed(event.currentTarget.checked);
+                  if (event.currentTarget.checked) setChosenDestination({ workspaceId, parentId });
+                }}
+              />
+            </>
+          ) : null}
+        </fieldset>
+        {parentId && unavailableParentId === parentId ? (
+          <Text role="alert">The destination note is unavailable. Choose somewhere else.</Text>
         ) : null}
-      </fieldset>
-      {error ? <Text role="alert">{error}</Text> : null}
-      {createdChat ? (
-        <Link to={`/w/${createdChat.workspaceId}?item=${createdChat.itemId}`}>Open saved chat</Link>
-      ) : null}
-      <div className="flex gap-2">
-        <Button
-          disabled={
-            busy ||
-            !title.trim() ||
-            !petId ||
-            !sources.length ||
-            (!existingItemId && !destination) ||
-            !confirmed
-          }
-          onClick={() => void create()}
-        >
-          {busy
-            ? 'Saving…'
-            : createdChat
-              ? 'Retry first message'
-              : existingItemId
-                ? 'Set up chat'
-                : 'Create chat note'}
-        </Button>
-        <Button variant="secondary" disabled={busy} onClick={onClose}>
-          Cancel
-        </Button>
-      </div>
-    </section>
+        {error ? <Text role="alert">{error}</Text> : null}
+        {createdChat ? (
+          <Link to={`/w/${createdChat.workspaceId}?item=${createdChat.itemId}`}>
+            Open saved chat
+          </Link>
+        ) : null}
+      </form>
+    </Dialog>
   );
 }
