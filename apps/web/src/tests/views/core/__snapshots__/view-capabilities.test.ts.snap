@@ -8,7 +8,7 @@ exports[`view capabilities > matches the documented capability matrix 1`] = `
   "| checklist | yes | yes | yes | yes | none |",
   "| board | yes | yes | yes | yes | group-value |",
   "| matrix | yes | yes | yes | yes | row-col-values |",
-  "| calendar | no | yes | yes | yes | date |",
+  "| calendar | yes | yes | yes | yes | date |",
   "| timeline | no | yes | yes | yes | none |",
   "| outline | no | yes | yes | yes | parent-order |",
   "| drive | yes | yes | no | yes | none |",

@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router';
 
 import type { View } from '../core/container-model';
 import { storyContainer, storyItem } from '../core/story-container';
+import { ContainerView } from '../core/container-view';
 import { VIEW_GUTTER } from '../core/view-gutter';
 import { TimelineView } from '../timeline/timeline-view';
 import { CalendarView } from './calendar-view';
@@ -56,6 +57,52 @@ function Example({ kind }: { readonly kind: 'calendar' | 'timeline' }): ReactNod
 
 export const Calendar = { render: (): ReactNode => <Example kind="calendar" /> };
 export const Timeline = { render: (): ReactNode => <Example kind="timeline" /> };
+/** Exercises the shared selection tray so axe sees calendar selection controls. */
+export const CalendarSelection = {
+  render: (): ReactNode => {
+    const now = new Date();
+    const date = `${String(now.getFullYear()).padStart(4, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const view: View = {
+      id: 'calendar-selection',
+      name: 'Plans',
+      kind: 'calendar',
+      columns: [],
+      groupBy: null,
+      groupOrder: [],
+      dateProperty: 'starts',
+      endDateProperty: 'ends',
+      sortBy: null,
+      sortDescending: false,
+      mode: null,
+      coverProperty: null,
+      cardSize: null,
+      layout: null,
+      filters: [],
+    };
+    return (
+      <MemoryRouter>
+        <div className={VIEW_GUTTER}>
+          <ContainerView
+            container={storyContainer(
+              [storyItem('today', 'Today', 1, { starts: date, ends: date })],
+              [
+                { key: 'starts', label: 'Starts', type: 'date', options: [], required: false },
+                { key: 'ends', label: 'Ends', type: 'date', options: [], required: false },
+              ],
+            )}
+            view={view}
+            onOpen={() => undefined}
+          />
+        </div>
+      </MemoryRouter>
+    );
+  },
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('checkbox', { name: 'Select Today' }));
+    canvas.getByRole('toolbar', { name: 'Selected items' });
+  },
+};
 export const CalendarPhone = {
   ...Calendar,
   parameters: { viewport: { defaultViewport: 'mobile1' } },
