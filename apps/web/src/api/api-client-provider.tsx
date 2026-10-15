@@ -1,3 +1,4 @@
+import { coreOrigin } from '../lib/core-origin';
 import { createNixClient, NixApiError, type NixClient } from '@nix/api-client';
 import { createContext, use, useEffect, useMemo, type ReactNode } from 'react';
 
@@ -34,7 +35,7 @@ export function ApiClientProvider({ children }: { readonly children: ReactNode }
   const client = useMemo(
     () =>
       createNixClient({
-        baseUrl: globalThis.location.origin,
+        baseUrl: coreOrigin(),
         tokens: {
           getAccessToken: async () => {
             const token = await getAccessToken();

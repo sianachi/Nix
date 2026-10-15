@@ -464,7 +464,7 @@ describe('offline note images', () => {
   it('keeps a refused file unreadable after deletion fails and the module reloads', async () => {
     const doc = document();
     await cacheOfflineNoteAssets(doc, SUBJECT, WORKSPACE, NOTE, client);
-    vi.spyOn(IDBCursor.prototype, 'delete').mockImplementation(() => {
+    vi.spyOn(IDBObjectStore.prototype, 'delete').mockImplementation(() => {
       throw new DOMException('Offline image deletion failed.', 'UnknownError');
     });
     queryMock.mockRejectedValue(

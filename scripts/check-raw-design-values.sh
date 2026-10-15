@@ -233,7 +233,7 @@ while IFS= read -r file; do
   esac
 done <<EOF2
 $(find "${scan_roots[@]}" \
-    \( -name node_modules -o -name dist -o -name storybook-static -o -path 'packages/design-tokens' \) -prune \
+    \( -name node_modules -o -name dist -o -name dist-mobile -o -name build -o -path '*/ios/App/App/public' -o -path '*/android/app/src/main/assets/public' -o -name storybook-static -o -path 'packages/design-tokens' \) -prune \
     -o -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' \) -print)
 EOF2
 

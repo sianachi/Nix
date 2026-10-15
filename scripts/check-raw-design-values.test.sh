@@ -273,6 +273,14 @@ FIXTURE
 expect 1 "a file breaking all four rules reports all four" \
   "$hex_heading" "$length_heading" "$tracking_heading" "$style_heading"
 
+# Generated mobile bundles are checked at their source, not after compilation.
+for generated in dist-mobile build ios/App/App/public android/app/src/main/assets/public; do
+  rm -rf "${work_dir:?}/tree"
+  mkdir -p "$work_dir/tree/$generated"
+  printf '%s\n' 'export const Row = () => <div className="border p-1 px-[14px]" style={{color: "#abcdef"}} />;' > "$work_dir/tree/$generated/compiled.tsx"
+  expect 0 "ignores generated mobile output under $generated"
+done
+
 # --- argument handling -------------------------------------------------------
 
 missing_code=0

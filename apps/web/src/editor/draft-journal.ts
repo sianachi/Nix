@@ -1,6 +1,6 @@
+import { noteTransaction, type NoteTable } from '../lib/note-database';
 import * as Y from 'yjs';
 import { z } from 'zod';
-
 import {
   bodyCacheAdmits,
   bodyCacheAccountAdmits,
@@ -12,7 +12,6 @@ import {
   readBodyCache,
   discardBodyCache,
 } from './body-cache';
-
 const DB = 'nix-pending-drafts';
 const STORE = 'updates';
 const MIGRATIONS = 'migrations';
@@ -31,7 +30,6 @@ export type DraftState = 'saving' | 'local' | 'synced' | 'error';
 let generation = 0;
 const subjectGenerations = new Map<string, number>();
 let channel: BroadcastChannel | undefined;
-let database: Promise<IDBDatabase> | undefined;
 const scopeSchema = z.tuple([z.string(), z.string(), z.string(), z.string()]);
 const migrationSchema = z.object({ fromScope: z.string(), toScope: z.string(), docId: z.string() });
 const lifecycleMessageSchema = z.object({
@@ -39,7 +37,6 @@ const lifecycleMessageSchema = z.object({
   subject: z.string().optional(),
   epoch: z.string().nullable().optional(),
 });
-
 function draftGeneration(scope: string): string {
   try {
     const subject = scopeSchema.parse(JSON.parse(scope))[0];
@@ -52,12 +49,10 @@ function draftGeneration(scope: string): string {
     return String(generation);
   }
 }
-
 function closeDraftGeneration(subject?: string): void {
   if (subject === undefined) generation += 1;
   else subjectGenerations.set(subject, (subjectGenerations.get(subject) ?? 0) + 1);
 }
-
 /** Owner updates may finish persisting after access refusal, for recovery without body replay. */
 function admitsDraftWrite(scope: string): boolean {
   try {
@@ -67,7 +62,7 @@ function admitsDraftWrite(scope: string): boolean {
     return false;
   }
 }
-function open(): Promise<IDBDatabase> {
+function open(): void {
   if (!channel && typeof BroadcastChannel !== 'undefined') {
     channel = new BroadcastChannel('nix-draft-lifecycle');
     channel.onmessage = (event) => {
@@ -83,76 +78,34 @@ function open(): Promise<IDBDatabase> {
       window.dispatchEvent(new CustomEvent('nix:signed-out-elsewhere', { detail }));
     };
   }
-  database ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB, 2);
-    let refused = false;
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE)) {
-        const store = request.result.createObjectStore(STORE, { keyPath: 'id' });
-        store.createIndex('scope', 'scope');
-      }
-      const migrations = request.result.createObjectStore(MIGRATIONS, { keyPath: 'fromScope' });
-      migrations.createIndex('toScope', 'toScope');
-    };
-    request.onsuccess = () => {
-      if (refused) {
-        request.result.close();
-        return;
-      }
-      request.result.onversionchange = () => {
-        request.result.close();
-        database = undefined;
-      };
-      resolve(request.result);
-    };
-    request.onerror = () => {
-      refused = true;
-      database = undefined;
-      reject(request.error ?? new Error('Draft storage could not be opened.'));
-    };
-    request.onblocked = () => {
-      refused = true;
-      database = undefined;
-      reject(new Error('Draft storage is blocked.'));
-    };
-  });
-  return database;
 }
 async function transaction<T>(
   mode: IDBTransactionMode,
-  run: (store: IDBObjectStore, done: (value: T) => void) => void,
+  run: (store: NoteTable, done: (value: T) => void, migrations: NoteTable) => Promise<void>,
   admitted: () => boolean = () => true,
 ): Promise<T> {
-  const db = await open();
-  if (!admitted()) throw new Error('This account’s local draft storage is closed.');
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE, MIGRATIONS], mode);
-    let result: T;
-    tx.oncomplete = () => {
-      resolve(result);
-    };
-    tx.onerror = () => {
-      reject(tx.error ?? new Error('Draft transaction failed.'));
-    };
-    tx.onabort = () => {
-      reject(tx.error ?? new Error('Draft write aborted.'));
-    };
-    run(tx.objectStore(STORE), (value) => {
-      result = value;
-    });
+  open();
+  return noteTransaction(DB, [STORE, MIGRATIONS], mode, admitted, async (tx) => {
+    let completion: { value: T } | undefined;
+    await run(
+      tx.table(STORE),
+      (value) => {
+        completion = { value };
+      },
+      tx.table(MIGRATIONS),
+    );
+    if (completion === undefined) throw new Error('Draft storage returned no result.');
+    return completion.value;
   });
 }
 export async function readDrafts(scope: string): Promise<DraftRecord[]> {
-  return transaction('readonly', (store, done) => {
-    const request = store.index('scope').getAll(scope);
-    request.onsuccess = () => {
-      const records = z.array(recordSchema).safeParse(request.result);
-      if (!records.success || records.data.some((record) => record.update.byteLength > MAX_BYTES)) {
-        store.transaction.abort();
-        return;
-      }
-      done(records.data);
-    };
+  return transaction('readonly', async (store, done) => {
+    const request = await store.index('scope').getAll(scope);
+    const records = z.array(recordSchema).safeParse(request);
+    if (!records.success || records.data.some((record) => record.update.byteLength > MAX_BYTES)) {
+      throw new Error('Draft write aborted.');
+    }
+    done(records.data);
   });
 }
 export async function writeDraft(record: DraftRecord): Promise<void> {
@@ -162,21 +115,18 @@ export async function writeDraft(record: DraftRecord): Promise<void> {
   const epoch = bodyCacheDraftEpoch(subject);
   await transaction<undefined>(
     'readwrite',
-    (store, done) => {
-      const request = store.transaction.objectStore(MIGRATIONS).get(record.scope);
-      request.onsuccess = () => {
-        const migration = migrationSchema.safeParse(request.result);
-        if (migration.success && !admitsDraftWrite(migration.data.toScope)) {
-          store.transaction.abort();
-          return;
-        }
-        store.put(
-          migration.success
-            ? { ...record, scope: migration.data.toScope, docId: migration.data.docId }
-            : record,
-        );
-        done(undefined);
-      };
+    async (store, done, migrations) => {
+      const request = await migrations.get(record.scope);
+      const migration = migrationSchema.safeParse(request);
+      if (migration.success && !admitsDraftWrite(migration.data.toScope)) {
+        throw new Error('Draft write aborted.');
+      }
+      await store.put(
+        migration.success
+          ? { ...record, scope: migration.data.toScope, docId: migration.data.docId }
+          : record,
+      );
+      done(undefined);
     },
     () => bodyCacheDraftCurrent(subject, epoch) && admitsDraftWrite(record.scope),
   );
@@ -189,13 +139,12 @@ export async function acknowledgeDrafts(
 ): Promise<void> {
   await transaction<undefined>(
     'readwrite',
-    (store, done) => {
+    async (store, done) => {
       for (const record of records) {
-        const request = store.get(record.id);
-        request.onsuccess = () => {
-          const current = recordSchema.safeParse(request.result);
-          if (current.success && current.data.revision === record.revision) store.delete(record.id);
-        };
+        const request = await store.get(record.id);
+        const current = recordSchema.safeParse(request);
+        if (current.success && current.data.revision === record.revision)
+          await store.delete(record.id);
       }
       done(undefined);
     },
@@ -203,7 +152,6 @@ export async function acknowledgeDrafts(
   );
   draftsChanged();
 }
-
 async function bindDrafts(
   scope: string,
   docId: string,
@@ -212,14 +160,8 @@ async function bindDrafts(
   const parts = scopeSchema.parse(JSON.parse(scope));
   await transaction<undefined>(
     'readwrite',
-    (store, done) => {
-      const cursor = store.index('scope').openCursor(scope);
-      cursor.onsuccess = () => {
-        const current = cursor.result;
-        if (current === null) {
-          done(undefined);
-          return;
-        }
+    async (store, done, migrations) => {
+      for (const current of await store.index('scope').entries(scope)) {
         const record = recordSchema.safeParse(current.value);
         if (
           !record.success ||
@@ -227,23 +169,15 @@ async function bindDrafts(
             record.data.docId !== docId &&
             record.data.docId !== `local:${parts[2]}`)
         ) {
-          store.transaction.abort();
-          return;
+          throw new Error('Draft write aborted.');
         }
-        current.update({ ...record.data, docId });
-        current.continue();
-      };
-      const migrations = store.transaction
-        .objectStore(MIGRATIONS)
-        .index('toScope')
-        .openCursor(scope);
-      migrations.onsuccess = () => {
-        const current = migrations.result;
-        if (current === null) return;
+        await store.put({ ...record.data, docId });
+      }
+      done(undefined);
+      for (const current of await migrations.index('toScope').entries(scope)) {
         const migration = migrationSchema.safeParse(current.value);
-        if (migration.success) current.update({ ...migration.data, docId });
-        current.continue();
-      };
+        if (migration.success) await migrations.put({ ...migration.data, docId });
+      }
     },
     () => admitted() && bodyCacheAdmits(scope),
   );
@@ -261,34 +195,24 @@ export async function clearDrafts(
   if (expectedSubject !== undefined && !bodyCacheCleanupCurrent(expectedSubject, epoch ?? null))
     throw new Error('Local draft cleanup was superseded by another session.');
   closeDraftGeneration(expectedSubject);
-  const ready = open();
+  open();
   channel?.postMessage({ type: 'signed-out', subject: expectedSubject, epoch });
-  await ready;
   await transaction<undefined>(
     'readwrite',
-    (store, done) => {
-      const migrations = store.transaction.objectStore(MIGRATIONS);
+    async (store, done, migrations) => {
       if (expectedSubject === undefined) {
-        store.clear();
-        migrations.clear();
+        await store.clear();
+        await migrations.clear();
       } else {
         const prefix = `${JSON.stringify([expectedSubject]).slice(0, -1)},`;
         const range = IDBKeyRange.bound(prefix, `${prefix}\uffff`);
-        const records = store.index('scope').openKeyCursor(range);
-        records.onsuccess = () => {
-          const current = records.result;
-          if (current === null) return;
-          store.delete(current.primaryKey);
-          current.continue();
-        };
-        migrations.delete(range);
-        const destinations = migrations.index('toScope').openKeyCursor(range);
-        destinations.onsuccess = () => {
-          const current = destinations.result;
-          if (current === null) return;
-          migrations.delete(current.primaryKey);
-          current.continue();
-        };
+        for (const current of await store.index('scope').entries(range, undefined, true)) {
+          await store.delete(current.primaryKey);
+        }
+        await migrations.delete(range);
+        for (const current of await migrations.index('toScope').entries(range, undefined, true)) {
+          await migrations.delete(current.primaryKey);
+        }
       }
       done(undefined);
     },
@@ -296,36 +220,27 @@ export async function clearDrafts(
   );
   draftsChanged();
 }
-
 function draftsChanged(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('nix:offline-drafts-changed'));
 }
-
 /** Pending note scopes for the currently open account, without loading their Yjs bytes. */
 export async function listDraftScopes(subject: string): Promise<string[]> {
   if (!bodyCacheAccountAdmits(subject)) return [];
   const epoch = bodyCacheDraftEpoch(subject);
   const prefix = `${JSON.stringify([subject]).slice(0, -1)},`;
-  return transaction('readonly', (store, done) => {
+  return transaction('readonly', async (store, done) => {
     const scopes = new Set<string>();
-    const cursor = store.index('scope').openKeyCursor();
-    cursor.onsuccess = () => {
-      const current = cursor.result;
-      if (current === null) {
-        done(bodyCacheDraftCurrent(subject, epoch) ? [...scopes] : []);
-        return;
-      }
+    for (const current of await store.index('scope').entries(undefined, undefined, true)) {
       if (
         typeof current.key === 'string' &&
         current.key.startsWith(prefix) &&
         bodyCacheDraftCurrent(subject, epoch)
       )
         scopes.add(current.key);
-      current.continue();
-    };
+    }
+    done(bodyCacheDraftCurrent(subject, epoch) ? [...scopes] : []);
   });
 }
-
 /** Only a created local note starts from an empty base; every owned struct must be present. */
 function completeLocalUpdate(
   records: readonly DraftRecord[],
@@ -356,12 +271,13 @@ function completeLocalUpdate(
     doc.destroy();
   }
 }
-
 /** Called only after an idempotent create published a local note as a new server item. */
 export async function migrateLocalDrafts(
   fromScope: string,
   toScope: string,
-  receipt?: { readonly createdItemId: string },
+  receipt?: {
+    readonly createdItemId: string;
+  },
 ): Promise<void> {
   const from = scopeSchema.parse(JSON.parse(fromScope));
   const to = scopeSchema.parse(JSON.parse(toScope));
@@ -379,12 +295,10 @@ export async function migrateLocalDrafts(
   const publishedId = `${toScope}:published-local`;
   const migration = await transaction<z.infer<typeof migrationSchema> | null>(
     'readonly',
-    (store, done) => {
-      const request = store.transaction.objectStore(MIGRATIONS).get(fromScope);
-      request.onsuccess = () => {
-        const parsed = migrationSchema.safeParse(request.result);
-        done(parsed.success ? parsed.data : null);
-      };
+    async (_store, done, migrations) => {
+      const request = await migrations.get(fromScope);
+      const parsed = migrationSchema.safeParse(request);
+      done(parsed.success ? parsed.data : null);
     },
     current,
   );
@@ -421,111 +335,89 @@ export async function migrateLocalDrafts(
   const placeholderDocId = `local:${to[2]}`;
   await transaction<undefined>(
     'readwrite',
-    (store, done) => {
-      const mapping = store.transaction.objectStore(MIGRATIONS).get(fromScope);
-      mapping.onsuccess = () => {
-        const known = migrationSchema.safeParse(mapping.result);
-        if (known.success) {
-          if (known.data.toScope !== toScope) store.transaction.abort();
-          else done(undefined);
-          return;
-        }
-        const request = store.index('scope').getAll(fromScope);
-        request.onsuccess = () => {
-          const parsed = z.array(recordSchema).safeParse(request.result);
-          if (!parsed.success) {
-            store.transaction.abort();
-            return;
-          }
-          const records = parsed.data;
-          if (
-            records.some(
-              (record) => record.docId !== undefined && record.docId !== `local:${from[2]}`,
-            )
-          ) {
-            store.transaction.abort();
-            return;
-          }
-          let localUpdate: Uint8Array;
-          try {
-            localUpdate = recoveredWithoutBase
-              ? completeLocalUpdate(records, `local:${from[2]}`, completeSourceUpdate)
-              : Y.mergeUpdates([completeSourceUpdate, ...records.map((record) => record.update)]);
-          } catch {
-            store.transaction.abort();
-            return;
-          }
-          const existing = store.get(publishedId);
-          existing.onsuccess = () => {
-            const previous = recordSchema.safeParse(existing.result);
-            if (
-              existing.result !== undefined &&
-              (!previous.success ||
-                previous.data.scope !== toScope ||
-                previous.data.docId === undefined)
-            ) {
-              store.transaction.abort();
-              return;
-            }
-            const previousDocId = previous.success ? previous.data.docId : undefined;
-            if (
-              destination !== null &&
-              previousDocId !== undefined &&
-              previousDocId !== placeholderDocId &&
-              previousDocId !== destination.docId
-            ) {
-              store.transaction.abort();
-              return;
-            }
-            const destinationDocId = destination?.docId ?? previousDocId ?? placeholderDocId;
-            let update: Uint8Array;
-            try {
-              update = Y.mergeUpdates([
-                localUpdate,
-                ...(destination === null ? [] : [destination.update]),
-                ...(previous.success ? [previous.data.update] : []),
-              ]);
-            } catch {
-              store.transaction.abort();
-              return;
-            }
-            if (update.byteLength > MAX_BYTES) {
-              store.transaction.abort();
-              return;
-            }
-            if (!current()) {
-              store.transaction.abort();
-              return;
-            }
-            store.put({
-              id: publishedId,
-              scope: toScope,
-              revision: previous.success ? previous.data.revision + 1 : 0,
-              docId: destinationDocId,
-              update,
-            } satisfies DraftRecord);
-            for (const record of records) store.delete(record.id);
-            store.transaction
-              .objectStore(MIGRATIONS)
-              .put({ fromScope, toScope, docId: destinationDocId });
-            done(undefined);
-          };
-        };
-      };
+    async (store, done, migrations) => {
+      const mapping = await migrations.get(fromScope);
+      const known = migrationSchema.safeParse(mapping);
+      if (known.success) {
+        if (known.data.toScope !== toScope) throw new Error('Draft write aborted.');
+        else done(undefined);
+        return;
+      }
+      const request = await store.index('scope').getAll(fromScope);
+      const parsed = z.array(recordSchema).safeParse(request);
+      if (!parsed.success) {
+        throw new Error('Draft write aborted.');
+      }
+      const records = parsed.data;
+      if (
+        records.some((record) => record.docId !== undefined && record.docId !== `local:${from[2]}`)
+      ) {
+        throw new Error('Draft write aborted.');
+      }
+      let localUpdate: Uint8Array;
+      try {
+        localUpdate = recoveredWithoutBase
+          ? completeLocalUpdate(records, `local:${from[2]}`, completeSourceUpdate)
+          : Y.mergeUpdates([completeSourceUpdate, ...records.map((record) => record.update)]);
+      } catch {
+        throw new Error('Draft write aborted.');
+      }
+      const existing = await store.get(publishedId);
+      const previous = recordSchema.safeParse(existing);
+      if (
+        existing !== undefined &&
+        (!previous.success || previous.data.scope !== toScope || previous.data.docId === undefined)
+      ) {
+        throw new Error('Draft write aborted.');
+      }
+      const previousDocId = previous.success ? previous.data.docId : undefined;
+      if (
+        destination !== null &&
+        previousDocId !== undefined &&
+        previousDocId !== placeholderDocId &&
+        previousDocId !== destination.docId
+      ) {
+        throw new Error('Draft write aborted.');
+      }
+      const destinationDocId = destination?.docId ?? previousDocId ?? placeholderDocId;
+      let update: Uint8Array;
+      try {
+        update = Y.mergeUpdates([
+          localUpdate,
+          ...(destination === null ? [] : [destination.update]),
+          ...(previous.success ? [previous.data.update] : []),
+        ]);
+      } catch {
+        throw new Error('Draft write aborted.');
+      }
+      if (update.byteLength > MAX_BYTES) {
+        throw new Error('Draft write aborted.');
+      }
+      if (!current()) {
+        throw new Error('Draft write aborted.');
+      }
+      await store.put({
+        id: publishedId,
+        scope: toScope,
+        revision: previous.success ? previous.data.revision + 1 : 0,
+        docId: destinationDocId,
+        update,
+      } satisfies DraftRecord);
+      for (const record of records) await store.delete(record.id);
+      await migrations.put({ fromScope, toScope, docId: destinationDocId });
+      done(undefined);
     },
     current,
   );
   await discardBodyCache(fromScope, epoch);
   draftsChanged();
 }
-
 export interface DraftJournalStore {
   read: (scope: string) => Promise<DraftRecord[]>;
   write: (record: DraftRecord) => Promise<void>;
   acknowledge: (records: readonly DraftRecord[], admitted?: () => boolean) => Promise<void>;
   bind?: (scope: string, docId: string, admitted?: () => boolean) => Promise<void>;
 }
-
 export interface DraftJournal {
   read: () => Promise<DraftRecord[]>;
   append: (update: Uint8Array) => void;

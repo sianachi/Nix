@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import {
   isNixApiError,
   items,
@@ -361,7 +362,7 @@ async function applyPendingTitle(note: OfflineNote, options: BoundSyncOptions): 
 }
 
 async function awaitOfflineShell(signal: AbortSignal): Promise<void> {
-  if (!import.meta.env.PROD) return;
+  if (Capacitor.isNativePlatform() || !import.meta.env.PROD) return;
   if (!('serviceWorker' in navigator))
     throw new Error('This browser cannot install the offline app.');
   const timeout = AbortSignal.timeout(30_000);

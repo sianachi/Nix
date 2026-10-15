@@ -14,6 +14,7 @@ docs
 !/docs/nix/nix-reference.nix
 !/docs/nix/nix-pets.nix
 !/docs/nix/catalog.json
+!/docs/nix/nix-capacitor-offline-notes.nix
 # Site content snapshots from scripts/export-site-content.sh, Markdown included.
 !/docs/site/
 !/docs/site/**

@@ -1,16 +1,14 @@
+import { NoteStorageClosed, noteTransaction, type NoteTable } from '../lib/note-database';
 import { z } from 'zod';
 import * as Y from 'yjs';
-
 import { browserStorage } from '../lib/browser-storage';
 import { clearFrecency } from '../lib/frecency';
 import { clearSuggestionDismissals } from '../lib/suggestion-dismissals';
-
 /**
  * Complete confirmed document copies for the signed-in account. Offline access uses the last
  * authorized metadata; Core still authorizes every reconnect. Sign-out, locks, lost workspaces
  * and refused document access erase copies. Document identity is checked before reconciliation.
  */
-
 const DB = 'nix-document-cache';
 const STORE = 'bodies';
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -24,7 +22,6 @@ const OPENING_MARKER = 'nix.body-cache.opening';
 const SEALED_ITEM_MARKER = 'nix.body-cache.sealed-item.';
 const scopeSchema = z.tuple([z.string(), z.string(), z.string(), z.string()]);
 const itemSchema = z.tuple([z.string(), z.string(), z.string()]);
-
 const recordSchema = z.object({
   scope: z.string().min(1),
   docId: z.string().min(1),
@@ -36,7 +33,6 @@ const recordSchema = z.object({
     .custom<Uint8Array>((value) => Object.prototype.toString.call(value) === '[object Uint8Array]')
     .transform((value) => new Uint8Array(value.buffer, value.byteOffset, value.byteLength)),
 });
-
 export interface BodyCacheRecord {
   readonly scope: string;
   readonly docId: string;
@@ -46,7 +42,6 @@ export interface BodyCacheRecord {
   readonly savedAt: number;
   readonly update: Uint8Array;
 }
-
 export interface BodyCacheStore {
   read: (scope: string) => Promise<BodyCacheRecord | null>;
   write: (record: BodyCacheRecord, admitted?: () => boolean) => Promise<void>;
@@ -54,31 +49,6 @@ export interface BodyCacheStore {
   /** Known access refusal, which must also refuse later writes from another provider. */
   seal?: (scope: string, reason?: 'refused' | 'locked') => Promise<void>;
 }
-
-let database: Promise<IDBDatabase> | undefined;
-
-function open(): Promise<IDBDatabase> {
-  database ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB, 1);
-    request.onupgradeneeded = () => {
-      const store = request.result.createObjectStore(STORE, { keyPath: 'scope' });
-      store.createIndex('savedAt', 'savedAt');
-    };
-    request.onsuccess = () => {
-      resolve(request.result);
-    };
-    request.onerror = () => {
-      database = undefined;
-      reject(request.error ?? new Error('Document cache could not be opened.'));
-    };
-    request.onblocked = () => {
-      database = undefined;
-      reject(new Error('Document cache is blocked.'));
-    };
-  });
-  return database;
-}
-
 function currentSubject(): string | null {
   try {
     return browserStorage()?.getItem(SUBJECT_MARKER) ?? null;
@@ -86,7 +56,6 @@ function currentSubject(): string | null {
     return null;
   }
 }
-
 /** Admission identity shared across tabs; signing in again starts another lifecycle. */
 export function bodyCacheAccountEpoch(subject: string): string | null {
   try {
@@ -95,7 +64,6 @@ export function bodyCacheAccountEpoch(subject: string): string | null {
     return null;
   }
 }
-
 /** Destructive cleanup belongs only to the lifecycle captured by its caller. */
 export function bodyCacheCleanupCurrent(subject: string, epoch: string | null): boolean {
   try {
@@ -105,7 +73,6 @@ export function bodyCacheCleanupCurrent(subject: string, epoch: string | null): 
     return false;
   }
 }
-
 /** Pending edits retain their owner lifetime when confirmed-body access is refused. */
 export function bodyCacheDraftEpoch(subject: string): string | null {
   try {
@@ -114,26 +81,21 @@ export function bodyCacheDraftEpoch(subject: string): string | null {
     return null;
   }
 }
-
 export function bodyCacheDraftCurrent(subject: string, epoch: string | null): boolean {
   return bodyCacheAccountAdmits(subject) && bodyCacheDraftEpoch(subject) === epoch;
 }
-
 /** Cache lifecycle shared by every read, provider, and mutation of one document. */
 export function bodyCacheScopeEpoch(scope: string): string | null {
   const subject = scopePart(scope, 0);
   return subject === null ? null : bodyCacheAccountEpoch(subject);
 }
-
 export function bodyCacheScopeCurrent(scope: string, epoch: string | null): boolean {
   const subject = scopePart(scope, 0);
   return subject !== null && bodyCacheCleanupCurrent(subject, epoch) && admits(scope);
 }
-
 function accountPrefix(subject: string): string {
   return `${JSON.stringify([subject]).slice(0, -1)},`;
 }
-
 /** One element of a scope's JSON array: 0 is the subject, 1 the workspace. */
 function scopePart(scope: string, index: 0 | 1): string | null {
   try {
@@ -143,7 +105,6 @@ function scopePart(scope: string, index: 0 | 1): string | null {
     return null;
   }
 }
-
 /**
  * Known locks and access refusals survive reloads and are shared with other tabs. The in-memory
  * set also closes this page immediately if the browser refuses to persist the shared marker.
@@ -151,18 +112,15 @@ function scopePart(scope: string, index: 0 | 1): string | null {
  */
 const sealedItems = new Map<string, string>();
 const sealedAccounts = new Map<string, string | null>();
-
 function sealReason(value: string | null): 'refused' | 'locked' | 'open' | null {
   if (value === null) return null;
   if (value.startsWith('refused:')) return 'refused';
   if (value.startsWith('open:')) return 'open';
   return 'locked';
 }
-
 function sealKey(subject: string, workspaceId: string, itemId: string): string {
   return SEALED_ITEM_MARKER + JSON.stringify([subject, workspaceId, itemId]);
 }
-
 /** Changes when an item is refused, even when fresh Core authorization later reopens it. */
 export function bodyCacheFenceVersion(scope: string): string | null {
   try {
@@ -172,19 +130,16 @@ export function bodyCacheFenceVersion(scope: string): string | null {
     return 'storage-unavailable';
   }
 }
-
 /** The scope prefix every body of one item shares: `["subject","workspace","item",`. */
 function itemPrefix(subject: string, workspaceId: string, itemId: string): string {
   return `${JSON.stringify([subject, workspaceId, itemId]).slice(0, -1)},`;
 }
-
 /** Whether the store is open for this scope's person right now, and the item is not sealed. */
 function admits(scope: string): boolean {
   const subject = scopePart(scope, 0);
   if (subject === null || subject !== currentSubject()) return false;
   return !bodyCacheSealed(scope);
 }
-
 function bodyCacheSealedAccount(subject: string): boolean {
   const epoch = bodyCacheAccountEpoch(subject);
   if (sealedAccounts.has(subject) && sealedAccounts.get(subject) === epoch) return true;
@@ -197,7 +152,6 @@ function bodyCacheSealedAccount(subject: string): boolean {
     return true;
   }
 }
-
 /** A known refusal, independent of whether this account's store is currently open. */
 export function bodyCacheSealed(scope: string): boolean {
   const subject = scopePart(scope, 0);
@@ -211,7 +165,6 @@ export function bodyCacheSealed(scope: string): boolean {
     return true;
   }
 }
-
 /**
  * Runs `run` in a transaction created in the same task as the `admitted` check, so a sign-out in
  * any tab either happens before the check (and refuses this) or queues its clear after this
@@ -221,30 +174,21 @@ async function transaction<T>(
   mode: IDBTransactionMode,
   admitted: () => boolean,
   refused: T,
-  run: (store: IDBObjectStore, done: (value: T) => void) => void,
+  run: (store: NoteTable, done: (value: T) => void) => Promise<void>,
 ): Promise<T> {
-  const db = await open();
   if (!admitted()) return refused;
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, mode);
-    let result: T = refused;
-    tx.oncomplete = () => {
-      resolve(result);
-    };
-    tx.onerror = () => {
-      reject(tx.error ?? new Error('Document cache transaction failed.'));
-    };
-    tx.onabort = () => {
-      reject(tx.error ?? new Error('Document cache write aborted.'));
-    };
-    run(tx.objectStore(STORE), (value) => {
+  return noteTransaction(DB, STORE, mode, admitted, async (tx) => {
+    let result = refused;
+    await run(tx.table(STORE), (value) => {
       result = value;
     });
+    return result;
+  }).catch((error: unknown) => {
+    if (error instanceof NoteStorageClosed) return refused;
+    throw error;
   });
 }
-
 const always = (): boolean => true;
-
 /**
  * What must be forgotten, said to anything in memory that was derived from body copies.
  *
@@ -263,18 +207,23 @@ export type BodyForgetting =
       readonly sealed?: true;
     }
   /** One body: refused by the collaboration service, or joined to a different document. */
-  | { readonly kind: 'scope'; readonly scope: string }
+  | {
+      readonly kind: 'scope';
+      readonly scope: string;
+    }
   /** Every body of one item, which is now known to carry a lock. `prefix` is its scope prefix. */
-  | { readonly kind: 'item'; readonly prefix: string; readonly sealed?: true }
+  | {
+      readonly kind: 'item';
+      readonly prefix: string;
+      readonly sealed?: true;
+    }
   /** Every body outside the workspaces this person can still reach. */
   | {
       readonly kind: 'unreachable';
       readonly subject: string;
       readonly reachableWorkspaceIds: ReadonlySet<string>;
     };
-
 const forgettingListeners = new Set<(forgetting: BodyForgetting) => void>();
-
 /** Hears every forgetting this store performs. Returns the unsubscribe. */
 export function onBodyForgetting(listener: (forgetting: BodyForgetting) => void): () => void {
   forgettingListeners.add(listener);
@@ -282,7 +231,6 @@ export function onBodyForgetting(listener: (forgetting: BodyForgetting) => void)
     forgettingListeners.delete(listener);
   };
 }
-
 function announceForgetting(forgetting: BodyForgetting): void {
   for (const listener of forgettingListeners) {
     try {
@@ -293,7 +241,6 @@ function announceForgetting(forgetting: BodyForgetting): void {
     }
   }
 }
-
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.key === SUBJECT_MARKER && event.newValue !== event.oldValue) {
@@ -336,7 +283,6 @@ if (typeof window !== 'undefined') {
     }
   });
 }
-
 function clearItemSeals(storage: Storage | undefined, subject?: string): void {
   if (subject === undefined) sealedItems.clear();
   else {
@@ -355,7 +301,6 @@ function clearItemSeals(storage: Storage | undefined, subject?: string): void {
   }
   for (const key of keys) storage.removeItem(key);
 }
-
 /**
  * Whether a body under `scope` may be held right now: its person is the one signed in and its
  * item is not sealed. The same rule every read and write here applies, for derived holders to ask.
@@ -363,7 +308,6 @@ function clearItemSeals(storage: Storage | undefined, subject?: string): void {
 export function bodyCacheAdmits(scope: string): boolean {
   return admits(scope);
 }
-
 /** Account admission for pending-edit recovery; this does not grant access to a sealed body. */
 export function bodyCacheAccountAdmits(subject: string): boolean {
   try {
@@ -373,7 +317,6 @@ export function bodyCacheAccountAdmits(subject: string): boolean {
     return false;
   }
 }
-
 /**
  * The scopes of the most recently saved copies in one workspace, newest first, at most `limit`.
  *
@@ -387,54 +330,36 @@ export async function listBodyCacheScopes(
 ): Promise<string[]> {
   const prefix = `${JSON.stringify([subject, workspaceId]).slice(0, -1)},`;
   const epoch = bodyCacheAccountEpoch(subject);
-  return transaction<string[]>(
-    'readonly',
-    () => currentSubject() === subject && bodyCacheCleanupCurrent(subject, epoch),
-    [],
-    (store, done) => {
-      const found: string[] = [];
-      const cursor = store.index('savedAt').openKeyCursor(null, 'prev');
-      cursor.onsuccess = () => {
-        const current = cursor.result;
-        if (current === null || found.length >= limit) {
-          done(
-            currentSubject() === subject && bodyCacheCleanupCurrent(subject, epoch) ? found : [],
-          );
-          return;
-        }
-        const scope = current.primaryKey;
-        if (typeof scope === 'string' && scope.startsWith(prefix) && admits(scope)) {
-          found.push(scope);
-        }
-        current.continue();
-      };
-    },
-  );
+  const current = (): boolean =>
+    currentSubject() === subject && bodyCacheCleanupCurrent(subject, epoch);
+  return transaction<string[]>('readonly', current, [], async (store, done) => {
+    const found: string[] = [];
+    for (const entry of await store.index('savedAt').entries(null, 'prev', true)) {
+      if (found.length >= limit) break;
+      const scope = entry.primaryKey;
+      if (typeof scope === 'string' && scope.startsWith(prefix) && admits(scope)) found.push(scope);
+    }
+    done(current() ? found : []);
+  });
 }
-
 export async function readBodyCache(scope: string): Promise<BodyCacheRecord | null> {
   const epoch = bodyCacheScopeEpoch(scope);
   const record = await transaction<BodyCacheRecord | null>(
     'readonly',
     () => bodyCacheScopeCurrent(scope, epoch),
     null,
-    (store, done) => {
-      const request = store.get(scope);
-      request.onsuccess = () => {
-        const parsed = recordSchema.safeParse(request.result);
-        done(
-          parsed.success &&
-            parsed.data.scope === scope &&
-            parsed.data.update.byteLength <= MAX_BYTES
-            ? parsed.data
-            : null,
-        );
-      };
+    async (store, done) => {
+      const request = await store.get(scope);
+      const parsed = recordSchema.safeParse(request);
+      done(
+        parsed.success && parsed.data.scope === scope && parsed.data.update.byteLength <= MAX_BYTES
+          ? parsed.data
+          : null,
+      );
     },
   );
   return bodyCacheScopeCurrent(scope, epoch) ? record : null;
 }
-
 export async function writeBodyCache(
   record: BodyCacheRecord,
   admitted?: () => boolean,
@@ -451,43 +376,39 @@ export async function writeBodyCache(
       admits(record.scope) &&
       (admitted?.() ?? true),
     undefined,
-    (store, done) => {
-      const request = store.get(record.scope);
-      request.onsuccess = () => {
-        const existing = recordSchema.safeParse(request.result);
-        try {
-          const compatible =
-            existing.success &&
-            existing.data.docId === record.docId &&
-            existing.data.schemaVersion === record.schemaVersion;
-          const update = compatible
-            ? Y.mergeUpdates([existing.data.update, record.update])
-            : record.update;
-          const previousSeq = compatible ? existing.data.serverSeq : undefined;
-          const serverSeq =
-            previousSeq !== undefined &&
-            (record.serverSeq === undefined || BigInt(previousSeq) > BigInt(record.serverSeq))
-              ? previousSeq
-              : record.serverSeq;
-          if (update.byteLength > MAX_BYTES) {
-            store.transaction.abort();
-            return;
-          }
-          store.put({
-            ...record,
-            serverSeq,
-            update,
-            savedAt: Math.max(record.savedAt, existing.success ? existing.data.savedAt : 0),
-          });
-        } catch {
-          store.transaction.abort();
+    async (store, done) => {
+      const request = await store.get(record.scope);
+      const existing = recordSchema.safeParse(request);
+      try {
+        const compatible =
+          existing.success &&
+          existing.data.docId === record.docId &&
+          existing.data.schemaVersion === record.schemaVersion;
+        const update = compatible
+          ? Y.mergeUpdates([existing.data.update, record.update])
+          : record.update;
+        const previousSeq = compatible ? existing.data.serverSeq : undefined;
+        const serverSeq =
+          previousSeq !== undefined &&
+          (record.serverSeq === undefined || BigInt(previousSeq) > BigInt(record.serverSeq))
+            ? previousSeq
+            : record.serverSeq;
+        if (update.byteLength > MAX_BYTES) {
+          throw new Error('Cache write aborted.');
         }
-      };
+        await store.put({
+          ...record,
+          serverSeq,
+          update,
+          savedAt: Math.max(record.savedAt, existing.success ? existing.data.savedAt : 0),
+        });
+      } catch {
+        throw new Error('Cache write aborted.');
+      }
       done(undefined);
     },
   );
 }
-
 /** Generic discards belong to their captured lifecycle, without refusing future authorization. */
 export async function discardBodyCache(
   scope: string,
@@ -501,14 +422,13 @@ export async function discardBodyCache(
     'readwrite',
     () => bodyCacheCleanupCurrent(subject, expectedEpoch),
     false,
-    (store, done) => {
-      store.delete(scope);
+    async (store, done) => {
+      await store.delete(scope);
       done(true);
     },
   );
   if (!cleared) throw new Error('Offline cache cleanup was superseded by another session.');
 }
-
 /** An authoritative account refusal closes confirmed bodies immediately, preserving owned drafts. */
 export async function sealAccountBodies(
   subject: string,
@@ -529,11 +449,12 @@ export async function sealAccountBodies(
   }
   if (typeof indexedDB !== 'undefined') await clearRecords(subject, expectedEpoch);
 }
-
 /** Fresh Core authentication may reopen a refused account; cached fallback never does. */
 export async function openBodyCache(
   subject: string,
-  options?: { readonly reauthorized?: boolean },
+  options?: {
+    readonly reauthorized?: boolean;
+  },
 ): Promise<void> {
   const storage = browserStorage();
   if (storage === undefined) return;
@@ -577,7 +498,6 @@ export async function openBodyCache(
   storage.setItem(DRAFT_OWNER_MARKER, subject);
   storage.setItem(SUBJECT_MARKER, subject);
 }
-
 /** Closes the store and removes every cached body. Called on sign-out, here or in another tab. */
 export async function clearBodyCache(
   expectedSubject?: string,
@@ -609,7 +529,6 @@ export async function clearBodyCache(
   if (expectedSubject === undefined || bodyCacheCleanupCurrent(expectedSubject, epoch ?? null))
     clearItemSeals(browserStorage(), expectedSubject);
 }
-
 async function clearRecords(
   expectedSubject?: string,
   epoch?: string | null,
@@ -617,17 +536,16 @@ async function clearRecords(
     ? always
     : () => bodyCacheCleanupCurrent(expectedSubject, epoch ?? null),
 ): Promise<void> {
-  const cleared = await transaction<boolean>('readwrite', admitted, false, (store, done) => {
-    if (expectedSubject === undefined) store.clear();
+  const cleared = await transaction<boolean>('readwrite', admitted, false, async (store, done) => {
+    if (expectedSubject === undefined) await store.clear();
     else {
       const prefix = accountPrefix(expectedSubject);
-      store.delete(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+      await store.delete(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
     }
     done(true);
   });
   if (!cleared) throw new Error('Offline cache cleanup was superseded by another session.');
 }
-
 /**
  * Removes every body copy of an item that carries a lock - note, canvas, sheet or any other body
  * path - and refuses new ones until the account cache resets. Called whenever it reads a lock, open
@@ -674,14 +592,13 @@ export async function sealItemBodies(
     'readwrite',
     () => bodyCacheCleanupCurrent(subject, epoch),
     false,
-    (store, done) => {
-      store.delete(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+    async (store, done) => {
+      await store.delete(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
       done(true);
     },
   );
   if (!cleared) throw new Error('Offline cache cleanup was superseded by another session.');
 }
-
 /** A collaboration refusal applies to the item's bodies; ordinary discards do not seal. */
 export async function sealBodyCache(
   scope: string,
@@ -690,7 +607,6 @@ export async function sealBodyCache(
   const parts = scopeSchema.parse(JSON.parse(scope));
   await sealItemBodies(parts[0], parts[1], parts[2], reason);
 }
-
 /** Caller must have fresh successful Core item authorization and a Core lock result of unlocked. */
 export function reopenRefusedItemBodies(
   subject: string,
@@ -708,7 +624,6 @@ export function reopenRefusedItemBodies(
   storage?.setItem(key, value);
   sealedItems.set(itemPrefix(subject, workspaceId, itemId), value);
 }
-
 /**
  * Drops every copy that belongs to someone else or sits in a workspace this
  * person can no longer reach - run whenever the accessible workspace list arrives.
@@ -725,32 +640,25 @@ export async function pruneBodyCache(
     'readwrite',
     () => currentSubject() === subject && bodyCacheCleanupCurrent(subject, epoch),
     undefined,
-    (store, done) => {
+    async (store, done) => {
       const prefix = accountPrefix(subject);
-      const cursor = store.openCursor(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
-      cursor.onsuccess = () => {
-        const current = cursor.result;
-        if (current === null) return;
+      for (const current of await store.entries(IDBKeyRange.bound(prefix, `${prefix}\uffff`))) {
         const parsed = recordSchema.safeParse(current.value);
         const scope = typeof current.primaryKey === 'string' ? current.primaryKey : '';
         const workspace = scopePart(scope, 1);
-        if (!parsed.success || workspace === null || !reachable.has(workspace)) {
-          current.delete();
-        }
-        current.continue();
-      };
+        if (!parsed.success || workspace === null || !reachable.has(workspace))
+          await store.delete(current.primaryKey);
+      }
       done(undefined);
     },
   );
 }
-
 export const indexedBodyCache: BodyCacheStore = {
   read: readBodyCache,
   write: writeBodyCache,
   discard: discardBodyCache,
   seal: sealBodyCache,
 };
-
 /**
  * The scope of one document body - who is reading it, where, and which body - shared by this
  * cache and the draft journal, so both stores agree on what "this person's copy" means.

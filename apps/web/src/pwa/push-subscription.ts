@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { isNixApiError, notifications, type NixClient } from '@nix/api-client';
 import { getServiceWorkerRegistration } from './register-service-worker';
 
@@ -31,6 +32,7 @@ function urlBase64ToUint8Array(base64String: string): BufferSource {
  * it (`unavailable`, from `push.unavailable`) or the person has refused permission (`denied`). */
 export function pushSupported(): boolean {
   return (
+    !Capacitor.isNativePlatform() &&
     typeof window !== 'undefined' &&
     'serviceWorker' in navigator &&
     'PushManager' in window &&

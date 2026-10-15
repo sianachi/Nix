@@ -28,7 +28,7 @@ export function RequireSession(): ReactNode {
   const unreachable = useSessionStore((state) => state.unreachable);
   const profile = useSessionStore((state) => state.profile);
   const online = useNetworkOnline();
-  const { signIn, isConfigured } = useAuth();
+  const { signIn, isConfigured, pendingSignIn } = useAuth();
 
   if (
     profile !== null &&
@@ -64,8 +64,13 @@ export function RequireSession(): ReactNode {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-background px-6">
         <Text variant="note" tone="muted">
-          Restoring session…
+          {pendingSignIn?.message ?? 'Restoring session…'}
         </Text>
+        {pendingSignIn !== undefined && pendingSignIn !== null && (
+          <Button variant="ghost" onClick={pendingSignIn.cancel}>
+            Cancel sign-in
+          </Button>
+        )}
       </main>
     );
   }

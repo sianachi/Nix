@@ -1,8 +1,8 @@
+import { NoteStorageClosed, noteTransaction, type NoteTable } from '../lib/note-database';
 import { workspaceSchema, type Workspace } from '@nix/api-client';
 import { SCHEMA_VERSION } from '@nix/editor-schema';
 import * as Y from 'yjs';
 import { z } from 'zod';
-
 import type { SessionProfile } from '../auth/session-store';
 import {
   bodyCacheAccountEpoch,
@@ -12,7 +12,6 @@ import {
   writeBodyCache,
 } from '../editor/body-cache';
 import { browserStorage } from '../lib/browser-storage';
-
 const ACCOUNT_KEY = 'nix.offline.account';
 const CHANGE_KEY = 'nix.offline.changed';
 const profileSchema = z.object({
@@ -71,7 +70,6 @@ let snapshot: OfflineSnapshot = {
   lastSyncedAt: null,
 };
 const listeners = new Set<() => void>();
-let database: Promise<IDBDatabase> | undefined;
 let generation = 0;
 let revision = 0;
 let accountForgotten = false;
@@ -82,7 +80,6 @@ const forgottenSchema = z.object({
   subject: z.string().nullable(),
   epoch: z.string().nullable(),
 });
-
 function emit(): void {
   for (const listener of listeners) listener();
 }
@@ -142,7 +139,6 @@ function resetSnapshot(): void {
   };
   emit();
 }
-
 export function readOfflineAccount(): SessionProfile | null {
   if (accountForgotten) return null;
   try {
@@ -200,41 +196,15 @@ export function setOfflineProgress(
   snapshot = { ...snapshot, ...change };
   emit();
 }
-function open(): Promise<IDBDatabase> {
-  if (database !== undefined) return database;
-  const opening = new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('nix-offline-notes', 1);
-    request.onupgradeneeded = () => {
-      request.result
-        .createObjectStore('notes', { keyPath: 'key' })
-        .createIndex('subject', 'subject');
-      request.result.createObjectStore('workspaces', { keyPath: 'subject' });
-    };
-    request.onsuccess = () => {
-      request.result.onversionchange = () => {
-        request.result.close();
-        database = undefined;
-      };
-      resolve(request.result);
-    };
-    request.onerror = () => {
-      reject(request.error ?? new Error('Offline storage could not be opened.'));
-    };
-    request.onblocked = () => {
-      reject(new Error('Offline storage is blocked by another tab.'));
-    };
-  });
-  database = opening;
-  void opening.catch(() => {
-    if (database === opening) database = undefined;
-  });
-  return database;
-}
 async function transaction<T>(
   storeName: 'notes' | 'workspaces',
   subject: string | null,
   mode: IDBTransactionMode,
-  run: (store: IDBObjectStore, done: (result: T) => void, fail: (cause: unknown) => void) => void,
+  run: (
+    store: NoteTable,
+    done: (result: T) => void,
+    fail: (cause: unknown) => never,
+  ) => Promise<void>,
 ): Promise<T> {
   const current = generation;
   const epoch = subject === null ? null : bodyCacheAccountEpoch(subject);
@@ -243,48 +213,26 @@ async function transaction<T>(
     (current === generation &&
       readOfflineAccount()?.subject === subject &&
       bodyCacheCleanupCurrent(subject, epoch));
-  const db = await open();
-  if (!admitted()) throw new Error('The offline account changed.');
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, mode);
-    let complete = () => {
-      reject(new Error('Offline storage returned no result.'));
-    };
-    let failure: Error | undefined;
-    tx.oncomplete = () => {
-      if (!admitted()) {
-        reject(new Error('The offline account changed.'));
-        return;
-      }
-      complete();
-    };
-    tx.onerror = () => {
-      reject(failure ?? tx.error ?? new Error('Offline storage failed.'));
-    };
-    tx.onabort = () => {
-      reject(failure ?? tx.error ?? new Error('Offline storage was interrupted.'));
-    };
-    const fail = (cause: unknown) => {
-      failure = storageError(cause);
-      tx.abort();
-    };
-    try {
-      run(
-        tx.objectStore(storeName),
-        (result) => {
-          if (!admitted()) {
-            fail(new Error('The offline account changed.'));
-            return;
-          }
-          complete = () => {
-            resolve(result);
-          };
-        },
-        fail,
-      );
-    } catch (cause) {
-      fail(cause);
-    }
+  return noteTransaction('nix-offline-notes', storeName, mode, admitted, async (tx) => {
+    let completion:
+      | {
+          value: T;
+        }
+      | undefined;
+    await run(
+      tx.table(storeName),
+      (value) => {
+        completion = { value };
+      },
+      (cause) => {
+        throw storageError(cause);
+      },
+    );
+    if (completion === undefined) throw new Error('Offline storage returned no result.');
+    return completion.value;
+  }).catch((error: unknown) => {
+    if (error instanceof NoteStorageClosed) throw new Error('The offline account changed.');
+    throw error;
   });
 }
 function account(expectedSubject?: string): SessionProfile {
@@ -304,21 +252,22 @@ export async function loadOfflineNotes(): Promise<void> {
     return;
   }
   const [storedNotes, storedWorkspaces] = await Promise.all([
-    transaction('notes', profile.subject, 'readonly', (store, done: (records: unknown) => void) => {
-      const request = store.index('subject').getAll(profile.subject);
-      request.onsuccess = () => {
-        done(request.result);
-      };
-    }),
+    transaction(
+      'notes',
+      profile.subject,
+      'readonly',
+      async (store, done: (records: unknown) => void) => {
+        const request = await store.index('subject').getAll(profile.subject);
+        done(request);
+      },
+    ),
     transaction(
       'workspaces',
       profile.subject,
       'readonly',
-      (store, done: (record: unknown) => void) => {
-        const request = store.get(profile.subject);
-        request.onsuccess = () => {
-          done(request.result);
-        };
+      async (store, done: (record: unknown) => void) => {
+        const request = await store.get(profile.subject);
+        done(request);
       },
     ),
   ]);
@@ -407,28 +356,24 @@ export async function clearOfflineData(
         store === 'notes' ? 'notes' : 'workspaces',
         null,
         'readwrite',
-        (records, done) => {
+        async (records, done) => {
           if (expectedSubject !== undefined && !bodyCacheCleanupCurrent(expectedSubject, epoch)) {
             done(undefined);
             return;
           }
           if (expectedSubject === undefined) {
-            records.clear();
+            await records.clear();
             done(undefined);
           } else if (store === 'workspaces') {
-            records.delete(expectedSubject);
+            await records.delete(expectedSubject);
             done(undefined);
           } else {
-            const cursor = records.index('subject').openKeyCursor(expectedSubject);
-            cursor.onsuccess = () => {
-              const current = cursor.result;
-              if (current === null) {
-                done(undefined);
-                return;
-              }
-              records.delete(current.primaryKey);
-              current.continue();
-            };
+            for (const current of await records
+              .index('subject')
+              .entries(expectedSubject, undefined, true)) {
+              await records.delete(current.primaryKey);
+            }
+            done(undefined);
           }
         },
       ),
@@ -443,8 +388,8 @@ export async function saveOfflineWorkspaces(
   const profile = account(expectedSubject);
   const current = generation;
   const validated = z.array(workspaceSchema).parse(workspaces);
-  await transaction('workspaces', profile.subject, 'readwrite', (store, done) => {
-    store.put({ subject: profile.subject, workspaces: validated });
+  await transaction('workspaces', profile.subject, 'readwrite', async (store, done) => {
+    await store.put({ subject: profile.subject, workspaces: validated });
     done(undefined);
   });
   if (current !== generation || readOfflineAccount()?.subject !== profile.subject)
@@ -469,8 +414,12 @@ export async function saveOfflineNote(note: OfflineNote, expectedSubject?: strin
   const profile = account(expectedSubject);
   const current = generation;
   const validated = noteSchema.parse(note);
-  await transaction('notes', profile.subject, 'readwrite', (store, done) => {
-    store.put({ key: keyFor(profile.subject, note.id), subject: profile.subject, note: validated });
+  await transaction('notes', profile.subject, 'readwrite', async (store, done) => {
+    await store.put({
+      key: keyFor(profile.subject, note.id),
+      subject: profile.subject,
+      note: validated,
+    });
     done(undefined);
   });
   noteSaved(profile, validated, current);
@@ -485,11 +434,9 @@ export async function getPersistedOfflineNote(
     'notes',
     profile.subject,
     'readonly',
-    (store, done: (value: unknown) => void) => {
-      const request = store.get(keyFor(profile.subject, id));
-      request.onsuccess = () => {
-        done(request.result);
-      };
+    async (store, done: (value: unknown) => void) => {
+      const request = await store.get(keyFor(profile.subject, id));
+      done(request);
     },
   );
   if (current !== generation || readOfflineAccount()?.subject !== profile.subject)
@@ -507,22 +454,19 @@ export async function updateOfflineNote(
     'notes',
     profile.subject,
     'readwrite',
-    (store, done: (value: OfflineNote) => void, fail) => {
-      const request = store.get(keyFor(profile.subject, id));
-      request.onsuccess = () => {
-        try {
-          if (request.result === undefined)
-            throw new Error('This note is no longer saved on this device.');
-          const current = storedNoteSchema.parse(request.result).note;
-          const next = noteSchema.parse(change(current));
-          if (next.id !== current.id || next.workspaceId !== current.workspaceId)
-            throw new Error('A saved note cannot change its identity.');
-          store.put({ key: keyFor(profile.subject, id), subject: profile.subject, note: next });
-          done(next);
-        } catch (cause) {
-          fail(cause);
-        }
-      };
+    async (store, done: (value: OfflineNote) => void, fail) => {
+      const request = await store.get(keyFor(profile.subject, id));
+      try {
+        if (request === undefined) throw new Error('This note is no longer saved on this device.');
+        const current = storedNoteSchema.parse(request).note;
+        const next = noteSchema.parse(change(current));
+        if (next.id !== current.id || next.workspaceId !== current.workspaceId)
+          throw new Error('A saved note cannot change its identity.');
+        await store.put({ key: keyFor(profile.subject, id), subject: profile.subject, note: next });
+        done(next);
+      } catch (cause) {
+        fail(cause);
+      }
     },
   );
   noteSaved(profile, updated, current);
@@ -531,8 +475,8 @@ export async function updateOfflineNote(
 export async function removeOfflineNote(id: string, expectedSubject?: string): Promise<void> {
   const profile = account(expectedSubject);
   const current = generation;
-  await transaction('notes', profile.subject, 'readwrite', (store, done) => {
-    store.delete(keyFor(profile.subject, id));
+  await transaction('notes', profile.subject, 'readwrite', async (store, done) => {
+    await store.delete(keyFor(profile.subject, id));
     done(undefined);
   });
   if (current !== generation || readOfflineAccount()?.subject !== profile.subject)

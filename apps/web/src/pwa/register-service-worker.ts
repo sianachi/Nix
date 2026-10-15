@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { publishNotice } from '../lib/notices';
 import { flushPendingWork } from '../lib/pending-work';
 
@@ -24,7 +25,7 @@ function changed(): void {
 
 /** Register without forcing an update into an editor that may have unsynced work. */
 export function registerServiceWorker(): () => void {
-  if (!('serviceWorker' in navigator)) return () => undefined;
+  if (Capacitor.isNativePlatform() || !('serviceWorker' in navigator)) return () => undefined;
   let disposed = false;
   let cleanupRegistration = (): void => undefined;
   const register = (): void => {

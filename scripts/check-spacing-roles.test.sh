@@ -182,6 +182,14 @@ C
 fixture_multi
 expect 1 "one file out of three disagreeing still fails, naming the role" "$role_heading" "disagrees.tsx"
 
+# Generated mobile bundles are checked at their source, not after compilation.
+for generated in dist-mobile build ios/App/App/public android/app/src/main/assets/public; do
+  rm -rf "${work_dir:?}/tree"
+  mkdir -p "$work_dir/tree/$generated"
+  printf '%s\n' 'export const Row = () => <div className="border p-1 px-[14px]" style={{color: "#abcdef"}} />;' > "$work_dir/tree/$generated/compiled.tsx"
+  expect 0 "ignores generated mobile output under $generated"
+done
+
 # --- argument handling -------------------------------------------------------
 
 missing_code=0

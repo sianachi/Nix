@@ -1,3 +1,4 @@
+import { collaborationUrl } from '../lib/core-origin';
 import { registerPendingWork } from '../lib/pending-work';
 import {
   bodyCacheFenceVersion,
@@ -215,7 +216,8 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
 
   const createSocket =
     options.createSocket ??
-    ((url: string): ProviderSocket => new WebSocket(resolveUrl(url)) as unknown as ProviderSocket);
+    ((url: string): ProviderSocket =>
+      new WebSocket(collaborationUrl(url)) as unknown as ProviderSocket);
 
   const draft =
     options.draftScope && typeof indexedDB !== 'undefined'
@@ -1218,11 +1220,6 @@ function toBytes(data: unknown): Uint8Array | null {
     return data;
   }
   return null;
-}
-
-function resolveUrl(path: string): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${path}`;
 }
 
 /**

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nix</string>
+    <string name="title_activity_main">Nix</string>
+    <string name="package_name">io.nix.capacitor</string>
+    <string name="custom_url_scheme">io.nix.capacitor</string>
+</resources>

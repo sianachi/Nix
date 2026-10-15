@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { Plugin } from 'vite';
-import config from '../../../vite.config';
+import createConfig from '../../../vite.config';
+const config = createConfig({ command: 'build', mode: 'production' });
 
 interface GenerateBundlePlugin {
   readonly name: string;

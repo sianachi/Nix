@@ -1,3 +1,4 @@
+import { NoteStorageClosed, noteTransaction, type NoteTable } from '../lib/note-database';
 import { files, isNixApiError, locks, type NixClient } from '@nix/api-client';
 import {
   createContext,
@@ -8,7 +9,6 @@ import {
 } from 'react';
 import * as Y from 'yjs';
 import { z } from 'zod';
-
 import {
   bodyCacheAdmits,
   bodyCacheAccountEpoch,
@@ -19,7 +19,6 @@ import {
 } from '../editor/body-cache';
 import { FRAGMENT_NAME } from '../editor/collab-sync';
 import { browserStorage } from '../lib/browser-storage';
-
 const assetSchema = z.object({
   key: z.string(),
   scope: z.string(),
@@ -28,7 +27,6 @@ const assetSchema = z.object({
   mediaType: z.string(),
   blob: z.custom<Blob>((value) => Object.prototype.toString.call(value) === '[object Blob]'),
 });
-let database: Promise<IDBDatabase> | undefined;
 let generation = 0;
 let cleanup = Promise.resolve();
 const listeners = new Set<() => void>();
@@ -60,7 +58,6 @@ function scopeParts(scope: string): z.infer<typeof scopeSchema> | null {
 }
 const fileKey = (subject: string, fileItemId: string): string =>
   JSON.stringify([subject, fileItemId]);
-
 function invalidate(): void {
   generation += 1;
   for (const listener of listeners) listener();
@@ -206,7 +203,6 @@ function authorizeFile(subject: string, fileItemId: string): void {
     throw new Error('Offline image authorization could not be saved.', { cause });
   }
 }
-
 async function ensureAdmission(subject: string, admitted: () => boolean): Promise<void> {
   if (admissionFailed || failedSubjects.has(subject))
     throw new Error('Offline images are disabled until browser storage is repaired.');
@@ -216,8 +212,8 @@ async function ensureAdmission(subject: string, admitted: () => boolean): Promis
       // An absent gate may follow a failed refusal write. Remove old bytes before reopening it.
       await transaction(
         'readwrite',
-        (store, done) => {
-          store.clear();
+        async (store, done) => {
+          await store.clear();
           done(undefined);
         },
         undefined,
@@ -238,64 +234,24 @@ async function ensureAdmission(subject: string, admitted: () => boolean): Promis
   await admissionOpening;
   if (!assetsAdmit(subject)) throw new Error('Offline image access could not be opened.');
 }
-
-function open(): Promise<IDBDatabase> {
-  if (database !== undefined) return database;
-  const opening = new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('nix-offline-note-assets', 1);
-    request.onupgradeneeded = () => {
-      const store = request.result.createObjectStore('assets', { keyPath: 'key' });
-      store.createIndex('scope', 'scope');
-      store.createIndex('version', ['scope', 'fileItemId', 'sha256']);
-    };
-    request.onsuccess = () => {
-      request.result.onversionchange = () => {
-        request.result.close();
-        database = undefined;
-      };
-      resolve(request.result);
-    };
-    request.onerror = () => {
-      reject(request.error ?? new Error('Offline images could not be opened.'));
-    };
-    request.onblocked = () => {
-      reject(new Error('Offline images are blocked by another tab.'));
-    };
-  });
-  database = opening;
-  void opening.catch(() => {
-    if (database === opening) database = undefined;
-  });
-  return opening;
-}
-
 async function transaction<T>(
   mode: IDBTransactionMode,
-  run: (store: IDBObjectStore, done: (value: T) => void) => void,
+  run: (store: NoteTable, done: (value: T) => void) => Promise<void>,
   initial: T,
-  admitted?: () => boolean,
+  admitted: () => boolean = () => true,
 ): Promise<T> {
-  const db = await open();
-  if (admitted !== undefined && !admitted())
-    throw new Error('This note is no longer available offline.');
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('assets', mode);
+  return noteTransaction('nix-offline-note-assets', 'assets', mode, admitted, async (tx) => {
     let result = initial;
-    tx.oncomplete = () => {
-      resolve(result);
-    };
-    tx.onerror = () => {
-      reject(tx.error ?? new Error('Offline image storage failed.'));
-    };
-    tx.onabort = () => {
-      reject(tx.error ?? new Error('Offline image storage was aborted.'));
-    };
-    run(tx.objectStore('assets'), (value) => {
+    await run(tx.table('assets'), (value) => {
       result = value;
     });
+    return result;
+  }).catch((error: unknown) => {
+    if (error instanceof NoteStorageClosed)
+      throw new Error('This note is no longer available offline.');
+    throw error;
   });
 }
-
 const key = (scope: string, fileItemId: string): string => JSON.stringify([scope, fileItemId]);
 async function discardFile(scope: string, fileItemId: string): Promise<void> {
   const subject = scopeParts(scope)?.[0];
@@ -303,28 +259,21 @@ async function discardFile(scope: string, fileItemId: string): Promise<void> {
   const refusalError = refuseFile(subject, fileItemId);
   await transaction(
     'readwrite',
-    (store, done) => {
-      const cursor = store.openCursor();
-      cursor.onsuccess = () => {
-        const entry = cursor.result;
-        if (entry === null) {
-          done(undefined);
-          return;
-        }
+    async (store, done) => {
+      for (const entry of await store.entries()) {
         const parsed = assetSchema.safeParse(entry.value);
         if (
           !parsed.success ||
           (scopeParts(parsed.data.scope)?.[0] === subject && parsed.data.fileItemId === fileItemId)
         )
-          entry.delete();
-        entry.continue();
-      };
+          await store.delete(entry.primaryKey);
+      }
+      done(undefined);
     },
     undefined,
   );
   if (refusalError !== undefined) throw refusalError;
 }
-
 export async function readOfflineNoteAsset(
   scope: string,
   fileItemId: string,
@@ -338,11 +287,9 @@ export async function readOfflineNoteAsset(
     return null;
   const raw: unknown = await transaction<unknown>(
     'readonly',
-    (store, done) => {
-      const request = store.get(key(scope, fileItemId));
-      request.onsuccess = () => {
-        done(request.result);
-      };
+    async (store, done) => {
+      const request = await store.get(key(scope, fileItemId));
+      done(request);
     },
     undefined,
   );
@@ -353,7 +300,6 @@ export async function readOfflineNoteAsset(
     return null;
   return parsed.data.blob;
 }
-
 function imageFileIds(doc: Y.Doc): Set<string> {
   const ids = new Set<string>();
   const walk = (node: Y.XmlFragment | Y.XmlElement): void => {
@@ -368,7 +314,6 @@ function imageFileIds(doc: Y.Doc): Set<string> {
   walk(doc.getXmlFragment(FRAGMENT_NAME));
   return ids;
 }
-
 export async function cacheOfflineNoteAssets(
   doc: Y.Doc,
   subject: string,
@@ -403,13 +348,11 @@ export async function cacheOfflineNoteAssets(
       );
       const present = await transaction(
         'readonly',
-        (store, done) => {
-          const request = store
+        async (store, done) => {
+          const request = await store
             .index('version')
             .getKey([scope, fileItemId, currentCapability.sha256]);
-          request.onsuccess = () => {
-            done(request.result !== undefined);
-          };
+          done(request !== undefined);
         },
         false,
         admitted,
@@ -446,8 +389,8 @@ export async function cacheOfflineNoteAssets(
       }
       await transaction(
         'readwrite',
-        (store, done) => {
-          store.put({
+        async (store, done) => {
+          await store.put({
             key: key(scope, fileItemId),
             scope,
             fileItemId,
@@ -478,24 +421,18 @@ export async function cacheOfflineNoteAssets(
   if (!admitted()) throw new Error('This note is no longer available offline.');
   await transaction(
     'readwrite',
-    (store, done) => {
-      const cursor = store.index('scope').openCursor(IDBKeyRange.only(scope));
-      cursor.onsuccess = () => {
-        const entry = cursor.result;
-        if (entry === null) {
-          done(undefined);
-          return;
-        }
+    async (store, done) => {
+      for (const entry of await store.index('scope').entries(IDBKeyRange.only(scope))) {
         const parsed = assetSchema.safeParse(entry.value);
-        if (!parsed.success || !ids.has(parsed.data.fileItemId)) entry.delete();
-        entry.continue();
-      };
+        if (!parsed.success || !ids.has(parsed.data.fileItemId))
+          await store.delete(entry.primaryKey);
+      }
+      done(undefined);
     },
     undefined,
     admitted,
   );
 }
-
 function forget(forgetting: BodyForgetting): void {
   const expectedSubject = forgetting.kind === 'everything' ? forgetting.subject : undefined;
   const epoch = forgetting.kind === 'everything' ? (forgetting.epoch ?? null) : null;
@@ -522,19 +459,13 @@ function forget(forgetting: BodyForgetting): void {
       try {
         await transaction(
           'readwrite',
-          (store, done) => {
+          async (store, done) => {
             if (forgetting.kind === 'everything' && expectedSubject === undefined) {
-              store.clear();
+              await store.clear();
               done(undefined);
               return;
             }
-            const cursor = store.openCursor();
-            cursor.onsuccess = () => {
-              const entry = cursor.result;
-              if (entry === null) {
-                done(undefined);
-                return;
-              }
+            for (const entry of await store.entries()) {
               const parsed = assetSchema.safeParse(entry.value);
               const scope = parsed.success ? parsed.data.scope : null;
               let remove = scope === null && expectedSubject === undefined;
@@ -574,9 +505,9 @@ function forget(forgetting: BodyForgetting): void {
                   }
                 }
               }
-              if (remove) entry.delete();
-              entry.continue();
-            };
+              if (remove) await store.delete(entry.primaryKey);
+            }
+            done(undefined);
           },
           undefined,
           cleanupAdmitted,
@@ -626,7 +557,6 @@ function forget(forgetting: BodyForgetting): void {
   });
 }
 onBodyForgetting(forget);
-
 export async function clearOfflineNoteAssets(
   expectedSubject?: string,
   expectedEpoch?: string | null,
@@ -643,7 +573,6 @@ export async function clearOfflineNoteAssets(
   );
   await cleanup;
 }
-
 const assetContext = createContext<{
   readonly scope: string | undefined;
   readonly offline: boolean;

@@ -5,12 +5,14 @@ import { BrowserRouter } from 'react-router';
 import { initializeExcalidrawAssets } from './lib/excalidraw-assets';
 import { registerServiceWorker } from './pwa/register-service-worker';
 import './app.css';
+import { installMobileTransport } from './lib/core-origin';
 
 /**
  * Browser entry point. Boot concerns get their own modules and are composed
  * here before the router hands off to <App />.
  */
 
+installMobileTransport();
 initializeExcalidrawAssets();
 
 const rootElement = document.getElementById('root');

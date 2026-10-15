@@ -37,9 +37,9 @@ internal static class CliLoginEndpoints
             return Problem(context, 503, "auth.browser_not_configured", "Browser sign-in is not configured");
         }
 
-        if (request.ClientName is not null && request.ClientName != "nixctl")
+        if (request.ClientName is not null and not ("nixctl" or "nix-mobile"))
         {
-            return Problem(context, 400, "auth.cli_client_invalid", "This sign-in flow is for nixctl");
+            return Problem(context, 400, "auth.cli_client_invalid", "This sign-in flow is for Nix mobile or nixctl");
         }
 
         var challenge = await coordinator.StartAsync(origin, context.RequestAborted).ConfigureAwait(false);
@@ -78,7 +78,7 @@ internal static class CliLoginEndpoints
         var code = CliSessionSecret.NormalizeUserCode(userCode);
         if (code is null || await sessions.FindPendingAsync(BrowserSessionSecret.Hash(code), context.RequestAborted).ConfigureAwait(false) is null)
         {
-            return Page(context, "Sign-in request ended", "<p>This code is invalid, expired or already used. Start a new login in nixctl.</p>", 400);
+            return Page(context, "Sign-in request ended", "<p>This code is invalid, expired or already used. Start a new sign-in in Nix mobile or nixctl.</p>", 400);
         }
 
         var session = await browser.ResolveAsync(context.Request.Cookies[browser.SessionCookieName], context.RequestAborted).ConfigureAwait(false);
@@ -89,14 +89,14 @@ internal static class CliLoginEndpoints
 
         var displayed = code[..5] + "-" + code[5..];
         var content = $"<p>Signed in as <strong>{WebUtility.HtmlEncode(session.DisplayName)}</strong>.</p>"
-            + $"<p>Check that your terminal displays <strong>{WebUtility.HtmlEncode(displayed)}</strong>.</p>"
-            + "<p>Approve only a login you started. Approval lets nixctl act as you across your permitted workspaces and manage your account connections and personal access tokens, and use pets through your linked provider account, including provider usage and costs.</p>"
-            + "<p>This CLI session ends with this browser session or when you run nixctl auth logout. Your workspace permissions and item locks still apply.</p>"
+            + $"<p>Check that your app or terminal displays <strong>{WebUtility.HtmlEncode(displayed)}</strong>.</p>"
+            + "<p>Approve only a login you started. Approval lets the Nix app or nixctl act as you across your permitted workspaces and manage your account connections and personal access tokens, and use pets through your linked provider account, including provider usage and costs.</p>"
+            + "<p>This device session ends with this browser session or when you sign out on the device. Your workspace permissions and item locks still apply.</p>"
             + $"<form data-nix-cli-consent method=\"post\" action=\"/auth/cli/approve\"><input type=\"hidden\" name=\"userCode\" value=\"{WebUtility.HtmlEncode(code)}\">"
-            + "<button name=\"decision\" value=\"approve\" type=\"submit\">Approve nixctl</button> "
+            + "<button name=\"decision\" value=\"approve\" type=\"submit\">Approve sign-in</button> "
             + "<button name=\"decision\" value=\"deny\" type=\"submit\">Deny</button></form>"
             + "<p id=\"cli-consent-status\" role=\"status\" aria-live=\"polite\"></p>";
-        return Page(context, "Approve CLI sign-in", content, enhanceConsent: true);
+        return Page(context, "Approve Nix sign-in", content, enhanceConsent: true);
     }
 
     private static async Task<IResult> Approve(HttpContext context, [FromServices] BrowserAuthCoordinator browser,
@@ -143,8 +143,8 @@ internal static class CliLoginEndpoints
             return Page(context, "Sign-in request ended", "<p>This code or browser session has expired, or the request was already decided.</p>", 400);
         }
 
-        return Page(context, decision == "approve" ? "CLI sign-in approved" : "CLI sign-in denied",
-            "<p>You can close this page and return to your terminal.</p>");
+        return Page(context, decision == "approve" ? "Nix sign-in approved" : "Nix sign-in denied",
+            "<p>You can close this page and return to your app or terminal.</p>");
     }
 
     private static bool SameOrigin(HttpContext context, Uri? expected) => expected is not null

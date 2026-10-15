@@ -51,6 +51,17 @@ public sealed class CliBrowserLoginTests(NixPostgresFixture fixture) : IAsyncLif
         await _factory.DisposeAsync();
     }
 
+    [Theory]
+    [InlineData(null, HttpStatusCode.OK)]
+    [InlineData("nixctl", HttpStatusCode.OK)]
+    [InlineData("nix-mobile", HttpStatusCode.OK)]
+    [InlineData("untrusted-app", HttpStatusCode.BadRequest)]
+    public async Task Device_sign_in_accepts_only_known_Nix_clients(string? clientName, HttpStatusCode expected)
+    {
+        var response = await _cli.PostAsJsonAsync("/auth/cli/start", new CliLoginStartRequest(clientName), Cancellation);
+        Assert.Equal(expected, response.StatusCode);
+    }
+
     [Fact]
     public async Task Explicit_approval_returns_a_distinct_refreshable_revocable_session()
     {

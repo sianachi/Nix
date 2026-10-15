@@ -48,6 +48,13 @@
       "itemCount": 10,
       "rootId": "23fb74be-85bf-57d3-ac5e-5e634e53c54a",
       "sourceRevision": "01fc66aca483748964e4b5c902e2f7511972440d"
+    },
+    {
+      "path": "docs/nix/nix-capacitor-offline-notes.nix",
+      "sha256": "c6384dc4321d38eb2b85df920dc295cb64c912d94101a6aa8bb250d5a3778679",
+      "bytes": 2410,
+      "itemCount": 1,
+      "rootId": "417027fd-132c-458f-a49f-ac5beb5d7df7"
     }
   ],
   "pages": [
@@ -1435,6 +1442,25 @@
         "packages/companion/src/run.ts"
       ],
       "sourceRevision": "01fc66aca483748964e4b5c902e2f7511972440d"
+    },
+    {
+      "slug": "adr-0065-capacitor-offline-notes",
+      "title": "ADR-0065: Capacitor mobile app with SQLite offline notes",
+      "itemId": "417027fd-132c-458f-a49f-ac5beb5d7df7",
+      "archive": "docs/nix/nix-capacitor-offline-notes.nix",
+      "sources": [
+        "apps/web/capacitor.config.ts",
+        "apps/web/src/lib/note-database.ts",
+        "apps/web/src/lib/sqlite-note-database.ts",
+        "apps/web/src/auth/native-session.ts",
+        "backend/src/Nix.Api/Features/BrowserAuth/CliLoginEndpoints.cs"
+      ],
+      "words": 356,
+      "properties": {
+        "category": "Architecture decision",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted by the owner on 15 October 2026. The owner requested a mobile app using Capacitor, with offline notes handled through SQLite, as an explicit goal. Implementation, device verification and release evidence remain separate. Existing ADR statuses remain unchanged."
+      }
     }
   ],
   "documents": [
@@ -3147,14 +3173,14 @@
   "containers": [
     {
       "slug": "architecture",
-      "title": "Nix architecture handbook — e037eb02",
+      "title": "Nix architecture handbook \u2014 e037eb02",
       "itemId": "394eaa52-acb0-5570-af4a-894bce3ab6f3",
       "archive": "docs/nix/nix-architecture.nix",
       "localProofItemId": "01a12247-5982-75fd-a1bc-ccc06429be09"
     },
     {
       "slug": "reference",
-      "title": "Nix repository reference — preserved snapshot",
+      "title": "Nix repository reference \u2014 preserved snapshot",
       "itemId": "cc38b350-5f54-5eeb-abaa-ac17ab083ba9",
       "archive": "docs/nix/nix-reference.nix",
       "localProofItemId": "01a12244-4dfc-70f3-af32-31d17a4d6ea5"

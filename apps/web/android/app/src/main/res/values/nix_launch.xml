@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Native launch surface matches the web background before CSS loads. -->
+    <color name="nix_launch_background">#f2f2f3</color>
+</resources>

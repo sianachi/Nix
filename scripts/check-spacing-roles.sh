@@ -248,7 +248,7 @@ while IFS= read -r file; do
   done
 done <<EOF2
 $(find "${scan_roots[@]}" \
-    \( -name node_modules -o -name dist -o -path 'packages/design-tokens' \) -prune \
+    \( -name node_modules -o -name dist -o -name dist-mobile -o -name build -o -path '*/ios/App/App/public' -o -path '*/android/app/src/main/assets/public' -o -path 'packages/design-tokens' \) -prune \
     -o -type f \( -name '*.ts' -o -name '*.tsx' \) -print)
 EOF2
 

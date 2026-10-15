@@ -399,7 +399,11 @@ describe('Core-mediated browser sessions', () => {
   it.each([429, 500])(
     'keeps local notes through renewal failure and automatic retry HTTP%s',
     async (retryStatus) => {
-      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.useFakeTimers({
+        shouldAdvanceTime: true,
+        // IndexedDB request tasks must yield to their Promise continuations.
+        toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+      });
       try {
         vi.stubGlobal('indexedDB', new IDBFactory());
         vi.stubGlobal('localStorage', memoryStorage());

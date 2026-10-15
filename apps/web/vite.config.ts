@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import type { Plugin, Rollup } from 'vite';
+import { loadEnv, type Plugin, type Rollup } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 const excalidrawFontUrlPrefix = '/excalidraw-assets/fonts/';
@@ -297,6 +297,14 @@ export function contentSecurityPolicy(objectStorePublicOrigin: string): string {
   return `default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self' ${origin}; media-src 'self' blob: ${origin}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`;
 }
 
+export function mobileContentSecurityPolicy(coreOrigin: string, objectStoreOrigin: string): string {
+  const core = parseObjectStorePublicOrigin(coreOrigin);
+  return contentSecurityPolicy(objectStoreOrigin).replace(
+    "connect-src 'self'",
+    `connect-src 'self' ${core} ${core.replace(/^http/u, 'ws')}`,
+  );
+}
+
 const objectStorePublicOrigin = parseObjectStorePublicOrigin(
   process.env.NIX_OBJECT_STORE_PUBLIC_ORIGIN ?? 'http://localhost:7070',
 );
@@ -312,175 +320,185 @@ const developmentBrowserPolicy = browserPolicy.replace(
   "script-src 'self' 'unsafe-inline'",
 );
 
-export default defineConfig({
-  optimizeDeps: {
-    // Canvas loads lazily. Optimize its React dependency with the initial application graph:
-    // re-optimizing on first open changes shared module URLs, and hmr: false cannot reload the
-    // mounted application to replace its existing React and Yjs instances.
-    include: ['@excalidraw/excalidraw'],
-  },
-  // Excalidraw's published bundle imports roughjs without its file extension. Vite's browser
-  // resolver accepts that path, while Node 25 (used by Vitest) does not.
-  resolve: {
-    alias: {
-      'roughjs/bin/rough': roughjsEntry,
+export default defineConfig(({ mode }) => {
+  const mobile = mode === 'capacitor';
+  const core = parseObjectStorePublicOrigin(
+    loadEnv(mode, process.cwd(), 'VITE_').VITE_NIX_CORE_ORIGIN ?? 'https://nix.urutech.org',
+  );
+  const mobilePolicy = mobileContentSecurityPolicy(core, objectStorePublicOrigin);
+  return {
+    optimizeDeps: {
+      // Canvas loads lazily. Optimize its React dependency with the initial application graph:
+      // re-optimizing on first open changes shared module URLs, and hmr: false cannot reload the
+      // mounted application to replace its existing React and Yjs instances.
+      include: ['@excalidraw/excalidraw'],
     },
-  },
-  server: {
-    port: Number(process.env.NIX_WEB_PORT ?? 5173),
-    headers: { 'Content-Security-Policy': developmentBrowserPolicy },
-    // The app consumes workspace packages as source. In the local browser this can cause the
-    // React Refresh wrapper for a package module to run before its HTML preamble, preventing
-    // React from mounting at all. Reloading is a reliable development fallback; it leaves the
-    // production bundle untouched.
-    hmr: false,
-    // The API is a different origin in development. Proxying keeps the browser same-origin, so
-    // there is no CORS preflight on every request and no cookie/credential surprises - the token
-    // travels in the Authorization header either way, but same-origin is the shape production has.
-    proxy: {
-      '/api': {
-        target: apiOrigin,
-        changeOrigin: true,
-      },
-      '/auth': {
-        target: apiOrigin,
-        changeOrigin: true,
-      },
-
-      // The collaboration service is a third origin, and it holds the document bodies. The
-      // prefix is stripped because the service's own routes are '/documents/...' - it does not
-      // know or care that the browser reaches it under a path.
-      '/collab': {
-        target: collaborationOrigin,
-        changeOrigin: true,
-        // The editor reaches the service over a WebSocket; without this the proxy
-        // answers the upgrade itself and the socket never opens.
-        ws: true,
-        rewrite: (path: string) => path.replace(/^\/collab/, ''),
+    // Excalidraw's published bundle imports roughjs without its file extension. Vite's browser
+    // resolver accepts that path, while Node 25 (used by Vitest) does not.
+    resolve: {
+      alias: {
+        'roughjs/bin/rough': roughjsEntry,
       },
     },
-  },
-
-  preview: {
-    headers: { 'Content-Security-Policy': browserPolicy },
-  },
-
-  plugins: [
-    {
-      name: 'nix-pwa-assets',
-      async generateBundle(_options, bundle) {
-        const assets = Object.keys(bundle)
-          .filter((name) => /^assets\/.*\.(?:js|css|woff2)$/.test(name))
-          .map((name) => `/${name}`);
-        const offline = await readFile(new URL('./public/offline.html', import.meta.url), 'utf8');
-        const worker = await readFile(
-          new URL('./public/service-worker.js', import.meta.url),
-          'utf8',
-        );
-        const version = createHash('sha256')
-          .update(JSON.stringify(assets))
-          .update(worker)
-          .update(offline)
-          .digest('hex')
-          .slice(0, 16);
-        const offlineCss = assets.find((name) => /^\/assets\/index-.*\.css$/.test(name));
-        if (!offlineCss) throw new Error('The offline screen stylesheet is missing.');
-        const { entry, startup } = startupGraph(
-          bundle,
-          mermaidOfflineRoots(bundle, (id) => this.getModuleInfo(id)),
-        );
-        const baseShellFiles = ['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png'];
-        this.emitFile({
-          type: 'asset',
-          fileName: 'offline.html',
-          source: offline.replace('/src/app.css', offlineCss),
-        });
-        // Each placeholder in the source worker, and what this build puts in its place.
-        const placeholders: readonly (readonly [string | RegExp, string])[] = [
-          [
-            "const VERSION = 'nix-pwa-dev';",
-            `const VERSION = ${JSON.stringify(`nix-pwa-${version}`)};`,
-          ],
-          [
-            /const SHELL_ASSETS = \[.*?\];/su,
-            `const SHELL_ASSETS = ${JSON.stringify([...new Set([...baseShellFiles, '/index.html', offlineCss, ...startup])])};`,
-          ],
-          [
-            /const ASSETS = \[.*?\];/su,
-            `const ASSETS = ${JSON.stringify([...new Set([...baseShellFiles, ...assets, ...startup])])};`,
-          ],
-          ['const SHELL_ENTRY = null;', `const SHELL_ENTRY = ${JSON.stringify(entry)};`],
-        ];
-        this.emitFile({
-          type: 'asset',
-          fileName: 'service-worker.js',
-          source: placeholders.reduce(
-            (source, [pattern, replacement]) => replaceExactlyOnce(source, pattern, replacement),
-            worker,
-          ),
-        });
-      },
-    },
-    excalidrawFontAssets(),
-    pdfSupportAssets(),
-    {
-      name: 'nix-configured-content-security-policy',
-      enforce: 'pre',
-      transformIndexHtml(html) {
-        const transformed = html.replace(fallbackCspMeta, '');
-        if (transformed === html) {
-          throw new Error('The marked fallback Content-Security-Policy meta tag is missing.');
-        }
-        return transformed;
-      },
-    },
-    react(),
-    tailwindcss(),
-  ],
-  test: {
-    environment: 'jsdom',
-    globals: false,
-    setupFiles: ['./src/tests/setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}'],
-    css: false,
     server: {
-      deps: { inline: ['@excalidraw/excalidraw', 'roughjs'] },
+      port: Number(process.env.NIX_WEB_PORT ?? 5173),
+      headers: { 'Content-Security-Policy': developmentBrowserPolicy },
+      // The app consumes workspace packages as source. In the local browser this can cause the
+      // React Refresh wrapper for a package module to run before its HTML preamble, preventing
+      // React from mounting at all. Reloading is a reliable development fallback; it leaves the
+      // production bundle untouched.
+      hmr: false,
+      // The API is a different origin in development. Proxying keeps the browser same-origin, so
+      // there is no CORS preflight on every request and no cookie/credential surprises - the token
+      // travels in the Authorization header either way, but same-origin is the shape production has.
+      proxy: {
+        '/api': {
+          target: apiOrigin,
+          changeOrigin: true,
+        },
+        '/auth': {
+          target: apiOrigin,
+          changeOrigin: true,
+        },
+
+        // The collaboration service is a third origin, and it holds the document bodies. The
+        // prefix is stripped because the service's own routes are '/documents/...' - it does not
+        // know or care that the browser reaches it under a path.
+        '/collab': {
+          target: collaborationOrigin,
+          changeOrigin: true,
+          // The editor reaches the service over a WebSocket; without this the proxy
+          // answers the upgrade itself and the socket never opens.
+          ws: true,
+          rewrite: (path: string) => path.replace(/^\/collab/, ''),
+        },
+      },
     },
 
-    // Not the 5000 default, and please do not "tidy" it back.
-    //
-    // Reproduce before changing this: `pnpm --filter @nix/web test
-    // --reporter=json`, full 47-file suite in parallel, otherwise-idle 10-core
-    // machine. The numbers below are from exactly that.
-    //
-    // The worst case used to be 'counts February 2028 as a leap February' in
-    // src/tests/views/calendar/calendar-view.test.tsx. Worst figure on record for it: 4849ms,
-    // 97% of the 5000 default, idle. Re-measured on the same machine it came
-    // back at 4041ms, 81% - and that spread between two idle runs of the same
-    // test is itself the argument, because a CI runner is never the better of
-    // the two. It was not irreducible render cost: the test reached
-    // February 2028 by clicking "Next month" 23 times, so 23 sequential
-    // userEvent round trips paid for navigation that was scaffolding rather
-    // than the behaviour under test. Those loops are gone - the two tests that
-    // had them now name their month on the fake clock the suite already runs,
-    // and the second-worst offender kept its single boundary-crossing click
-    // because that click is the claim.
-    //
-    // Those two tests now cost 122ms and 210ms. What remains at the top is
-    // ordinary per-test page render into jsdom under parallel contention,
-    // peaking at 1545ms ('says which week it is showing, naming both months
-    // when it straddles them' in calendar-modes.test.tsx, which keeps its two
-    // clicks because a straddling week cannot be reached in one). Idle that is
-    // 31% of the default - but idle is not what CI gives you, and the figures
-    // above show the same test swinging by ~20% between two idle runs. 15s
-    // keeps headroom for that without letting a genuinely hung test sit for a
-    // minute. The failure it prevents is the expensive kind: a timeout on a
-    // busy runner is indistinguishable from a real regression until someone
-    // reruns it alone.
-    //
-    // Node-environment packages do not need this. packages/ui's component
-    // tests no longer peak at 703ms idle (first-in-file tests now take about
-    // 2s), so it carries the same value with its own measurements.
-    testTimeout: 15_000,
-  },
+    preview: {
+      headers: { 'Content-Security-Policy': browserPolicy },
+    },
+
+    plugins: [
+      {
+        name: 'nix-pwa-assets',
+        async generateBundle(_options, bundle) {
+          const assets = Object.keys(bundle)
+            .filter((name) => /^assets\/.*\.(?:js|css|woff2)$/.test(name))
+            .map((name) => `/${name}`);
+          const offline = await readFile(new URL('./public/offline.html', import.meta.url), 'utf8');
+          const worker = await readFile(
+            new URL('./public/service-worker.js', import.meta.url),
+            'utf8',
+          );
+          const version = createHash('sha256')
+            .update(JSON.stringify(assets))
+            .update(worker)
+            .update(offline)
+            .digest('hex')
+            .slice(0, 16);
+          const offlineCss = assets.find((name) => /^\/assets\/index-.*\.css$/.test(name));
+          if (!offlineCss) throw new Error('The offline screen stylesheet is missing.');
+          const { entry, startup } = startupGraph(
+            bundle,
+            mermaidOfflineRoots(bundle, (id) => this.getModuleInfo(id)),
+          );
+          const baseShellFiles = ['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png'];
+          this.emitFile({
+            type: 'asset',
+            fileName: 'offline.html',
+            source: offline.replace('/src/app.css', offlineCss),
+          });
+          // Each placeholder in the source worker, and what this build puts in its place.
+          const placeholders: readonly (readonly [string | RegExp, string])[] = [
+            [
+              "const VERSION = 'nix-pwa-dev';",
+              `const VERSION = ${JSON.stringify(`nix-pwa-${version}`)};`,
+            ],
+            [
+              /const SHELL_ASSETS = \[.*?\];/su,
+              `const SHELL_ASSETS = ${JSON.stringify([...new Set([...baseShellFiles, '/index.html', offlineCss, ...startup])])};`,
+            ],
+            [
+              /const ASSETS = \[.*?\];/su,
+              `const ASSETS = ${JSON.stringify([...new Set([...baseShellFiles, ...assets, ...startup])])};`,
+            ],
+            ['const SHELL_ENTRY = null;', `const SHELL_ENTRY = ${JSON.stringify(entry)};`],
+          ];
+          this.emitFile({
+            type: 'asset',
+            fileName: 'service-worker.js',
+            source: placeholders.reduce(
+              (source, [pattern, replacement]) => replaceExactlyOnce(source, pattern, replacement),
+              worker,
+            ),
+          });
+        },
+      },
+      excalidrawFontAssets(),
+      pdfSupportAssets(),
+      {
+        name: 'nix-configured-content-security-policy',
+        enforce: 'pre',
+        transformIndexHtml(html) {
+          const transformed = html.replace(fallbackCspMeta, () =>
+            mobile
+              ? `\n    <meta http-equiv="Content-Security-Policy" content="${mobilePolicy}">`
+              : '',
+          );
+          if (transformed === html)
+            throw new Error('The marked fallback Content-Security-Policy meta tag is missing.');
+          return transformed;
+        },
+      },
+      react(),
+      tailwindcss(),
+    ],
+    test: {
+      environment: 'jsdom',
+      globals: false,
+      setupFiles: ['./src/tests/setup.ts'],
+      include: ['src/**/*.test.{ts,tsx}'],
+      css: false,
+      server: {
+        deps: { inline: ['@excalidraw/excalidraw', 'roughjs'] },
+      },
+
+      // Not the 5000 default, and please do not "tidy" it back.
+      //
+      // Reproduce before changing this: `pnpm --filter @nix/web test
+      // --reporter=json`, full 47-file suite in parallel, otherwise-idle 10-core
+      // machine. The numbers below are from exactly that.
+      //
+      // The worst case used to be 'counts February 2028 as a leap February' in
+      // src/tests/views/calendar/calendar-view.test.tsx. Worst figure on record for it: 4849ms,
+      // 97% of the 5000 default, idle. Re-measured on the same machine it came
+      // back at 4041ms, 81% - and that spread between two idle runs of the same
+      // test is itself the argument, because a CI runner is never the better of
+      // the two. It was not irreducible render cost: the test reached
+      // February 2028 by clicking "Next month" 23 times, so 23 sequential
+      // userEvent round trips paid for navigation that was scaffolding rather
+      // than the behaviour under test. Those loops are gone - the two tests that
+      // had them now name their month on the fake clock the suite already runs,
+      // and the second-worst offender kept its single boundary-crossing click
+      // because that click is the claim.
+      //
+      // Those two tests now cost 122ms and 210ms. What remains at the top is
+      // ordinary per-test page render into jsdom under parallel contention,
+      // peaking at 1545ms ('says which week it is showing, naming both months
+      // when it straddles them' in calendar-modes.test.tsx, which keeps its two
+      // clicks because a straddling week cannot be reached in one). Idle that is
+      // 31% of the default - but idle is not what CI gives you, and the figures
+      // above show the same test swinging by ~20% between two idle runs. 15s
+      // keeps headroom for that without letting a genuinely hung test sit for a
+      // minute. The failure it prevents is the expensive kind: a timeout on a
+      // busy runner is indistinguishable from a real regression until someone
+      // reruns it alone.
+      //
+      // Node-environment packages do not need this. packages/ui's component
+      // tests no longer peak at 703ms idle (first-in-file tests now take about
+      // 2s), so it carries the same value with its own measurements.
+      testTimeout: 15_000,
+    },
+  };
 });

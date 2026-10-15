@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { Button, Dialog, Text } from '@nix/ui';
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { browserStorage } from '../lib/browser-storage';
@@ -59,6 +60,7 @@ export function PwaControls({ compact = false }: { readonly compact?: boolean })
   const [error, setError] = useState<string | null>(null);
   const [installed, setInstalled] = useState(
     () =>
+      Capacitor.isNativePlatform() ||
       window.matchMedia('(display-mode: standalone)').matches ||
       ('standalone' in navigator && navigator.standalone === true),
   );

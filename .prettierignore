@@ -10,3 +10,8 @@ pnpm-lock.yaml
 *.md
 # Byte-exact renderer output; regenerate with UPDATE_GOLDEN=1, never reformat.
 packages/site-render/src/__golden__/
+
+# Capacitor CLI output and native project files use platform tooling.
+**/dist-mobile/
+apps/web/ios/
+apps/web/android/

@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core';
+import { readAppSession, signInNative, signOutAppSession } from './native-session';
 import { stop as stopAudio } from '../audio/audio-store';
 import { clearAudioPositions } from '../lib/audio-positions';
 import { forgetThumbnails } from '../lib/thumbnail-cache';
@@ -94,6 +96,7 @@ export interface AuthContextValue {
    * the deployment names none. Nix never handles credentials; it only points at where they live.
    */
   readonly accountUrl: string | null;
+  readonly pendingSignIn?: { readonly message: string; readonly cancel: () => void } | null;
 }
 
 const browserProfileSchema = z.object({
@@ -215,6 +218,14 @@ function closeOfflineAccess(subject: string | undefined, epoch: string | null): 
 export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   // True until Core answers so the login screen never flashes a false configuration warning while
   // the session gate is still restoring. The response is authoritative before the gate settles.
+  const [nativeProgress, setNativeProgress] = useState<string | null>(null);
+  const nativeController = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      nativeController.current?.abort();
+    },
+    [],
+  );
   const [configured, setConfigured] = useState(true);
   const [accountUrl, setAccountUrl] = useState<string | null>(null);
   const accessTokenRef = useRef<AccessTokenState | null>(null);
@@ -279,7 +290,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       admissionSubject !== null && bodyCacheAccountEpoch(admissionSubject) === admissionEpoch;
     signInStarted();
 
-    void fetch('/auth/session', {
+    void readAppSession({
       method: 'GET',
       credentials: 'include',
       cache: 'no-store',
@@ -488,8 +499,42 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
     () => ({
       isConfigured: configured,
       accountUrl,
+      pendingSignIn:
+        nativeProgress === null
+          ? null
+          : {
+              message: nativeProgress,
+              cancel: () => {
+                nativeController.current?.abort();
+              },
+            },
 
-      signIn: () => {
+      signIn: async () => {
+        if (Capacitor.isNativePlatform()) {
+          nativeController.current?.abort();
+          const controller = new AbortController();
+          nativeController.current = controller;
+          signInStarted();
+          try {
+            await signInNative(setNativeProgress, controller.signal);
+            controller.signal.throwIfAborted();
+            globalThis.location.reload();
+          } catch (error) {
+            signInFailed(
+              controller.signal.aborted
+                ? 'Sign-in cancelled.'
+                : error instanceof Error
+                  ? error.message
+                  : 'Mobile sign-in failed.',
+            );
+          } finally {
+            if (nativeController.current === controller) {
+              nativeController.current = null;
+              setNativeProgress(null);
+            }
+          }
+          return;
+        }
         if (!configured) {
           signInFailed('Interactive sign-in is not configured on this Nix server.');
           return Promise.resolve();
@@ -534,12 +579,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         await unsubscribePushBeforeSignOut(pushToken);
         const draftsCleared = await localClearing;
         try {
-          await fetch('/auth/logout', {
-            method: 'POST',
-            credentials: 'include',
-            cache: 'no-store',
-            headers: { Accept: 'application/json' },
-          });
+          await signOutAppSession();
         } finally {
           accessTokenRef.current = null;
           refreshRef.current = null;
@@ -585,7 +625,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         }
 
         // Renew token and identity together: another tab may have changed the shared BFF cookie.
-        const refresh = fetch('/auth/session', {
+        const refresh = readAppSession({
           method: 'GET',
           credentials: 'include',
           cache: 'no-store',
@@ -649,6 +689,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       },
     }),
     [
+      nativeProgress,
       accountUrl,
       configured,
       closeSession,

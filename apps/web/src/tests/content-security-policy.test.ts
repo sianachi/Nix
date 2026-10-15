@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { mobileContentSecurityPolicy } from '../../vite.config';
 
 // The application's baseline content security policy is written twice - as a meta tag in
 // index.html, so it holds on the Vite dev server and any static preview, and as a header in
@@ -166,5 +167,25 @@ describe('the content security policy', () => {
 
     expect(meta.get('script-src')).toContain(expected);
     expect(caddy.get('script-src')).toContain(expected);
+  });
+});
+
+describe('bundled mobile content policy', () => {
+  it('admits only the configured Core and object-store connections and keeps script execution local', () => {
+    const policy = directives(
+      mobileContentSecurityPolicy('https://nix.example', 'https://files.example'),
+    );
+    expect(policy.get('connect-src')).toEqual([
+      "'self'",
+      'https://nix.example',
+      'wss://nix.example',
+      'https://files.example',
+    ]);
+    expect(policy.get('script-src')).toEqual([
+      "'self'",
+      "'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='",
+    ]);
+    expect(policy.get('frame-src')).toEqual(["'self'", 'blob:']);
+    expect(policy.get('connect-src')).not.toContain('https:');
   });
 });

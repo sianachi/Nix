@@ -93,7 +93,7 @@ public sealed record CliLoginPollRequest(string? DeviceCode);
 /// <summary>A CLI's separately approved refresh credential.</summary>
 public sealed record CliLoginTokenRequest(string? RefreshToken);
 
-/// <summary>The client label; Core limits this flow to nixctl rather than displaying untrusted client names.</summary>
+/// <summary>The client label; Core admits fixed Nix clients rather than displaying untrusted client names.</summary>
 public sealed record CliLoginStartRequest(string? ClientName = null);
 
 /// <summary>The pending outcome or a one-time approved credential delivery.</summary>
