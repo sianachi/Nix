@@ -111,6 +111,150 @@ async function convert(...items: readonly ItemBundle[]): Promise<string> {
 }
 
 describe('the Markdown converter', () => {
+  it('retains readable children of unfamiliar editor blocks and reports the flattened presentation', async () => {
+    const output = await convert(
+      bundle({
+        body: {
+          schemaVersion: 99,
+          prosemirror: doc({ type: 'futureBlock', content: [paragraph(text('Keep future text'))] }),
+        },
+      }),
+    );
+    expect(output).toContain('Keep future text');
+    expect(output).toContain('flattened to readable content');
+  });
+
+  it('escapes active HTML in static source content', async () => {
+    const output = await convert(
+      bundle({ body: { schemaVersion: 1, sheet: { cells: { A1: '<script>alert(1)</script>' } } } }),
+    );
+    expect(output).not.toContain('<script>');
+    expect(output).toContain('alert(1)');
+  });
+
+  it('bounds traversal through unfamiliar nested blocks', async () => {
+    let nested: unknown = paragraph(text('Deep text'));
+    for (let depth = 0; depth < 1000; depth++) nested = { type: 'futureBlock', content: [nested] };
+    const output = await convert(bundle({ body: { schemaVersion: 99, prosemirror: doc(nested) } }));
+    expect(output).toContain('nesting limit');
+  });
+  it.each([
+    'list',
+    'board',
+    'calendar',
+    'gallery',
+    'timeline',
+    'sheet',
+    'form',
+    'query',
+    'interactive_form',
+    'chart',
+    'habit_tracker',
+    'drive',
+    'finance',
+    'checklist',
+    'outline',
+    'matrix',
+    'chat',
+    'future_view',
+  ])('exports %s with readable records and without reserved configuration', async (kind) => {
+    const output = await convert(
+      bundle({
+        views: {
+          default: 'review',
+          views: [
+            {
+              id: 'review',
+              name: 'Review',
+              kind,
+              columns: ['status'],
+              groupBy: 'status',
+              groupOrder: [],
+              dateProperty: null,
+              sortBy: null,
+              sortDescending: false,
+              mode: null,
+              coverProperty: null,
+              endDateProperty: null,
+              cardSize: null,
+            },
+          ],
+        },
+        viewRows: [
+          {
+            id: 'task',
+            title: 'Finish report',
+            properties: {
+              status: 'Open',
+              chat_text: 'Saved reply',
+              $chat_config: { secret: 'Do not show' },
+            },
+          },
+        ],
+        viewRowsTruncated: true,
+      }),
+    );
+    expect(output).toContain(`Review (${kind.replaceAll('_', ' ')})`);
+    expect(output).toContain('Finish report');
+    expect(output).toContain('Saved reply');
+    expect(output).toContain('incomplete');
+    expect(output).not.toContain('Do not show');
+  });
+
+  it('keeps canvas text and spreadsheet cells and formulas', async () => {
+    const output = await convert(
+      bundle({
+        body: {
+          schemaVersion: 1,
+          canvas: {
+            elements: {
+              text: { type: 'text', text: 'Launch plan', x: 10 },
+              gone: { type: 'text', text: 'Deleted shape', isDeleted: true },
+            },
+          },
+        },
+      }),
+      bundle({ body: { schemaVersion: 1, sheet: { cells: { A1: 'Budget', B2: '=SUM(B3:B8)' } } } }),
+    );
+    expect(output).toContain('Launch plan');
+    expect(output).toContain('Budget');
+    expect(output).toContain('=SUM(B3:B8)');
+    expect(output).not.toContain('Deleted shape');
+    expect(output).not.toContain('no text body');
+  });
+
+  it('keeps the last provided row beyond the old drawing ceiling', async () => {
+    const output = await convert(
+      bundle({
+        viewRows: Array.from({ length: 100 }, (_, index) => ({
+          id: String(index),
+          title: `Task ${String(index)}`,
+          properties: {},
+        })),
+        views: {
+          default: 'review',
+          views: [
+            {
+              id: 'review',
+              name: 'Review',
+              kind: 'list',
+              columns: [],
+              groupBy: null,
+              groupOrder: [],
+              dateProperty: null,
+              sortBy: null,
+              sortDescending: false,
+              mode: null,
+              coverProperty: null,
+              endDateProperty: null,
+              cardSize: null,
+            },
+          ],
+        },
+      }),
+    );
+    expect(output).toContain('Task 99');
+  });
   it('writes the item title as a heading and the body beneath it', async () => {
     const output = await convert(bundle());
 

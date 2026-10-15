@@ -663,7 +663,9 @@ export function Conversation({
     {
       label: 'Save as chat note',
       disabled: running || busy || !messages.length,
-      onSelect: () => { setSaveChat(true); },
+      onSelect: () => {
+        setSaveChat(true);
+      },
     },
     {
       label: 'New conversation',
@@ -721,7 +723,13 @@ export function Conversation({
   // Must-fix 5: "Add a status field to this list" only makes sense with an item open; "Summarize
   // this page" the same.
   const suggestions = currentItem
-    ? ['Summarize this page', 'Find my notes about...', 'Add a status field to this list']
+    ? [
+        'Summarize this page',
+        'Turn this note into sensible Nix views',
+        'Write a note from these views',
+        'Find my notes about...',
+        'Add a status field to this list',
+      ]
     : ['Find my notes about...', 'Plan my reading', 'Track a job hunt'];
 
   // Typing `/` at the start of the composer offers the same actions as the empty state's
@@ -783,13 +791,20 @@ export function Conversation({
       className={dialogClass}
     >
       {insight !== null ? (
-        <SaveInsightNote text={insight} onClose={() => { setInsight(null); }} />
+        <SaveInsightNote
+          text={insight}
+          onClose={() => {
+            setInsight(null);
+          }}
+        />
       ) : null}
       {saveChat ? (
         <NewChatNote
           sourceWorkspaceIds={[workspaceId]}
           messages={messages.map((message) => ({ role: message.role, text: message.text }))}
-          onClose={() => { setSaveChat(false); }}
+          onClose={() => {
+            setSaveChat(false);
+          }}
         />
       ) : null}
       <ContextMenu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
@@ -1076,7 +1091,12 @@ export function Conversation({
                         }
                       />
                       {message.role === 'assistant' && idle ? (
-                        <Button variant="ghost" onClick={() => { setInsight(message.text); }}>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setInsight(message.text);
+                          }}
+                        >
                           Save insight as note
                         </Button>
                       ) : null}
