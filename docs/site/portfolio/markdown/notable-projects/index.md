@@ -1,4 +1,0 @@
-# Notable projects
-
-
-
