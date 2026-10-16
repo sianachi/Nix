@@ -132,12 +132,25 @@ func TestWebMIsAudioOnlyWhenItsTracksAreAudioOnly(t *testing.T) {
 	}
 
 	video := append(append([]byte{}, recording...), []byte("\x86V_VP9")...)
-	if metadata := InspectHeader(video, 1024); metadata.MediaType != "application/octet-stream" {
+	if metadata := InspectHeader(video, 1024); metadata.MediaType != "video/webm" || metadata.Preview {
 		t.Fatalf("video metadata = %#v", metadata)
 	}
 
 	matroska := append(append([]byte{}, ebml...), []byte("matroska\x86A_OPUS")...)
 	if metadata := InspectHeader(matroska, 1024); metadata.MediaType != "application/octet-stream" {
 		t.Fatalf("matroska metadata = %#v", metadata)
+	}
+}
+
+func TestMP4IsAVideoUnlessItIsAudioOrAnotherContainer(t *testing.T) {
+	box := func(brand string) []byte {
+		return append([]byte{0, 0, 0, 24, 'f', 't', 'y', 'p'}, []byte(brand+"\x00\x00\x02\x00isomiso2")...)
+	}
+	for brand, want := range map[string]string{
+		"isom": "video/mp4", "mp42": "video/mp4", "M4A ": "audio/mp4", "qt  ": "application/octet-stream",
+	} {
+		if got := InspectHeader(box(brand), 1024).MediaType; got != want {
+			t.Fatalf("brand %q = %q, want %q", brand, got, want)
+		}
 	}
 }
