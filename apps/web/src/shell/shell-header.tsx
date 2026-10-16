@@ -93,10 +93,10 @@ export function ShellHeader({
         type="button"
         onClick={onOpenSearch}
         aria-label="Search"
-        className={`ml-auto hidden shrink-0 lg:flex items-center gap-2 rounded-md bg-surface px-2 py-1.5 text-xs text-muted hover:bg-foreground/7 sm:px-3 ${focusRing}`}
+        className={`ml-auto hidden w-56 shrink-0 lg:flex items-center gap-2 rounded-md bg-surface px-2 py-1.5 text-xs text-muted hover:bg-foreground/7 sm:px-3 ${focusRing}`}
       >
         <Icon icon={Search} size="sm" />
-        <span className="hidden sm:inline">Search</span>
+        <span className="hidden flex-1 text-left sm:inline">Search</span>
         {/* The shortcut is shown rather than hidden in a tooltip: a shortcut nobody can discover
             is a shortcut nobody uses. */}
         <kbd className="hidden font-mono text-2xs text-muted md:inline">

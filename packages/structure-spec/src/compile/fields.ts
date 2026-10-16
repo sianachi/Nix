@@ -44,6 +44,14 @@ export function compileFields(
       type: spec.type,
       options: spec.options ?? [],
       required: spec.required ?? false,
+      ...(spec.choiceSource === undefined
+        ? {}
+        : {
+            choiceSource: {
+              itemId: spec.choiceSource.itemId ?? null,
+              field: spec.choiceSource.field ?? key,
+            },
+          }),
       expression: spec.type === 'formula' ? (spec.formula ?? null) : null,
       aggregate: spec.type === 'rollup' ? (spec.rollup?.aggregate ?? null) : null,
       source: null,

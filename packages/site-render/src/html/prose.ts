@@ -36,6 +36,8 @@ export interface ProseDownload {
   readonly name: string;
   /** For example `PDF, 84 KB`. */
   readonly label: string;
+  /** Shown in a player where a file block stands, not only linked. */
+  readonly isVideo: boolean;
 }
 
 export interface ProseContext {
@@ -326,6 +328,9 @@ export function renderProse(
         return `<p class="nix-item-link"><a href="${escapeHtml(path)}">${escapeHtml(title ?? 'Linked page')}</a></p>`;
       }
       const file = targetId === null ? null : context.download(targetId);
+      if (file?.isVideo === true) {
+        return `<figure class="nix-video"><video controls preload="metadata" src="${escapeHtml(file.url)}"></video><figcaption>${downloadLink(file, file.name, 'nix-file-link')}<span class="nix-file-meta">${escapeHtml(file.label)}</span></figcaption></figure>`;
+      }
       if (file !== null) {
         return `<p class="nix-file">${downloadLink(file, file.name, 'nix-file-link')}<span class="nix-file-meta">${escapeHtml(file.label)}</span></p>`;
       }

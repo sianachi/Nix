@@ -19,11 +19,10 @@ import (
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// toolVersion 10 adds the rule to read the open note, search before answering and cite sources, on top of
-// toolVersion 9's one conversation with note scopes, formula guidance and calculation-only forms.
+// toolVersion 11 adds explicit field edits and dynamic field sources.
 // Older provider threads restart on their next send to receive the current catalog and rules;
 // visible conversation history and its protected-read hold are retained.
-const toolVersion = 10
+const toolVersion = 11
 
 type Request struct {
 	TenantID    string `json:"tenantId"`
@@ -34,22 +33,25 @@ type Request struct {
 	// Provider names the model provider for this pet: "chatgpt" (the Codex app-server, the
 	// default when empty), "anthropic" or "openrouter". ApiKey carries the owner's own key for
 	// the HTTP providers on every request; it lives in memory for the account's life only.
-	Provider        string `json:"provider,omitempty"`
-	ApiKey          string `json:"apiKey,omitempty"`
-	RequestID       string `json:"requestId"`
-	Text            string `json:"text"`
-	Instructions    string `json:"instructions"`
-	ItemID          string `json:"itemId"`
-	ItemTitle       string `json:"itemTitle"`
-	SharedText      string `json:"sharedText"`
-	Model           string `json:"model"`
-	Mode            string `json:"mode"`
-	WorkspaceAccess bool   `json:"workspaceAccess"`
-	RootItemID      string `json:"rootItemId"`
-	ReadOnly        bool   `json:"readOnly"`
-	ToolID          string `json:"toolId"`
-	ToolResult      string `json:"toolResult"`
-	ToolSuccess     bool   `json:"toolSuccess"`
+	Provider           string    `json:"provider,omitempty"`
+	ApiKey             string    `json:"apiKey,omitempty"`
+	RequestID          string    `json:"requestId"`
+	Text               string    `json:"text"`
+	Instructions       string    `json:"instructions"`
+	ItemID             string    `json:"itemId"`
+	ItemTitle          string    `json:"itemTitle"`
+	SharedText         string    `json:"sharedText"`
+	Model              string    `json:"model"`
+	Mode               string    `json:"mode"`
+	WorkspaceAccess    bool      `json:"workspaceAccess"`
+	RootItemID         string    `json:"rootItemId"`
+	ConversationItemID string    `json:"conversationItemId,omitempty"`
+	SourceWorkspaceIDs []string  `json:"sourceWorkspaceIds,omitempty"`
+	EarlierMessages    []Message `json:"earlierMessages,omitempty"`
+	ReadOnly           bool      `json:"readOnly"`
+	ToolID             string    `json:"toolId"`
+	ToolResult         string    `json:"toolResult"`
+	ToolSuccess        bool      `json:"toolSuccess"`
 	// ToolLockedContent says the tool result being reported came from an item under a lock (the
 	// executor's lockedContent). It sets the conversation's LockedRead.
 	ToolLockedContent bool   `json:"toolLockedContent"`
@@ -140,17 +142,21 @@ type Response struct {
 }
 
 type conversation struct {
-	ToolVersion     int        `json:"toolVersion"`
-	ThreadID        string     `json:"threadId"`
-	TurnID          string     `json:"-"`
-	RequestID       string     `json:"requestId"`
-	State           string     `json:"-"`
-	Reason          string     `json:"reason,omitempty"`
-	Messages        []Message  `json:"messages"`
-	WorkspaceAccess bool       `json:"-"`
-	RootItemID      string     `json:"rootItemId,omitempty"`
-	ReadOnly        bool       `json:"readOnly,omitempty"`
-	Tools           []ToolCall `json:"tools"`
+	DurableState       string     `json:"durableState,omitempty"`
+	ToolVersion        int        `json:"toolVersion"`
+	ThreadID           string     `json:"threadId"`
+	TurnID             string     `json:"-"`
+	RequestID          string     `json:"requestId"`
+	State              string     `json:"-"`
+	Reason             string     `json:"reason,omitempty"`
+	Messages           []Message  `json:"messages"`
+	WorkspaceAccess    bool       `json:"-"`
+	RootItemID         string     `json:"rootItemId,omitempty"`
+	ConversationItemID string     `json:"conversationItemId,omitempty"`
+	SourceWorkspaceIDs []string   `json:"sourceWorkspaceIds,omitempty"`
+	actor              Request    `json:"-"`
+	ReadOnly           bool       `json:"readOnly,omitempty"`
+	Tools              []ToolCall `json:"tools"`
 	// Title is the owner's name for this conversation, or the one set at its first send.
 	Title string `json:"title,omitempty"`
 	// LockedRead is set once a protected tool result reaches this conversation. Later turns
@@ -166,8 +172,11 @@ type conversation struct {
 	timing turnTiming
 }
 
+type ConversationToolExecutor func(context.Context, string, string, string, string, json.RawMessage) (string, bool, bool, error)
+
 type account struct {
-	mu sync.Mutex
+	executeConversationTool ConversationToolExecutor
+	mu                      sync.Mutex
 	// provider is the model provider this account speaks to (see Request.Provider).
 	provider string
 	// op serializes state transitions while notifications continue to use mu.
@@ -206,12 +215,13 @@ type account struct {
 }
 
 type Manager struct {
-	mu       sync.Mutex
-	root     string
-	binary   string
-	ctx      context.Context
-	accounts map[string]*account
-	launch   func(context.Context, string, string, string, string, func(string, json.RawMessage)) (Transport, error)
+	executeConversationTool ConversationToolExecutor
+	mu                      sync.Mutex
+	root                    string
+	binary                  string
+	ctx                     context.Context
+	accounts                map[string]*account
+	launch                  func(context.Context, string, string, string, string, func(string, json.RawMessage)) (Transport, error)
 	// chatEffort is handed to each account this manager creates; see the matching account
 	// field.
 	chatEffort string
@@ -222,10 +232,11 @@ type Manager struct {
 // Options configures New. Root and Binary are required; ChatEffort is handed to every account
 // this manager creates (see the matching account field). A nil Logger means slog.Default().
 type Options struct {
-	Root       string
-	Binary     string
-	ChatEffort string
-	Logger     *slog.Logger
+	ExecuteConversationTool ConversationToolExecutor
+	Root                    string
+	Binary                  string
+	ChatEffort              string
+	Logger                  *slog.Logger
 	// Trace turns on the full-content trace and Codex stderr capture (diagnostics.go).
 	Trace bool
 }
@@ -241,7 +252,7 @@ func New(ctx context.Context, opts Options) (*Manager, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	m := &Manager{root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launchProvider, chatEffort: opts.ChatEffort, logger: logger, trace: opts.Trace}
+	m := &Manager{executeConversationTool: opts.ExecuteConversationTool, root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launchProvider, chatEffort: opts.ChatEffort, logger: logger, trace: opts.Trace}
 	if opts.Trace {
 		m.launch = func(ctx context.Context, provider, binary, home, apiKey string, notify func(string, json.RawMessage)) (Transport, error) {
 			if provider != "" && provider != "chatgpt" {
@@ -335,7 +346,7 @@ func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 	if len(m.accounts) >= 4 {
 		return nil, errors.New("companion capacity reached")
 	}
-	a := &account{provider: providerOf(r), home: filepath.Join(m.root, r.TenantID+"-"+r.PrincipalID), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), chatEffort: m.chatEffort, logger: m.logger, trace: m.trace}
+	a := &account{executeConversationTool: m.executeConversationTool, provider: providerOf(r), home: filepath.Join(m.root, r.TenantID+"-"+r.PrincipalID), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), chatEffort: m.chatEffort, logger: m.logger, trace: m.trace}
 	transport, err := m.launch(m.ctx, a.provider, m.binary, a.home, r.ApiKey, a.notify)
 	if err != nil {
 		return nil, err
@@ -356,7 +367,7 @@ func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 512<<10)
 	var request Request
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -460,6 +471,9 @@ var timeZoneName = regexp.MustCompile(`^[A-Za-z0-9_+\-/]{1,64}$`)
 // validTurnContext bounds the date, zone and workspace map a request may carry. Core validates
 // the same limits first; this is the worker refusing to trust its one caller blindly.
 func validTurnContext(r Request) bool {
+	if !validConversationContext(r) {
+		return false
+	}
 	if r.Today != "" {
 		if _, err := time.Parse(time.DateOnly, r.Today); err != nil {
 			return false
@@ -733,6 +747,13 @@ func (a *account) load(key string) error {
 			return errors.New("conversation could not be restored")
 		}
 		c.State = "idle"
+		if c.ConversationItemID != "" {
+			c.State = c.DurableState
+			if c.State == "" || c.State == "thinking" {
+				c.State = "error"
+				c.Reason = "The worker restarted before this response completed. Retry to continue from saved messages."
+			}
+		}
 		for i := range c.Tools {
 			if c.Tools[i].Status == "pending" || c.Tools[i].Status == "claimed" {
 				c.Tools[i].Status = "interrupted"
@@ -756,6 +777,9 @@ func (a *account) saveLocked(key string) error {
 	// A streaming draft (id contains ":draft:") is never durable: encode a copy with
 	// drafts removed rather than the live conversation.
 	persisted := *c
+	if c.ConversationItemID != "" {
+		persisted.DurableState = c.State
+	}
 	persisted.Messages = withoutDrafts(c.Messages)
 	path := filepath.Join(a.home, key+".json")
 	f, err := os.OpenFile(path+".tmp", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
@@ -780,6 +804,11 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	a.mu.Lock()
 	c := a.conversations[key]
 	thread := c.ThreadID
+	if r.ConversationItemID != "" {
+		thread = ""
+		r.earlier = ""
+		c.Messages = append([]Message{}, r.EarlierMessages...)
+	}
 	if c.ToolVersion != toolVersion || c.ReadOnly != r.ReadOnly {
 		thread = ""
 	}
@@ -788,12 +817,12 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 		// is given the visible messages that stay.
 		thread = ""
 		r.earlier = earlierTranscript(c.Messages[:max(replaceIndex(c.Messages, r.ReplaceFromMessageID), 0)])
-	} else if c.ThreadID == "" && len(c.Messages) > 0 {
+	} else if r.ConversationItemID == "" && c.ThreadID == "" && len(c.Messages) > 0 {
 		// A resumed archive has its messages but no provider thread (resume, history.go).
 		r.earlier = earlierTranscript(c.Messages)
 	}
 	a.mu.Unlock()
-	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": instructions() + noteScopeRules(r), "developerInstructions": r.Instructions}
+	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": instructions() + noteScopeRules(r) + conversationScopeRules(r), "developerInstructions": r.Instructions}
 	supportsTools := true
 	if r.Model != "" || a.provider != "" && a.provider != "chatgpt" {
 		if err := a.listModels(ctx); err != nil {
@@ -857,7 +886,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	// A stale, previously used conversation (not a first-ever one, which has no thread
 	// and ToolVersion 0) that is only now catching up to the current tool version had
 	// its thread dropped above; tell the user before replacing their state below.
-	if c.ThreadID != "" && c.ToolVersion != 0 && c.ToolVersion != toolVersion {
+	if r.ConversationItemID == "" && c.ThreadID != "" && c.ToolVersion != 0 && c.ToolVersion != toolVersion {
 		c.Messages = append(c.Messages, Message{ID: r.RequestID + ":tools", Role: "system", Text: "Your pet was updated and starts a fresh conversation."})
 	}
 	if c.ThreadID != "" && c.ReadOnly != r.ReadOnly {
@@ -872,6 +901,11 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.Reason = ""
 	c.WorkspaceAccess = r.WorkspaceAccess
 	c.RootItemID = r.RootItemID
+	c.ConversationItemID = r.ConversationItemID
+	c.SourceWorkspaceIDs = append([]string{}, r.SourceWorkspaceIDs...)
+	c.actor = r
+	c.actor.ApiKey = ""
+	c.actor.EarlierMessages = nil
 	c.ReadOnly = r.ReadOnly
 	c.Tools = []ToolCall{}
 	c.timing.start(r.Model, "")
@@ -935,8 +969,16 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 // it in its history and resending it every turn would only spend context.
 func turnPrompt(r Request, newThread bool) map[string]any {
 	prompt := map[string]any{"message": r.Text, "workspaceId": r.WorkspaceID, "currentItemId": r.ItemID, "currentItemTitle": r.ItemTitle, "sharedText": r.SharedText, "workspaceAccess": r.WorkspaceAccess, "today": r.Today, "timeZone": r.TimeZone}
+	if r.ConversationItemID != "" {
+		prompt["conversationItemId"] = r.ConversationItemID
+		prompt["sourceWorkspaceIds"] = r.SourceWorkspaceIDs
+		prompt["readOnly"] = true
+	}
 	if len(r.Items) > 1 {
 		prompt["sharedItems"] = r.Items
+	}
+	if r.ConversationItemID != "" && newThread {
+		prompt["earlierMessages"] = r.EarlierMessages
 	}
 	if r.earlier != "" && newThread {
 		prompt["earlierMessages"] = r.earlier
@@ -945,7 +987,7 @@ func turnPrompt(r Request, newThread bool) map[string]any {
 		prompt["rootItemId"] = r.RootItemID
 		prompt["readOnly"] = r.ReadOnly
 	}
-	if newThread && r.RootItemID == "" && len(r.WorkspaceMap) > 0 {
+	if newThread && r.ConversationItemID == "" && r.RootItemID == "" && len(r.WorkspaceMap) > 0 {
 		prompt["workspaceMap"] = r.WorkspaceMap
 	}
 	return prompt

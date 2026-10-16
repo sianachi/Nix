@@ -78,7 +78,8 @@ internal sealed record TemplatePropertyDefinitionResponse(
     bool Required,
     string? Expression,
     string? Aggregate,
-    string? Source);
+    string? Source,
+    Nix.Domain.Properties.PropertyChoiceSource? ChoiceSource = null);
 
 internal sealed record TemplatePropertySchemaResponse(
     IReadOnlyList<TemplatePropertyDefinitionResponse> Properties,

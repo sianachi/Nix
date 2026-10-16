@@ -98,3 +98,32 @@ export function compileRecurrence(spec: RecurrenceSpec, context: CompileRecurren
     },
   ];
 }
+
+/** Replace only explicitly named local definitions; preserve inherited and unrelated fields. */
+export function compileEditFields(
+  spec: FieldsSpec,
+  context: {
+    itemId: string;
+    existing: {
+      declared: readonly StructureProperty[];
+      effective: readonly StructureProperty[];
+      inherit: boolean;
+    };
+  },
+): Step[] {
+  const changes = compileFields(spec.fields, { existing: context.existing.effective }).properties;
+  const replacements = new Map(changes.map((property) => [property.key, property]));
+  return [
+    {
+      kind: 'setItemSchema',
+      itemId: context.itemId,
+      changes,
+      schema: {
+        properties: context.existing.declared.map(
+          (property) => replacements.get(property.key) ?? property,
+        ),
+        inherit: context.existing.inherit,
+      },
+    },
+  ];
+}

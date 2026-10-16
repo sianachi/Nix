@@ -31,6 +31,10 @@ import { compareSortKeys, sortKeyFor, type ViewSortKey } from './compare-values'
  */
 
 export const PropertyDefinitionSchema = z.object({
+  choiceSource: z
+    .object({ itemId: z.uuid().nullable(), field: z.string().min(1).max(160) })
+    .nullable()
+    .default(null),
   key: z.string(),
   label: z.string(),
 
@@ -80,9 +84,11 @@ type ParsedPropertyDefinition = z.infer<typeof PropertyDefinitionSchema>;
  */
 export type PropertyDefinition = Omit<
   ParsedPropertyDefinition,
-  'expression' | 'aggregate' | 'source'
+  'expression' | 'aggregate' | 'source' | 'choiceSource'
 > &
-  Partial<Pick<ParsedPropertyDefinition, 'expression' | 'aggregate' | 'source'>>;
+  Partial<Pick<ParsedPropertyDefinition, 'expression' | 'aggregate' | 'source'>> & {
+    choiceSource?: ParsedPropertyDefinition['choiceSource'] | undefined;
+  };
 
 const _propertyDefinitionContract =
   PropertyDefinitionSchema satisfies z.ZodType<PropertyDefinitionContract>;
@@ -547,6 +553,7 @@ export type Item = Omit<ApiItem, RelaxedItemField> & Partial<Pick<ApiItem, Relax
  * fields nothing reads.
  */
 export interface PropertyOwner {
+  readonly parentId?: string | null;
   readonly title: string;
   readonly properties: Readonly<Record<string, unknown>>;
 

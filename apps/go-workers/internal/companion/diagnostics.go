@@ -153,6 +153,9 @@ func conversationKey(r Request) string {
 		return ""
 	}
 	key := r.WorkspaceID + "-" + r.PetID
+	if r.ConversationItemID != "" {
+		return key + "-chat-" + r.ConversationItemID
+	}
 	if r.RootItemID != "" {
 		key += "-note-" + r.RootItemID
 	}

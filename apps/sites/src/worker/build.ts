@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readBundleStream, type ItemBody, type LossEntry } from '@nix/export';
 import {
   MAX_DOWNLOAD_BYTES,
+  MAX_VIDEO_BYTES,
   UnsupportedDownload,
   collectFileReferences,
   downloadType,
@@ -69,6 +70,8 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
   woff2: 'font/woff2',
   pdf: 'application/pdf',
   csv: 'text/csv',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
 };
 
 function sha256(bytes: Uint8Array | string): string {
@@ -192,7 +195,14 @@ export async function buildSite(deps: BuildDeps, context: JobContext): Promise<u
       const isDownload = downloadType(file.mediaType) !== null;
       const bytes = await deps.objects.download(
         file.url,
-        Math.min(file.byteLength, isDownload ? MAX_DOWNLOAD_BYTES : MAX_IMAGE_BYTES),
+        Math.min(
+          file.byteLength,
+          isDownload
+            ? file.mediaType.startsWith('video/')
+              ? MAX_VIDEO_BYTES
+              : MAX_DOWNLOAD_BYTES
+            : MAX_IMAGE_BYTES,
+        ),
         signal,
       );
       if (sha256(bytes) !== file.sha256) {

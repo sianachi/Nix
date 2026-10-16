@@ -15,3 +15,5 @@
 export { renderView, DRAWN_VIEW_KINDS } from './render.js';
 export { ROW_CEILING } from './kinds.js';
 export type { RenderRequest, RenderedView, ViewRow } from './types.js';
+
+export { chatTranscript } from './chat.js';

@@ -89,6 +89,7 @@ export type Step =
       /** Blueprint child is attached to this previously-created blueprint node. */
       parentNodeId?: string;
     }
+  | { kind: 'setItemSchema'; itemId: string; schema: StructureSchema; changes: StructureProperty[] }
   | { kind: 'setNodeSchema'; target: { nodeId: string }; schema: StructureSchema }
   | { kind: 'setNodeProperties'; target: { nodeId: string }; properties: Record<string, unknown> }
   | { kind: 'appendBody'; target: StepTarget; markdown: string }
@@ -108,6 +109,7 @@ const STEP_KIND_KEYS = {
   appendViewSetup: true,
   replaceViewSetup: true,
   createItem: true,
+  setItemSchema: true,
   setNodeSchema: true,
   setNodeProperties: true,
   appendBody: true,

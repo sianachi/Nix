@@ -1,6 +1,7 @@
 /** Workspace administration tools exposed over the Model Context Protocol. */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerConversationMcpTools } from './mcp-conversations.ts';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -1883,6 +1884,7 @@ export async function createWorkspaceMcpServer(
       tool.remove();
     }
   }
+  registerConversationMcpTools(server, session, toolResult);
   return server;
 }
 

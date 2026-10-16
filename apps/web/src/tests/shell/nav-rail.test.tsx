@@ -52,6 +52,7 @@ describe('the navigation rail', () => {
     const items = within(rail()).getAllByRole('listitem');
     expect(items.map((item) => item.textContent)).toEqual([
       'Notes',
+      'My Day',
       'Daily notes',
       'Calendar',
       'Graph',
@@ -173,6 +174,7 @@ describe('the navigation rail', () => {
     await screen.findByRole('heading', { name: 'Calendar' });
 
     const notes = within(rail()).getByRole('link', { name: 'Notes' });
+    const myDay = within(rail()).getByRole('link', { name: 'My Day' });
     const daily = within(rail()).getByRole('link', { name: 'Daily notes' });
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
@@ -189,11 +191,17 @@ describe('the navigation rail', () => {
     expect(daily).toHaveFocus();
 
     await user.keyboard('{ArrowUp}');
+    expect(myDay).toHaveFocus();
+
+    await user.keyboard('{ArrowUp}');
     expect(notes).toHaveFocus();
 
     // Nothing wraps: the ends of the rail are meant to be findable by feel.
     await user.keyboard('{ArrowUp}');
     expect(notes).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(myDay).toHaveFocus();
 
     await user.keyboard('{ArrowDown}');
     expect(daily).toHaveFocus();
@@ -369,10 +377,10 @@ describe('the navigation rail on a narrow screen', () => {
     await userEvent.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
     expect(within(rail()).queryByRole('link')).not.toBeInTheDocument();
     await userEvent.click(within(rail()).getByRole('button', { name: 'Notes' }));
-    // Nine destinations and "New smart list", which the Smart lists section folds into this one menu.
+    // Ten destinations and "New smart list", which the Smart lists section folds into this one menu.
     expect(
       screen.getByRole('menu', { name: 'Workspace pages' }).querySelectorAll('a'),
-    ).toHaveLength(10);
+    ).toHaveLength(11);
     expect(screen.getByRole('menuitem', { name: 'New smart list' })).toHaveAttribute(
       'href',
       '/w/00000000-0000-4000-8000-000000000001/new/query',

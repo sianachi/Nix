@@ -15,10 +15,15 @@ assert_contains() {
 
 web_output=$("$planner" apps/web/src/app.tsx)
 assert_contains "$web_output" 'pnpm --filter @nix/web typecheck'
+assert_contains "$web_output" 'pnpm exec prettier --check apps/web/src/app.tsx'
 assert_contains "$web_output" 'check-frontend-layering.sh'
 
 package_output=$("$planner" packages/ui/src/controls/button.tsx)
 assert_contains "$package_output" 'pnpm --filter @nix/ui test'
+assert_contains "$package_output" 'pnpm exec prettier --check packages/ui/src/controls/button.tsx'
+
+cli_output=$("$planner" apps/cli/src/index.ts)
+assert_contains "$cli_output" 'pnpm exec prettier --check apps/cli/src/index.ts'
 
 sites_output=$("$planner" apps/sites/src/serve/server.ts)
 assert_contains "$sites_output" 'pnpm --filter @nix/sites test'
@@ -65,5 +70,18 @@ touch "$fixture/deploy/compose.prod.yml"
 dirty_output=$(cd "$fixture" && "$planner" --working-tree)
 assert_contains "$dirty_output" 'Changed paths:'
 assert_contains "$dirty_output" 'bash deploy/compose/check.test.sh'
+
+mkdir -p "$fixture/apps/cli/src"
+printf 'export const kept = 1;\n' > "$fixture/apps/cli/src/format file.ts"
+printf 'export const removed = 1;\n' > "$fixture/apps/cli/src/removed.ts"
+git -C "$fixture" add -- 'apps/cli/src/format file.ts' apps/cli/src/removed.ts
+git -C "$fixture" -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m fixture
+rm "$fixture/apps/cli/src/removed.ts"
+printf 'export const kept = 2;\n' > "$fixture/apps/cli/src/format file.ts"
+format_output=$(cd "$fixture" && "$planner" --commands --working-tree)
+assert_contains "$format_output" 'pnpm exec prettier --check apps/cli/src/format\ file.ts'
+case "$format_output" in
+  *'removed.ts'*) echo 'deleted files must not be passed to Prettier' >&2; exit 1 ;;
+esac
 
 echo 'changed-path-checks.test: passed'

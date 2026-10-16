@@ -2,6 +2,7 @@ import type { TemplatePreflight } from '@nix/api-client';
 import {
   compileAddView,
   compileAddFields,
+  compileEditFields,
   compileCreateStructured,
   compileEditForm,
   compileUpdateView,
@@ -42,6 +43,7 @@ export type PreviewToolArgs = Omit<WorkspaceToolArgs, 'operation'> & {
     | 'add_view'
     | 'create_entries'
     | 'add_fields'
+    | 'edit_fields'
     | 'edit_form'
     | 'update_view'
     | 'set_recurrence';
@@ -53,6 +55,7 @@ type SpecOperation =
   | 'add_view'
   | 'create_entries'
   | 'add_fields'
+  | 'edit_fields'
   | 'edit_form'
   | 'update_view'
   | 'set_recurrence';
@@ -61,7 +64,7 @@ type SpecOperation =
 const NEVER_DOES: readonly string[] = [
   'Publish a public link',
   'Delete anything permanently',
-  'Remove or retype a field',
+  'Remove a field',
   'Delete a view',
 ];
 
@@ -101,6 +104,13 @@ function compileSpecSteps(
     case 'create_entries': {
       const spec = entriesSpecSchema.parse(raw);
       return compileEntries(spec, { parentId: args.parentId || null });
+    }
+    case 'edit_fields': {
+      if (!context.existing) throw new Error('edit_fields preview context is missing.');
+      return compileEditFields(fieldsSpecSchema.parse(raw), {
+        itemId: args.itemId,
+        existing: context.existing,
+      });
     }
     case 'add_fields': {
       const spec = fieldsSpecSchema.parse(raw);
@@ -284,6 +294,7 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'create_structured':
     case 'add_view':
     case 'create_entries':
+    case 'edit_fields':
     case 'add_fields':
     case 'edit_form':
     case 'update_view':
@@ -414,6 +425,7 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
     case 'create_structured':
     case 'add_view':
     case 'create_entries':
+    case 'edit_fields':
     case 'add_fields':
     case 'edit_form':
     case 'update_view':

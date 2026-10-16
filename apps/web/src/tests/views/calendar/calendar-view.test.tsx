@@ -7,6 +7,7 @@ import { stubViewport } from '../../stub-viewport';
 import { aView } from '../../view-fixture';
 import { VIEW_GUTTER_BLEED } from '../../../views/core/view-gutter';
 import { CalendarView } from '../../../views/calendar/calendar-view';
+import { ContainerView } from '../../../views/core/container-view';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
 import { aContainer, views } from '../../container-fixture';
 import type { ContainerData } from '../../../views/core/use-container';
@@ -108,6 +109,17 @@ function user() {
 }
 
 describe('the calendar view', () => {
+  it('selects an event from its box without making that box draggable', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const data = containerOf({ children: [KICKOFF] });
+    renderAt(<ContainerView container={data} view={VIEW} onOpen={vi.fn()} />);
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Select Kickoff' });
+    expect(checkbox.closest('[draggable]')).toBeNull();
+    await user.click(checkbox);
+    expect(screen.getByRole('toolbar', { name: 'Selected items' })).toHaveTextContent('1 selected');
+  });
+
   it('collapses a busy day until its accessible overflow control is opened', async () => {
     const busy = Array.from({ length: 8 }, (_unused, index) =>
       itemOf(`busy-${String(index)}`, `Busy ${String(index + 1)}`, { due: '2026-03-17' }),

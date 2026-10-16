@@ -9,6 +9,7 @@ import { AppErrorBoundary } from './components/error-boundary';
 import { DailyNotePage } from './daily-notes/daily-note-page';
 import { BookmarksPage } from './pages/bookmarks-page';
 import { CalendarPage } from './pages/calendar-page';
+import { MyDayPage } from './pages/my-day-page';
 import { EditorPage } from './pages/editor-page';
 import { GraphPage } from './pages/graph-page';
 import { PetPage } from './pages/pet-page';
@@ -23,6 +24,11 @@ import { CreationStudioPage } from './views/wizard/creation-studio-page';
 import { RequireSession } from './shell/require-session';
 import { AppShell } from './shell/app-shell';
 import { LegacyWorkspaceRedirect, WorkspaceGate } from './workspaces/workspace-gate';
+import {
+  WorkspaceGroupPage,
+  WorkspaceGroupsPage,
+  LegacyWorkspaceGroupRedirect,
+} from './workspaces/workspace-group-page';
 import { ArchivedWorkspacesPage } from './workspaces/archived-workspaces-page';
 import { AccessibleWorkspacesProvider } from './workspaces/workspace-context';
 import { PetCompanion } from './pets/pet-companion';
@@ -81,6 +87,8 @@ export function App(): ReactElement {
               <Route element={<RequireSession />}>
                 <Route path="/offline" element={<OfflineNotesPage />} />
                 <Route element={<AccessibleWorkspacesProvider />}>
+                  <Route path="/workspaces/groups" element={<WorkspaceGroupsPage />} />
+                  <Route path="/workspaces/groups/:groupId" element={<WorkspaceGroupPage />} />
                   <Route path="/workspaces/archived" element={<ArchivedWorkspacesPage />} />
                   <Route
                     path="/w/:workspaceId"
@@ -113,6 +121,7 @@ export function App(): ReactElement {
                     address of its own. Not lazy-loaded, unlike the token specimens: the screens
                     are small, and a Suspense boundary around nothing is a fallback that can only
                     ever flash. */}
+                    <Route path="my-day" element={<MyDayPage />} />
                     <Route path="calendar" element={<CalendarPage />} />
                     <Route path="daily" element={<DailyNotePage />} />
                     <Route path="daily/:date" element={<DailyNotePage />} />
@@ -136,6 +145,10 @@ export function App(): ReactElement {
                     lazy-loaded, for the rail destinations' reason - the screen is small, and a
                     Suspense boundary around nothing is a fallback that can only ever flash. */}
                     <Route path="settings" element={<SettingsPage />} />
+                    <Route
+                      path="workspace-groups/:groupId"
+                      element={<LegacyWorkspaceGroupRedirect />}
+                    />
 
                     {/* The caller's own rules in this workspace (ADR-0051 section 6). A place of its
                     own rather than a settings tab: a rule has an editor and a run log, and the

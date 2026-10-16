@@ -1,6 +1,6 @@
 import { nixExtensions } from '@nix/editor-schema';
 import { EditorContent, ReactNodeViewRenderer, useEditor, type Editor } from '@tiptap/react';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -9,7 +9,7 @@ import {
   sha256Hex,
   type MermaidCaptureUpload,
 } from '../../plugins/mermaid-capture';
-import { MermaidCodeBlockView } from '../../plugins/mermaid-js-viewer';
+import { MermaidCodeBlockView } from '../../plugins/mermaid-code-block-view';
 
 const mermaid = vi.hoisted(() => ({ initialize: vi.fn(), render: vi.fn(), parse: vi.fn() }));
 vi.mock('mermaid', () => ({ default: mermaid }));
@@ -162,6 +162,17 @@ describe('Mermaid capture', () => {
       expect.objectContaining({ theme: 'neutral' }),
     );
     expect(codeBlockAttrs().renderFileId).toBeNull();
+  });
+
+  it('keeps non-Mermaid code blocks as plain editor content without loading a diagram', async () => {
+    const upload = vi.fn<MermaidCaptureUpload>().mockResolvedValue('file-1');
+    render(<Harness upload={upload} attrs={{ language: 'typescript' }} />);
+
+    expect(document.querySelector('.node-codeBlock')).toBeVisible();
+    expect(screen.queryByText('Loading Mermaid diagram…')).not.toBeInTheDocument();
+    await settle();
+    expect(upload).not.toHaveBeenCalled();
+    expect(mermaid.initialize).not.toHaveBeenCalled();
   });
 
   it('keeps publishing code when the diagram does not render', async () => {

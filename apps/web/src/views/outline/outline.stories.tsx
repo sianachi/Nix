@@ -6,6 +6,10 @@ import { MemoryRouter } from 'react-router';
 
 import type { Item, View } from '../core/container-model';
 import { storyContainer, storyItem } from '../core/story-container';
+import { ItemSelectionContext } from '../core/item-selection-context';
+import { SelectionBar } from '../core/selection-bar';
+import { useItemSelection } from '../core/use-item-selection';
+import { capabilitiesOf } from '../core/view-capabilities';
 import type { OutlineSource } from './outline-source';
 import { OutlineTree } from './outline-view';
 
@@ -55,12 +59,16 @@ function Example({
   empty = false,
   refuseMoves = false,
   lockedIds = [],
+  selecting = false,
 }: {
   readonly empty?: boolean;
   readonly refuseMoves?: boolean;
   readonly lockedIds?: readonly string[];
+  readonly selecting?: boolean;
 }): ReactNode {
   const [items, setItems] = useState<readonly Item[]>(empty ? [] : START);
+  const selection = useItemSelection();
+  const [shown, setShown] = useState<readonly string[]>([]);
   const latest = useRef(items);
   const commit = (next: readonly Item[]): void => {
     latest.current = next;
@@ -109,7 +117,7 @@ function Example({
     },
   };
 
-  return (
+  const tree = (
     <MemoryRouter>
       <div className="max-w-xl">
         <OutlineTree
@@ -121,9 +129,39 @@ function Example({
       </div>
     </MemoryRouter>
   );
+  if (!selecting) return tree;
+  return (
+    <ItemSelectionContext
+      value={{
+        selected: selection.selected,
+        toggle: selection.toggle,
+        capabilities: capabilitiesOf('outline'),
+        shown,
+        show: setShown,
+      }}
+    >
+      {tree}
+      <SelectionBar count={selection.selected.size} onClear={selection.clear} />
+    </ItemSelectionContext>
+  );
 }
 
 export const Plans = { render: (): ReactNode => <Example /> };
+/** Exercises the shared selection tray so axe sees outline selection controls. */
+export const Selection = {
+  render: (): ReactNode => <Example selecting />,
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    const checkbox = canvas.getByRole('checkbox', { name: 'Select Trip to Lisbon' });
+    checkbox.closest<HTMLElement>('[role="treeitem"]')?.focus();
+    const wrapper = checkbox.parentElement?.parentElement;
+    if (wrapper === null || wrapper === undefined || getComputedStyle(wrapper).opacity !== '1') {
+      throw new Error('Selecting controls must reveal on item focus before an item is selected.');
+    }
+    await userEvent.click(checkbox);
+    canvas.getByRole('toolbar', { name: 'Selected items' });
+  },
+};
 export const NarrowPlans = {
   render: (): ReactNode => (
     <div className="max-w-xs">

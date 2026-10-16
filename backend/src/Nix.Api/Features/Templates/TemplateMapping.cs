@@ -90,7 +90,8 @@ internal static class TemplateMapping
             property.Required,
             property.Expression,
             property.Aggregate is { } aggregate ? RollupAggregates.ToText(aggregate) : null,
-            property.Source);
+            property.Source,
+            property.ChoiceSource);
 
     private static TemplateStoredViewsResponse? Views(string? json)
     {

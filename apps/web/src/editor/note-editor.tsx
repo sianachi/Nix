@@ -83,7 +83,7 @@ import { useInlineAi } from './inline-ai/use-inline-ai';
 import { renderToggleButton, toggleSummaryView } from './toggle-button';
 import { setVimEnabled, vimModeLabel, vimStatusMode, VimMotions } from './vim-motions';
 import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
-import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
+import { MermaidCodeBlockView } from '../plugins/mermaid-code-block-view';
 import {
   MermaidCaptureContext,
   storeCapture,

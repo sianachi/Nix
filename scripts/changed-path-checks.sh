@@ -79,6 +79,7 @@ has_compose=false
 has_catalog=false
 has_rabbitmq=false
 frontend_packages=()
+prettier_paths=()
 
 add_frontend_package() {
   candidate=$1
@@ -102,6 +103,9 @@ for path in "${paths[@]}"; do
       ;;
     backend/*|Nix.slnx|Nix.Frontend/*) has_backend=true ;;
     apps/go-workers/*) has_workers=true ;;
+  esac
+  case "$path" in
+    *.ts|*.tsx|*.mts|*.cts) if [ -f "$path" ]; then prettier_paths+=("$path"); fi ;;
   esac
   case "$path" in
     deploy/rabbitmq/*) has_rabbitmq=true ;;
@@ -157,6 +161,15 @@ if [ "$has_frontend" = true ]; then
     emit './scripts/check-text-primitive.test.sh && ./scripts/check-text-primitive.sh'
     emit './scripts/check-frontend-layering.test.sh && ./scripts/check-frontend-layering.sh'
   fi
+fi
+
+if [ "${#prettier_paths[@]}" -gt 0 ]; then
+  prettier_command='pnpm exec prettier --check'
+  for path in "${prettier_paths[@]}"; do
+    printf -v escaped_path '%q' "$path"
+    prettier_command+=" $escaped_path"
+  done
+  emit "$prettier_command"
 fi
 
 if [ "$has_backend" = true ]; then

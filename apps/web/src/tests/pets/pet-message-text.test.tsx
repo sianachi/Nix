@@ -64,6 +64,21 @@ describe('pet result links', () => {
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(container.querySelector('pre code')).toHaveTextContent(`[Plan](${path})`);
   });
+  it('makes explicitly selected cross-workspace citations navigable in a chat note', () => {
+    const source = '33333333-3333-4333-8333-333333333333';
+    const path = `/w/${source}?item=22222222-2222-4222-8222-222222222222`;
+    render(
+      <MemoryRouter>
+        <PetMessageText
+          workspaceId={workspace}
+          sourceWorkspaceIds={[source]}
+          text={`Source: ${path}`}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Open note' })).toHaveAttribute('href', path);
+  });
+
   it('does not load images or activate external, cross-workspace or deceptive links', () => {
     const otherWorkspace = '33333333-3333-4333-8333-333333333333';
     render(

@@ -10,6 +10,7 @@ import { aView } from '../../view-fixture';
 import { aContainer, views } from '../../container-fixture';
 import type { EffectiveSchema, Item, View } from '../../../views/core/container-model';
 import { TimelineView } from '../../../views/timeline/timeline-view';
+import { ContainerView } from '../../../views/core/container-view';
 import type { ContainerData } from '../../../views/core/use-container';
 
 /**
@@ -206,6 +207,16 @@ afterEach(() => {
 });
 
 describe('drawing the axis', () => {
+  it('selects a timeline item from its checkbox and shows the shared tray', async () => {
+    const user = person();
+    const view = viewOf();
+    const data = aContainer({ schema: SCHEMA, views: views([view]), children: [ROLLOUT] });
+    renderAt(<ContainerView container={data} view={view} onOpen={vi.fn()} />);
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select Rollout' }));
+    expect(screen.getByRole('toolbar', { name: 'Selected items' })).toHaveTextContent('1 selected');
+  });
+
   it('keeps a 3,200-row timeline DOM bounded while exposing the complete row count', () => {
     const many = Array.from({ length: 3_200 }, (_unused, index) =>
       itemOf(`item-${String(index)}`, `Item ${String(index + 1)}`, {

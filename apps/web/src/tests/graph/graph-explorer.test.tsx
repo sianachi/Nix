@@ -371,3 +371,19 @@ it('brings the spatial graph into view after choosing an item from the phone lis
     }
   }
 });
+
+it('reveals only the hovered node label, then hides it when the pointer leaves', () => {
+  const { container } = render(
+    <GraphView workspaceId="hover-labels" nodes={nodes} links={[]} onOpen={vi.fn()} />,
+  );
+  const project = container.querySelector('[data-graph-node="project"]');
+  const plan = container.querySelector('[data-graph-node="plan"]');
+  if (!project || !plan) throw new Error('Graph nodes were not rendered');
+  expect(project.querySelector('text')).toHaveClass('opacity-0');
+  expect(plan.querySelector('text')).toHaveClass('opacity-0');
+  fireEvent.pointerEnter(project);
+  expect(project.querySelector('text')).not.toHaveClass('opacity-0');
+  expect(plan.querySelector('text')).toHaveClass('opacity-0');
+  fireEvent.pointerLeave(project);
+  expect(project.querySelector('text')).toHaveClass('opacity-0');
+});

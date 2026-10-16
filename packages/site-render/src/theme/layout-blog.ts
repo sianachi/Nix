@@ -1,4 +1,5 @@
 import { escapeHtml } from '../html/escape.js';
+import { defaultView } from '../html/views.js';
 import { coverOf, entriesOf, isEntry, type SiteModel, type SiteNode } from '../site-model.js';
 import { crumbs, renderShell } from './shell.js';
 import {
@@ -57,7 +58,7 @@ function home(model: SiteModel): string {
     root.prose === null || root.prose.html.length === 0
       ? ''
       : `<div class="nix-prose nix-section">${root.prose.html}</div>`
-  }${sections}${more}`;
+  }${defaultView(root)?.kind === 'chat' ? `<div class="nix-prose nix-section">${root.viewHtml}</div>` : sections + more}`;
 
   return renderShell(model, {
     path: '/',

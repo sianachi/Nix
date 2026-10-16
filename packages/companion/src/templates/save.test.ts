@@ -492,6 +492,7 @@ describe('save_as_template', () => {
           expression: null,
           aggregate: null,
           source: null,
+          choiceSource: null,
         },
       ],
       declared: [
@@ -504,6 +505,7 @@ describe('save_as_template', () => {
           expression: null,
           aggregate: null,
           source: null,
+          choiceSource: null,
         },
       ],
       inherit: true,

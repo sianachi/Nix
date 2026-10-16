@@ -206,6 +206,12 @@ describe('describeStep', () => {
       title: 'Entry',
       properties: { status: 'A' },
     },
+    setItemSchema: {
+      kind: 'setItemSchema',
+      itemId: 'item-1',
+      schema: { properties: [property], inherit: true },
+      changes: [property],
+    },
     setNodeSchema: {
       kind: 'setNodeSchema',
       target: { nodeId: 'root' },

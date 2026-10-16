@@ -18,7 +18,11 @@ const context: ProseContext = {
       ? { url: '/_nix/assets/def.svg', width: 80, height: 40 }
       : null,
   download: (id) =>
-    id === 'cv' ? { url: '/_nix/files/abc/CV.pdf', name: 'CV.pdf', label: 'PDF, 84 KB' } : null,
+    id === 'cv'
+      ? { url: '/_nix/files/abc/CV.pdf', name: 'CV.pdf', label: 'PDF, 84 KB', isVideo: false }
+      : id === 'clip'
+        ? { url: '/_nix/files/abc/clip.mp4', name: 'clip.mp4', label: 'MP4, 2 MB', isVideo: true }
+        : null,
 };
 
 function render(...content: unknown[]) {
@@ -160,6 +164,16 @@ describe('renderProse', () => {
       '<p class="nix-file"><a class="nix-file-link" href="/_nix/files/abc/CV.pdf">CV.pdf</a><span class="nix-file-meta">PDF, 84 KB</span></p>\n<p>Read <a class="nix-ref" href="/_nix/files/abc/CV.pdf">my CV</a></p>',
     );
     expect(loss).toEqual([]);
+  });
+
+  it('plays an attached video in a player, with the download link under it', () => {
+    const { html } = render({
+      type: 'itemBlock',
+      attrs: { targetId: 'clip', presentation: 'attachment' },
+    });
+    expect(html).toBe(
+      '<figure class="nix-video"><video controls preload="metadata" src="/_nix/files/abc/clip.mp4"></video><figcaption><a class="nix-file-link" href="/_nix/files/abc/clip.mp4">clip.mp4</a><span class="nix-file-meta">MP4, 2 MB</span></figcaption></figure>',
+    );
   });
 
   it('cuts its summary from body blocks, never joining a heading to the next paragraph', () => {

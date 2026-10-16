@@ -260,6 +260,58 @@ function zipEntries(entries: readonly { name: string; bytes: Uint8Array }[]): Pr
 }
 
 describe('the hostile archive reader', () => {
+  it('writes identical bytes across time zones even at a daylight-saving gap', async () => {
+    const originalZone = process.env.TZ;
+    const input = { ...manifest(), exportedAt: '2026-03-08T02:30:00.000Z' };
+    try {
+      process.env.TZ = 'UTC';
+      const utc = await collect(writeArchive({ manifest: input, bundles: bundles() }));
+      process.env.TZ = 'America/New_York';
+      const daylightSavingGap = await collect(
+        writeArchive({ manifest: input, bundles: bundles() }),
+      );
+      expect(daylightSavingGap).toEqual(utc);
+    } finally {
+      if (originalZone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalZone;
+    }
+  });
+
+  it('retains chat views, message text and conversation configuration in a native round trip', async () => {
+    const original = bundle(ROOT);
+    const firstView = original.views?.views[0];
+    if (firstView === undefined) throw new Error('Expected fixture view');
+    const config = JSON.stringify({ sourceWorkspaceIds: [WORKSPACE], petId: 'pet', revision: 1 });
+    const parsed = parseArchiveObject({
+      manifest: manifest(),
+      bundles: [
+        {
+          ...original,
+          properties: { $chat_config: config },
+          views: { default: 'chat', views: [{ ...firstView, id: 'chat', kind: 'chat' }] },
+        },
+        {
+          ...bundle(CHILD),
+          properties: {
+            chat_role: 'assistant',
+            chat_text: 'Full message <&>\nSecond line',
+            chat_created_at: '2026-10-15',
+            chat_author: 'pet',
+          },
+        },
+      ],
+    });
+    async function* messages() {
+      for (const entry of parsed.bundles) yield await Promise.resolve(entry);
+    }
+    const restored = await readArchive(
+      pieces(await collect(writeArchive({ manifest: manifest(), bundles: messages() }))),
+    );
+    expect(restored.bundles).toEqual(parsed.bundles);
+    expect(parsed.bundles[0]?.views?.views[0]?.kind).toBe('chat');
+    expect(parsed.bundles[0]?.properties.$chat_config).toBe(config);
+    expect(parsed.bundles[1]?.properties.chat_text).toBe('Full message <&>\nSecond line');
+  });
   it('preserves item recurrence metadata through expanded service payloads', () => {
     const recurrence = { frequency: 'weekly', interval: 2, daysOfWeek: ['monday'] };
     const parsed = parseArchiveObject({
@@ -364,6 +416,32 @@ describe('the hostile archive reader', () => {
     });
 
     expect(read.bundles[0]?.schema?.properties.map((property) => property.type)).toEqual(everyType);
+  });
+
+  it('preserves dynamic choice sources and refuses malformed sources', () => {
+    const field = {
+      key: 'who',
+      label: 'Who',
+      type: 'multi_select',
+      options: [],
+      required: false,
+      choiceSource: { itemId: '11111111-1111-4111-8111-111111111111', field: 'title' },
+    };
+    const read = (property: unknown) =>
+      parseArchiveObject({
+        manifest: manifest(),
+        bundles: [
+          {
+            ...bundle(ROOT),
+            schema: { properties: [property], declared: [property], inherit: true },
+          },
+          bundle(CHILD),
+        ],
+      });
+    expect(read(field).bundles[0]?.schema?.properties[0]?.choiceSource).toEqual(field.choiceSource);
+    expect(() =>
+      read({ ...field, choiceSource: { ...field.choiceSource, field: '$inside' } }),
+    ).toThrow('invalid choice source');
   });
 
   it.each([ARCHIVE_FORMAT_VERSION, FILE_ARCHIVE_FORMAT_VERSION])(

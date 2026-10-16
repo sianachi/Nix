@@ -64,6 +64,7 @@ export const workspaceToolSchema = z
         'add_view',
         'create_entries',
         'add_fields',
+        'edit_fields',
         'edit_form',
         'update_view',
         'set_recurrence',

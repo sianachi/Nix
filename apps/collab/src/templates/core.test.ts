@@ -213,11 +213,12 @@ describe('the Core template client', () => {
     });
   });
 
-  it('preserves computed metadata in draft and export schemas', async () => {
+  it('preserves computed and choice source metadata in draft and export schemas', async () => {
     const properties = [
       { ...PROPERTY, key: 'total', type: 'formula', expression: '[amount] * 2' },
       { ...PROPERTY, key: 'amount_sum', type: 'rollup', aggregate: 'sum', source: 'amount' },
       { ...PROPERTY, key: 'count', type: 'rollup', aggregate: 'count', source: null },
+      { ...PROPERTY, key: 'who', type: 'select', choiceSource: { itemId: null, field: 'who' } },
     ];
     const schema = { properties, declared: properties.slice(1), inherit: true };
     const draft = await draftClient(draftResponse({ schema })).beginDraft(

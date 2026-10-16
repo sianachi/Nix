@@ -368,32 +368,32 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 // nix_save_as_template offered to every conversation, nix_validate_blueprint removed) must
 // restart any thread that still carries the old schema.
 // TestToolVersionChangeStartsFreshThreadAndKeepsMessages proves the mechanism generically,
-// relative to toolVersion; this pins the constant to 10, so a future bump that forgets to change
+// relative to toolVersion; this pins the constant to 11, so a future bump that forgets to change
 // it would not silently pass either test.
-func TestToolVersionTenRestartsThreads(t *testing.T) {
-	if toolVersion != 10 {
-		t.Fatalf("context and citation rules expect toolVersion 10, got %d", toolVersion)
+func TestToolVersionElevenRestartsThreads(t *testing.T) {
+	if toolVersion != 11 {
+		t.Fatalf("field editing tools expect toolVersion 11, got %d", toolVersion)
 	}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
 	f := &fakeTransport{}
 	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
-	a.conversations[key] = &conversation{ToolVersion: 7, LockedRead: true, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi"}}}
+	a.conversations[key] = &conversation{ToolVersion: 10, LockedRead: true, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi"}}}
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls[0] != "thread/start" {
-		t.Fatalf("a ToolVersion 7 conversation should start a fresh thread on the version 10 bump: %v", f.calls)
+		t.Fatalf("a ToolVersion 10 conversation should start a fresh thread on the version 11 bump: %v", f.calls)
 	}
 	got := a.snapshot(key)
 	if !got.LockedRead {
 		t.Fatal("tool migration cleared the visible conversation read hold")
 	}
 	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
-		t.Fatalf("no system notice appended on the version 10 bump: %+v", got.Messages)
+		t.Fatalf("no system notice appended on the version 11 bump: %+v", got.Messages)
 	}
-	if a.conversations[key].ToolVersion != 10 {
-		t.Fatalf("conversation not recorded at tool version 10: %d", a.conversations[key].ToolVersion)
+	if a.conversations[key].ToolVersion != 11 {
+		t.Fatalf("conversation not recorded at tool version 11: %d", a.conversations[key].ToolVersion)
 	}
 }
 

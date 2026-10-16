@@ -60,6 +60,7 @@ public sealed record CreateStructuredItem(
 
 public sealed class CreateStructuredItemHandler : ICommandHandler<CreateStructuredItem, Item>
 {
+    private readonly ISchemaResolver _schemas;
     private readonly IItemTree _tree;
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
@@ -69,8 +70,11 @@ public sealed class CreateStructuredItemHandler : ICommandHandler<CreateStructur
         IItemTree tree,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
-        TimeProvider clock)
+        TimeProvider clock,
+        ISchemaResolver schemas)
     {
+        ArgumentNullException.ThrowIfNull(schemas);
+        _schemas = schemas;
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(session);
@@ -128,6 +132,15 @@ public sealed class CreateStructuredItemHandler : ICommandHandler<CreateStructur
         if (SetContainerViewsHandler.Validate(command.Views, command.DefaultView) is { } viewError)
         {
             return Result.Failure<Item>(viewError);
+        }
+
+        if (command.Views.Any(view => view.Kind == ViewKind.Chat))
+        {
+            var inherited = await _schemas.ResolveForChildrenAsync(command.ParentId, cancellationToken).ConfigureAwait(false);
+            if (ChatSchema.Refuse(PropertySchema.Merge(inherited, command.Schema)) is { } chatReason)
+            {
+                return Result.Failure<Item>(PropertyErrors.InvalidViews(chatReason));
+            }
         }
 
         var schemaJson = command.Schema.IsEmpty ? null : PropertySchemaJson.Write(command.Schema);
@@ -248,6 +261,12 @@ public sealed class AppendViewSetupHandler : ICommandHandler<AppendViewSetup, It
         if (SetItemSchemaHandler.Validate(mergedSchema) is { } schemaError)
         {
             return Result.Failure<Item>(schemaError);
+        }
+
+        if (storedViews.Views.Concat(command.Views).Any(view => view.Kind == ViewKind.Chat)
+            && ChatSchema.Refuse(effective with { Properties = [.. effective.Properties, .. command.Properties] }) is { } chatReason)
+        {
+            return Result.Failure<Item>(PropertyErrors.InvalidViews(chatReason));
         }
 
         var schemaJson = mergedSchema.IsEmpty ? null : PropertySchemaJson.Write(mergedSchema);
@@ -433,6 +452,15 @@ public sealed class ReplaceViewSetupHandler : ICommandHandler<ReplaceViewSetup, 
         if (SetContainerViewsHandler.Validate(nextViews, nextDefault, stored.HideDocument) is { } viewError)
         {
             return Result.Failure<Item>(viewError);
+        }
+
+        if (nextViews.Any(view => view.Kind == ViewKind.Chat))
+        {
+            var inherited = await _schemas.ResolveForChildrenAsync(item.ParentId, cancellationToken).ConfigureAwait(false);
+            if (ChatSchema.Refuse(PropertySchema.Merge(inherited, nextSchema)) is { } chatReason)
+            {
+                return Result.Failure<Item>(PropertyErrors.InvalidViews(chatReason));
+            }
         }
 
         var schemaJson = nextSchema.IsEmpty ? null : PropertySchemaJson.Write(nextSchema);

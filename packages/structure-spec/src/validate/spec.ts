@@ -33,6 +33,7 @@ export type SpecOperation =
   | 'create_entries'
   | 'apply_template'
   | 'add_fields'
+  | 'edit_fields'
   | 'edit_form'
   | 'set_recurrence';
 
@@ -562,6 +563,8 @@ export function validateSpec(
       return validateCreateEntries(spec, context);
     case 'apply_template':
       return validateApplyTemplate(spec);
+    case 'edit_fields':
+      return validateEditFields(spec, context);
     case 'add_fields':
       return validateAddFields(spec, context);
     case 'edit_form':
@@ -569,4 +572,46 @@ export function validateSpec(
     case 'set_recurrence':
       return validateSetRecurrence(spec, context);
   }
+}
+
+function validateEditFields(raw: unknown, context: ValidationContext): ValidationReport {
+  const stats = statsFromRaw(raw);
+  const parsed = fieldsSpecSchema.safeParse(raw);
+  if (!parsed.success) return report(zodIssuesToProblems(parsed.error), stats);
+  const problems: Problem[] = [];
+  const declared = context.existing?.declared ?? [];
+  for (const [index, field] of parsed.data.fields.entries()) {
+    if (!field.key || !declared.some((property) => property.key === field.key)) {
+      problems.push({
+        path: `fields[${String(index)}].key`,
+        code: 'unknown',
+        message:
+          'Use the exact key of a field declared on this item. Inherited fields must be edited at their source.',
+      });
+    }
+  }
+  const changes = compileFieldSpecs(
+    parsed.data.fields,
+    mergeProperties(context.inheritedFields, context.existing?.declared ?? []),
+    'fields',
+    problems,
+  );
+  if (new Set(changes.map((field) => field.key)).size !== changes.length)
+    problems.push({
+      path: 'fields',
+      code: 'duplicate',
+      message: 'Each field may be edited only once.',
+    });
+  const effective = mergeProperties(
+    mergeProperties(context.inheritedFields, context.existing?.declared ?? []),
+    changes,
+  );
+  const refusal = refuseSchema({
+    properties: effective,
+    inherit: context.existing?.inherit ?? true,
+  });
+  if (refusal) problems.push({ path: 'fields', code: 'schema', message: refusal });
+  pushFormulaProblems(changes, effective, problems);
+  pushViewProblems(context.existing?.views ?? [], effective, problems);
+  return report(problems, stats);
 }

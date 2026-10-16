@@ -62,6 +62,28 @@ public sealed class SiteDownloadFileTests(NixPostgresFixture fixture) : IAsyncLi
         Assert.Null(found[5]);
     }
 
+    [Fact]
+    public async Task Mp4_and_webm_videos_within_the_cap_are_eligible_and_others_are_not()
+    {
+        var mp4 = await _scenario.CreateFileAsync("clip.mp4", "video/mp4", new string('1', 64), byteLength: SiteRules.MaximumVideoBytes, parent: Root);
+        var webm = await _scenario.CreateFileAsync("clip.webm", "video/webm", new string('2', 64), parent: Root);
+        var oversized = await _scenario.CreateFileAsync("huge.mp4", "video/mp4", new string('3', 64), byteLength: SiteRules.MaximumVideoBytes + 1, parent: Root);
+        var other = await _scenario.CreateFileAsync("clip.mov", "video/quicktime", new string('4', 64), parent: Root);
+
+        var found = await _scenario.ReadAsync(SiteScenario.Manager, async unit => new[]
+        {
+            await FindFileAsync(unit, mp4),
+            await FindFileAsync(unit, webm),
+            await FindFileAsync(unit, oversized),
+            await FindFileAsync(unit, other),
+        });
+
+        Assert.Equal("video/mp4", found[0]?.MediaType);
+        Assert.Equal("video/webm", found[1]?.MediaType);
+        Assert.Null(found[2]);
+        Assert.Null(found[3]);
+    }
+
     private async Task<SiteFileCandidate?> FindFileAsync(NixUnitOfWork unit, ItemId file)
     {
         var store = unit.Resolve<ISiteStore>();

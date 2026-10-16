@@ -267,7 +267,7 @@ internal static class SiteWorkerEndpoints
             || request.TotalBytes is < 0 or > SiteRules.MaximumBuildBytes
             || !SiteRules.IsSha256(request.BuildIndexSha256)
             || request.Loss is null
-            || request.Loss.Count > 128
+            || request.Loss.Count > SiteRules.MaximumLossEntries
             || request.Loss.Any(entry => string.IsNullOrWhiteSpace(entry) || entry.Length > 500 || entry.Any(char.IsControl)))
         {
             return Problem(context, 422, SiteErrors.InvalidCode, "The seal request is malformed.");
@@ -294,7 +294,8 @@ internal static class SiteWorkerEndpoints
         build.FileCount = objects.Count;
         build.TotalBytes = request.TotalBytes;
         build.BuildIndexSha256 = request.BuildIndexSha256;
-        build.Loss = JsonSerializer.Serialize(request.Loss.ToArray(), SitesJsonContext.Default.StringArray);
+        var queuedLoss = JsonSerializer.Deserialize(build.Loss, SitesJsonContext.Default.StringArray) ?? [];
+        build.Loss = JsonSerializer.Serialize(MergeLosses(queuedLoss, request.Loss), SitesJsonContext.Default.StringArray);
         var activation = new SiteActivation
         {
             TenantId = build.TenantId,
@@ -311,6 +312,18 @@ internal static class SiteWorkerEndpoints
         return await services.Sites.TrySaveActivationAsync(context.RequestAborted).ConfigureAwait(false)
             ? TypedResults.Ok(new SiteSealResponse(Writes(services, activation)))
             : Problem(context, 409, SiteErrors.BuildInProgressCode, "Another change of what is live took this generation. Retry the seal.");
+    }
+
+    private static string[] MergeLosses(string[] queued, IReadOnlyList<string> reported)
+    {
+        var total = queued.Length + reported.Count;
+        var merged = queued.Concat(reported).Take(SiteRules.MaximumLossEntries).ToList();
+        if (total > merged.Count)
+        {
+            merged[^1] = $"omitted: {total - merged.Count + 1} publishing notes were not listed.";
+        }
+
+        return [.. merged];
     }
 
     private static async Task<IResult> PostActivated(
@@ -545,12 +558,13 @@ internal static class SiteWorkerEndpoints
         {
             if (entry.Kind == SiteRules.AssetObject)
             {
-                if (extension is not ("png" or "jpg" or "webp" or "svg" or "pdf" or "txt" or "csv")
+                if (extension is not ("png" or "jpg" or "webp" or "svg" or "pdf" or "txt" or "csv" or "mp4" or "webm")
                     || entry.Path != entry.Sha256 + "." + extension
                     || entry.ByteLength > extension switch
                     {
                         "svg" => SiteRules.MaximumDiagramBytes,
                         "pdf" or "txt" or "csv" => SiteRules.MaximumDownloadBytes,
+                        "mp4" or "webm" => SiteRules.MaximumVideoBytes,
                         _ => SiteRules.MaximumImageBytes,
                     })
                 {
@@ -591,6 +605,8 @@ internal static class SiteWorkerEndpoints
         "woff2" => "font/woff2",
         "pdf" => "application/pdf",
         "csv" => "text/csv",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
         _ => null,
     };
 

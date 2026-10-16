@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Nix.Domain.Properties;
 
 namespace Nix.Features.Properties;
 
@@ -55,7 +56,8 @@ internal sealed record PropertyDefinitionResponse(
     bool Required,
     string? Expression,
     string? Aggregate,
-    string? Source);
+    string? Source,
+    PropertyChoiceSource? ChoiceSource = null);
 
 /// <summary>
 /// The property schema in force at an item.
@@ -117,7 +119,8 @@ internal sealed record PropertyDefinitionRequest(
     bool Required,
     string? Expression = null,
     string? Aggregate = null,
-    string? Source = null);
+    string? Source = null,
+    PropertyChoiceSource? ChoiceSource = null);
 
 /// <summary>
 /// Writes property values onto an item.

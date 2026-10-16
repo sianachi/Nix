@@ -1096,3 +1096,17 @@ describe('long text edits', () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 });
+
+it('keeps a scalar value visible after changing a text field to multi-select', () => {
+  const onCommit = vi.fn();
+  render(
+    <PropertyInput
+      item={itemWith({ who: 'Alex' })}
+      property={propertyOf({ key: 'who', label: 'Who', type: 'multi_select', options: ['Sam'] })}
+      onCommit={onCommit}
+    />,
+  );
+  expect(screen.getByRole('checkbox', { name: 'Alex' })).toBeChecked();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Sam' }));
+  expect(onCommit).toHaveBeenCalledWith(['Alex', 'Sam']);
+});

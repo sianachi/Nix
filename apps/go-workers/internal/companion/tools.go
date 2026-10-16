@@ -66,6 +66,7 @@ type toolTransport interface {
 // nix_<operation> call's native-JSON arguments.
 type flatToolArgs struct {
 	Operation      string `json:"operation"`
+	WorkspaceID    string `json:"workspaceId,omitempty"`
 	ItemID         string `json:"itemId"`
 	ParentID       string `json:"parentId"`
 	Title          string `json:"title"`
@@ -121,6 +122,7 @@ var toolArgSpecs = map[string]map[string]argMapping{
 	"add_view":          {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
 	"update_view":       {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
 	"create_entries":    {"parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
+	"edit_fields":       {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
 	"add_fields":        {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
 	"edit_form":         {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
 	"set_recurrence":    {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
@@ -170,6 +172,15 @@ func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string)
 				return nil, fmt.Sprintf("%s.%s could not be processed.", tool, key)
 			}
 		case argObjectJSON:
+			// Some providers encode an object parameter as JSON text. Normalize that encoding
+			// before the same shape, size, depth and operation validation used for native objects.
+			var encoded string
+			if json.Unmarshal(value, &encoded) == nil {
+				if !json.Valid([]byte(encoded)) {
+					return nil, fmt.Sprintf("%s.%s must be a JSON object.", tool, key)
+				}
+				value = json.RawMessage(encoded)
+			}
 			objectDecoder := json.NewDecoder(strings.NewReader(string(value)))
 			objectDecoder.UseNumber()
 			var object map[string]any
@@ -372,7 +383,7 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 			a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", truncateUTF8(p.Tool, 80), "reason", "not offered"}, map[string]any{"arguments": traceRaw(p.Arguments)})
 			return false
 		}
-		flatArguments, reason := flattenToolCall(p.Tool, p.Arguments)
+		flatArguments, reason := flattenConversationToolCall(c, p.Tool, p.Arguments)
 		if reason != "" {
 			// The reason can quote a key the model invented, so the shared log gets a fixed code;
 			// the model and the trace get the full sentence.
@@ -393,6 +404,13 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 			a.record(key, slog.LevelWarn, "tool.refused", []any{"tool", p.Tool, "stage", "validation", "reason", reason}, map[string]any{"arguments": traceRaw(p.Arguments), "flat": traceRaw(flatArguments)})
 			if peer, ok := a.transport.(toolTransport); ok {
 				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
+				return true
+			}
+			return false
+		}
+		if reason := conversationToolRefusal(c, flatArguments); reason != "" {
+			if peer, ok := a.transport.(toolTransport); ok {
+				_ = peer.Reply(id, toolOutput(false, reason))
 				return true
 			}
 			return false
@@ -454,6 +472,13 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		}
 		c.Tools = append(c.Tools, ToolCall{ID: p.CallID, Arguments: string(flatArguments), Status: "pending", rpcID: append(json.RawMessage{}, id...), pendingSince: time.Now()})
 		c.timing.toolRecorded()
+		if c.ConversationItemID != "" {
+			t := &c.Tools[len(c.Tools)-1]
+			t.Status = "claimed"
+			t.ClaimID = c.RequestID
+			t.claimedAt = time.Now()
+			go a.executeDurableTool(key, c.actor, t.ID, append(json.RawMessage{}, flatArguments...))
+		}
 		if a.saveLocked(key) != nil {
 			c.Tools = c.Tools[:len(c.Tools)-1]
 			a.record(key, slog.LevelError, "tool.rejected", []any{"tool", p.Tool, "reason", "conversation could not be saved"}, nil)
@@ -527,14 +552,15 @@ func modelParamForItemID(operation string) string {
 
 func validateToolArguments(raw json.RawMessage) string {
 	var p struct {
-		Operation  string `json:"operation"`
-		ItemID     string `json:"itemId"`
-		ParentID   string `json:"parentId"`
-		Title      string `json:"title"`
-		Markdown   string `json:"markdown"`
-		Query      string `json:"query"`
-		Properties string `json:"propertiesJson"`
-		Spec       string `json:"specJson"`
+		Operation   string `json:"operation"`
+		WorkspaceID string `json:"workspaceId,omitempty"`
+		ItemID      string `json:"itemId"`
+		ParentID    string `json:"parentId"`
+		Title       string `json:"title"`
+		Markdown    string `json:"markdown"`
+		Query       string `json:"query"`
+		Properties  string `json:"propertiesJson"`
+		Spec        string `json:"specJson"`
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
@@ -631,12 +657,12 @@ func validateToolArguments(raw json.RawMessage) string {
 		if !isJSONObject(p.Spec) {
 			return "nix_create_entries requires spec (a JSON object)."
 		}
-	case "add_fields":
+	case "add_fields", "edit_fields":
 		if !uuid.MatchString(p.ItemID) {
-			return fmt.Sprintf("nix_add_fields requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", modelParamForItemID(p.Operation))
+			return fmt.Sprintf("nix_%s requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", p.Operation, modelParamForItemID(p.Operation))
 		}
 		if !isJSONObject(p.Spec) {
-			return "nix_add_fields requires spec (a JSON object)."
+			return fmt.Sprintf("nix_%s requires spec (a JSON object).", p.Operation)
 		}
 	case "edit_form":
 		if !uuid.MatchString(p.ItemID) {

@@ -10,7 +10,7 @@ import { extname, join, resolve, sep } from 'node:path';
  */
 
 export const SITE_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /**
  * A captured diagram's own policy: its inline `<style>` may apply, and nothing may run or load,
@@ -25,12 +25,14 @@ export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; frame-anc
 export const PDF_CSP = "sandbox; default-src 'none'; frame-ancestors 'none'";
 
 const DOWNLOAD_PATH =
-  /^\/_nix\/files\/[0-9a-f]{64}\/([A-Za-z0-9][A-Za-z0-9_-]{0,79}\.(pdf|txt|csv))$/;
+  /^\/_nix\/files\/[0-9a-f]{64}\/([A-Za-z0-9][A-Za-z0-9_-]{0,79}\.(pdf|txt|csv|mp4|webm))$/;
 
 const DOWNLOAD_TYPES: Readonly<Record<string, string>> = {
   pdf: 'application/pdf',
   txt: 'text/plain; charset=utf-8',
   csv: 'text/csv; charset=utf-8',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
 };
 
 /**

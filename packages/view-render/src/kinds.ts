@@ -1,4 +1,5 @@
 import type { RenderRequest, ViewRow } from './types.js';
+import { chatTranscript } from './chat.js';
 import { line, rect, text, truncate } from './svg.js';
 import { labelOf, rawOf, valueOf } from './values.js';
 
@@ -583,4 +584,43 @@ function dayGap(from: string, to: string): number {
   }
 
   return Math.max(0, (end - start) / 86_400_000);
+}
+
+/** A readable transcript. Drawings report their row ceiling; message text is never truncated. */
+export function drawChat(request: RenderRequest): Drawing {
+  const { rows, palette, width } = request;
+  const parts: string[] = [];
+  const messages = chatTranscript(rows.map((row) => row.properties));
+  const capacity = Math.max(1, Math.floor(width / (9 * 0.55)));
+  let y = 14;
+  for (const message of messages.slice(0, ROW_CEILING)) {
+    const heading = [message.role, message.createdAt].filter(Boolean).join(' · ');
+    parts.push(text(heading, { x: 0, y, size: 9, fill: palette.ink, bold: true }));
+    y += 14;
+    for (const paragraph of message.text.split('\n')) {
+      const characters = Array.from(paragraph);
+      for (let offset = 0; offset < Math.max(characters.length, 1); offset += capacity) {
+        parts.push(
+          text(characters.slice(offset, offset + capacity).join(''), {
+            x: 0,
+            y,
+            size: 9,
+            fill: palette.ink,
+          }),
+        );
+        y += 12;
+      }
+    }
+    y += 12;
+  }
+  return {
+    body: parts.join(''),
+    height: y,
+    notes:
+      messages.length > ROW_CEILING
+        ? [
+            `Only the first ${String(ROW_CEILING)} of ${String(messages.length)} messages are drawn. The native archive retains all message children.`,
+          ]
+        : [],
+  };
 }

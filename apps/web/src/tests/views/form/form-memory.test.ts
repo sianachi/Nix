@@ -38,6 +38,14 @@ describe('form memory', () => {
     expect(usualValues('elsewhere', 'form', [CATEGORY]).size).toBe(0);
   });
 
+  it('never persists custom values from dynamic choice fields', () => {
+    const dynamic = { ...CATEGORY, choiceSource: { itemId: null, field: CATEGORY.key } };
+    rememberSubmission('w', 'form', [dynamic], { [dynamic.key]: 'A private name' });
+    rememberSubmission('w', 'form', [dynamic], { [dynamic.key]: 'A private name' });
+    expect(usualValues('w', 'form', [dynamic]).size).toBe(0);
+    expect(localStorage.length).toBe(0);
+  });
+
   it('never remembers free text', () => {
     rememberSubmission('w', 'form', [NOTES], { notes: 'private thought' });
     rememberSubmission('w', 'form', [NOTES], { notes: 'private thought' });
