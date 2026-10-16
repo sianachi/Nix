@@ -206,6 +206,10 @@ export type {
   TemplateSummary,
   UnplaceableCalendar,
   WorkspaceCalendar,
+  MyDay,
+  MyDayCoverageCode,
+  MyDayHabitRow,
+  MyDayTaskRow,
   WorkspaceGraph,
   CompleteOccurrenceResult,
   RecurrenceFreq,
@@ -391,6 +395,7 @@ export type {
   WorkspaceQueryMatch,
 } from './resources/workspace-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
+export * as myDay from './resources/my-day.js';
 export * as workspaceGraph from './resources/workspace-graph.js';
 export * as templates from './resources/templates.js';
 export * as templateImports from './resources/template-imports.js';

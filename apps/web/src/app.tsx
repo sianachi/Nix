@@ -9,6 +9,7 @@ import { AppErrorBoundary } from './components/error-boundary';
 import { DailyNotePage } from './daily-notes/daily-note-page';
 import { BookmarksPage } from './pages/bookmarks-page';
 import { CalendarPage } from './pages/calendar-page';
+import { MyDayPage } from './pages/my-day-page';
 import { EditorPage } from './pages/editor-page';
 import { GraphPage } from './pages/graph-page';
 import { PetPage } from './pages/pet-page';
@@ -120,6 +121,7 @@ export function App(): ReactElement {
                     address of its own. Not lazy-loaded, unlike the token specimens: the screens
                     are small, and a Suspense boundary around nothing is a fallback that can only
                     ever flash. */}
+                    <Route path="my-day" element={<MyDayPage />} />
                     <Route path="calendar" element={<CalendarPage />} />
                     <Route path="daily" element={<DailyNotePage />} />
                     <Route path="daily/:date" element={<DailyNotePage />} />
