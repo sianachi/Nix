@@ -139,6 +139,8 @@ export interface StubOptions {
   readonly mcpUrl?: string | null;
   /** Whether `/me` says the caller is a deployment operator (may read backup status). */
   readonly operator?: boolean;
+  /** Whether `/me` says the caller may decide first publishes of sites. */
+  readonly siteApprover?: boolean;
   /** The runs `GET /api/v1/admin/backups` returns, newest first. */
   readonly backupRuns?: readonly Record<string, unknown>[];
   /** Makes the backups read fail. */
@@ -579,6 +581,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     siteFeature = false,
     mcpUrl = null,
     operator = false,
+    siteApprover = false,
     backupRuns = [],
     backupsFail = false,
     displayName = 'Test Person',
@@ -1713,7 +1716,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 displayName,
                 email,
                 isTenantAdministrator,
-                features: { sites: siteFeature, mcpUrl, operator },
+                features: { sites: siteFeature, mcpUrl, operator, siteApprover },
               }),
         );
       }

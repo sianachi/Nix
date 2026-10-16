@@ -458,6 +458,8 @@ export * as companionBodies from './resources/companion-bodies.js';
 export * as backups from './resources/backups.js';
 export type { BackupRun, BackupRunList, BackupStep } from './schemas/backups.js';
 export * as sites from './resources/sites.js';
+export * as tenantRoles from './resources/tenant-roles.js';
+export type { TenantRoleGrant } from './schemas/tenant-roles.js';
 export type {
   CreateSiteInput,
   PublishSiteInput,
@@ -478,6 +480,8 @@ export type {
   SiteLayout,
   SiteList,
   SiteNavLink,
+  SiteOperator,
+  SiteOperatorList,
   SitePage,
   SitePageList,
   SiteRepublishMode,

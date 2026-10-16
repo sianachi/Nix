@@ -16,7 +16,7 @@ import {
   usePublishingPreference,
   useSitesVisible,
 } from '../../../settings/publishing/publishing-preference';
-import { CapabilitiesProvider } from '../../../session/capabilities-context';
+import { CapabilitiesProvider, NO_CAPABILITIES } from '../../../session/capabilities-context';
 import {
   readChoiceOrderSetting,
   readViewSuggestionSetting,
@@ -116,7 +116,7 @@ describe('publishing', () => {
 
   it('is not an editor preference; it has its own section', () => {
     render(
-      <CapabilitiesProvider value={{ sites: true, mcpUrl: null, operator: false }}>
+      <CapabilitiesProvider value={{ ...NO_CAPABILITIES, sites: true }}>
         <EditorPreferencesSection />
       </CapabilitiesProvider>,
     );
@@ -127,7 +127,7 @@ describe('publishing', () => {
   it('is off by default, and switching it on and off shows and hides the site entry', async () => {
     const user = userEvent.setup();
     render(
-      <CapabilitiesProvider value={{ sites: true, mcpUrl: null, operator: false }}>
+      <CapabilitiesProvider value={{ ...NO_CAPABILITIES, sites: true }}>
         <PublishingSection />
         <SiteEntryProbe />
       </CapabilitiesProvider>,
@@ -148,7 +148,7 @@ describe('publishing', () => {
   it('shows nothing when publishing is on but the deployment has no sites', () => {
     usePublishingPreference.setState({ enabled: true });
     render(
-      <CapabilitiesProvider value={{ sites: false, mcpUrl: null, operator: false }}>
+      <CapabilitiesProvider value={NO_CAPABILITIES}>
         <SiteEntryProbe />
       </CapabilitiesProvider>,
     );

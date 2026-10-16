@@ -10,7 +10,7 @@ import { PwaControls } from '../pwa/pwa-controls';
 import { OfflineStatus } from '../offline/offline-status';
 import { useRememberLocation } from '../pwa/use-remember-location';
 import { focusRing } from '@nix/ui';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
@@ -116,6 +116,16 @@ export function AppShell(): ReactNode {
   const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
   const principal = useCurrentPrincipal();
+  const capabilities = useMemo(
+    () =>
+      principal.principal === null
+        ? null
+        : {
+            ...principal.principal.features,
+            tenantAdministrator: principal.principal.isTenantAdministrator,
+          },
+    [principal.principal],
+  );
   useUiSettingsSync(principal.principal?.id);
   const { selectedId } = useSelectedItem();
   const { panes } = usePanes();
@@ -694,7 +704,7 @@ export function AppShell(): ReactNode {
                   catalog response cannot leave a mounted screen holding the initial capability
                   snapshot. */}
                 <TemplateLibraryProvider library={templateLibrary}>
-                  <CapabilitiesProvider value={principal.principal?.features}>
+                  <CapabilitiesProvider value={capabilities}>
                     <ItemDialogProvider tree={tree}>
                       <Outlet context={{ tree, selectedId } satisfies ShellContext} />
                     </ItemDialogProvider>

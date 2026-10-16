@@ -3,6 +3,8 @@ import { type ReactElement } from 'react';
 
 import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens/access-tokens-section';
+import { AdministratorsSection } from '../settings/administrators/administrators-section';
+import { SiteApprovalsSection } from '../settings/site-approvals/site-approvals-section';
 import { BackupsSection } from '../settings/backups/backups-section';
 import { McpSection } from '../settings/mcp/mcp-section';
 import { CalendarsSection } from '../settings/calendars/calendars-section';
@@ -13,10 +15,10 @@ import { PreferencesSection } from '../settings/preferences/PreferencesSection';
 import { NotificationsSection } from '../settings/notifications/notifications-section';
 import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
 import { PetSettingsSection } from '../pets/pet-settings-section';
-import { useCapabilities } from '../session/capabilities-context';
+import { useCapabilities, type Capabilities } from '../session/capabilities-context';
 import { DEFAULT_SETTINGS_TAB, useSettingsTab, type SettingsTab } from './settings-tab';
 
-type Gate = 'sites' | 'operator';
+type Gate = (capabilities: Capabilities) => boolean;
 
 // Personal and place first, then connections, then the operator's own: each tab keeps its id so
 // every `?tab=` link still lands where it did.
@@ -28,19 +30,26 @@ const settingsTabs: readonly { id: SettingsTab; label: string; closable: false; 
   { id: 'pets', label: 'Pets', closable: false },
   { id: 'notifications', label: 'Notifications', closable: false },
   { id: 'integrations', label: 'Calendars', closable: false },
-  { id: 'publishing', label: 'Publishing', closable: false, gate: 'sites' },
+  { id: 'publishing', label: 'Publishing', closable: false, gate: (c) => c.sites },
   { id: 'access-tokens', label: 'Access tokens', closable: false },
   { id: 'mcp', label: 'MCP', closable: false },
-  { id: 'backups', label: 'Backups', closable: false, gate: 'operator' },
+  { id: 'backups', label: 'Backups', closable: false, gate: (c) => c.operator },
+  { id: 'site-approvals', label: 'Site approvals', closable: false, gate: (c) => c.siteApprover },
+  {
+    id: 'administrators',
+    label: 'Administrators',
+    closable: false,
+    gate: (c) => c.tenantAdministrator || c.siteApprover,
+  },
 ];
 
 /** Settings grouped by the thing being managed, with workspace management first. Addressable by
  * `?tab=` so a link to a specific section survives a refresh or gets shared. */
 export function SettingsPage(): ReactElement {
   const { tab: requestedTab, setTab: setActiveTab } = useSettingsTab();
-  // Display hints: Core refuses the backups route to anyone who is not an operator.
+  // Display hints: Core refuses the operator, approver and administrator routes to everyone else.
   const capabilities = useCapabilities();
-  const tabs = settingsTabs.filter((tab) => tab.gate === undefined || capabilities[tab.gate]);
+  const tabs = settingsTabs.filter((tab) => tab.gate?.(capabilities) !== false);
   const activeTab = tabs.some((tab) => tab.id === requestedTab)
     ? requestedTab
     : DEFAULT_SETTINGS_TAB;
@@ -86,6 +95,8 @@ export function SettingsPage(): ReactElement {
         {activeTab === 'mcp' ? <McpSection /> : null}
         {activeTab === 'publishing' ? <PublishingSection /> : null}
         {activeTab === 'backups' ? <BackupsSection /> : null}
+        {activeTab === 'site-approvals' ? <SiteApprovalsSection /> : null}
+        {activeTab === 'administrators' ? <AdministratorsSection /> : null}
       </main>
     </div>
   );

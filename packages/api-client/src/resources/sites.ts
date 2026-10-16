@@ -17,9 +17,11 @@ import {
   siteSchema,
   siteApprovalEntrySchema,
   siteApprovalListSchema,
+  siteOperatorListSchema,
   type Site,
   type SiteApprovalEntry,
   type SiteApprovalList,
+  type SiteOperatorList,
   type SiteServeMode,
   type SiteBuild,
   type SiteBuildList,
@@ -227,6 +229,37 @@ export const rejectSitePublish = (
     body: { note: note ?? null },
     schema: siteApprovalEntrySchema,
     invalidates: [siteKey(siteId), ['sites', 'approvals']],
+  });
+
+const operatorsKey = ['sites', 'operators'] as const;
+
+/** Who may approve first publishes: configured operators first, then those granted in Settings. */
+export const listSiteOperators = (): QueryEndpoint<SiteOperatorList> =>
+  defineQuery({
+    operation: 'sites.operators.list',
+    path: '/api/v1/sites/operators',
+    schema: siteOperatorListSchema,
+    cacheKey: operatorsKey,
+    staleAfterMs: 0,
+  });
+
+export const grantSiteOperator = (principalId: string): CommandEndpoint<undefined> =>
+  defineCommand({
+    operation: 'sites.operators.grant',
+    method: 'PUT',
+    path: `/api/v1/sites/operators/${principalId}`,
+    schema: noContentSchema,
+    invalidates: [operatorsKey],
+  });
+
+/** Refused with 409 `sites.operator_configured` for an operator set in configuration. */
+export const revokeSiteOperator = (principalId: string): CommandEndpoint<undefined> =>
+  defineCommand({
+    operation: 'sites.operators.revoke',
+    method: 'DELETE',
+    path: `/api/v1/sites/operators/${principalId}`,
+    schema: noContentSchema,
+    invalidates: [operatorsKey],
   });
 
 export const publishSite = (siteId: string, input: PublishSiteInput): CommandEndpoint<SiteBuild> =>

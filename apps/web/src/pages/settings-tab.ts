@@ -19,6 +19,8 @@ export const SettingsTabSchema = z.enum([
   'mcp',
   'publishing',
   'backups',
+  'site-approvals',
+  'administrators',
 ]);
 
 export type SettingsTab = z.infer<typeof SettingsTabSchema>;

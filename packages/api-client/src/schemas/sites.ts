@@ -139,6 +139,20 @@ export const siteApprovalEntrySchema = z.object({
 
 export const siteApprovalListSchema = z.object({ approvals: z.array(siteApprovalEntrySchema) });
 
+export const siteOperatorSchema = z.object({
+  principalId: z.uuid(),
+  displayName: z.string(),
+  /** `configured` operators come from deployment configuration and cannot be removed here. */
+  source: z.string(),
+  grantedAt: instantSchema.nullable(),
+  grantedBy: z.uuid().nullable(),
+});
+
+export const siteOperatorListSchema = z.object({ operators: z.array(siteOperatorSchema) });
+
+export type SiteOperator = z.infer<typeof siteOperatorSchema>;
+export type SiteOperatorList = z.infer<typeof siteOperatorListSchema>;
+
 export type SiteLayout = z.infer<typeof siteLayoutSchema>;
 export type SiteStatus = z.infer<typeof siteStatusSchema>;
 export type SiteRepublishMode = z.infer<typeof siteRepublishModeSchema>;
@@ -174,5 +188,7 @@ const _contracts = [
   siteApprovalSchema satisfies z.ZodType<Schemas['SiteApprovalDto']>,
   siteApprovalEntrySchema satisfies z.ZodType<Schemas['SiteApprovalResponse']>,
   siteApprovalListSchema satisfies z.ZodType<Schemas['SiteApprovalListResponse']>,
+  siteOperatorSchema satisfies z.ZodType<Schemas['SiteOperatorResponse']>,
+  siteOperatorListSchema satisfies z.ZodType<Schemas['SiteOperatorListResponse']>,
 ];
 void _contracts;
