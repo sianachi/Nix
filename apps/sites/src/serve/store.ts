@@ -36,7 +36,7 @@ export function createS3Reader(
         now: new Date(),
       });
       // Not a signed header: storage honours a Range either way.
-      if (range !== undefined) headers['range'] = range;
+      if (range !== undefined) headers.range = range;
       // The deadline covers storage answering, not the body: a visitor on a slow link may take
       // longer than 10 s to read a large download, and the stream must not be cut under them.
       const deadline = new AbortController();
