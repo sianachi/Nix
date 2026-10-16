@@ -1,0 +1,198 @@
+import type { SiteApprovalEntry } from '@nix/api-client';
+import { Button, Dialog, Field, Table, Text, Textarea } from '@nix/ui';
+import { useState, type ReactElement } from 'react';
+
+import { ErrorPanel } from '../../components/states/status-panels';
+import { formatDateTime } from '../../lib/date-format';
+import { useSiteApprovals } from './use-site-approvals';
+
+interface Deciding {
+  readonly entry: SiteApprovalEntry;
+  readonly decision: 'approve' | 'reject';
+}
+
+/**
+ * Sites whose first publish waits for a decision. Approving makes the site public, so both
+ * decisions go through a dialog; rejecting takes an optional note the site's managers will read.
+ */
+export function SiteApprovalsSection(): ReactElement {
+  const { status, approvals, error, busySiteId, reload, decide } = useSiteApprovals();
+  const [deciding, setDeciding] = useState<Deciding | null>(null);
+
+  const columns = [
+    {
+      key: 'site',
+      header: 'Site',
+      rowHeader: true,
+      cell: (entry: SiteApprovalEntry) => (
+        <span className="break-words">{`${entry.name} (${entry.slug})`}</span>
+      ),
+    },
+    {
+      key: 'hostnames',
+      header: 'Hostnames',
+      cell: (entry: SiteApprovalEntry) => entry.hostnames.join(', '),
+    },
+    {
+      key: 'requestedBy',
+      header: 'Asked by',
+      cell: (entry: SiteApprovalEntry) => (
+        <span title={entry.requestedBy}>{entry.requestedBy.slice(0, 8)}</span>
+      ),
+    },
+    {
+      key: 'requestedAt',
+      header: 'Asked',
+      cell: (entry: SiteApprovalEntry) => formatDateTime(new Date(entry.approval.requestedAt)),
+    },
+    {
+      key: 'actions',
+      header: 'Decision',
+      cell: (entry: SiteApprovalEntry) => (
+        <span className="inline-flex gap-2">
+          {(['approve', 'reject'] as const).map((decision) => (
+            <Button
+              key={decision}
+              variant="secondary"
+              disabled={busySiteId !== null}
+              aria-label={`${decision === 'approve' ? 'Approve' : 'Reject'} ${entry.name}`}
+              onClick={() => {
+                setDeciding({ entry, decision });
+              }}
+            >
+              {decision === 'approve' ? 'Approve' : 'Reject'}
+            </Button>
+          ))}
+        </span>
+      ),
+    },
+  ] as const;
+
+  return (
+    <section aria-labelledby="site-approvals-heading" className="flex min-w-0 flex-col gap-3">
+      <Text id="site-approvals-heading" variant="h3" as="h2">
+        Site approvals
+      </Text>
+      <Text variant="note" tone="muted">
+        A site’s first publish waits here for an approver. Approving makes the site public.
+      </Text>
+
+      {status === 'error' ? (
+        <ErrorPanel
+          title="Site approvals could not be loaded"
+          detail={error ?? 'Something went wrong reading the approvals.'}
+          action={
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void reload();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
+      ) : (
+        <div
+          className="min-w-0 overflow-x-auto"
+          role="region"
+          aria-label="Site approvals table"
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll the table horizontally.
+          tabIndex={0}
+        >
+          <Table
+            caption="Sites waiting for a decision on their first publish."
+            columns={columns}
+            rows={approvals}
+            rowKey={(entry) => entry.siteId}
+            loading={status === 'loading'}
+            loadingMessage="Loading the site approvals."
+            emptyMessage="No site is waiting for approval. A request appears here when a site’s manager asks to publish for the first time."
+          />
+        </div>
+      )}
+
+      {deciding === null ? null : (
+        <DecisionDialog
+          deciding={deciding}
+          onClose={() => {
+            setDeciding(null);
+          }}
+          onDecide={(note) => decide(deciding.entry.siteId, deciding.decision, note)}
+        />
+      )}
+    </section>
+  );
+}
+
+function DecisionDialog({
+  deciding,
+  onDecide,
+  onClose,
+}: {
+  readonly deciding: Deciding;
+  readonly onDecide: (note: string | undefined) => Promise<string | null>;
+  readonly onClose: () => void;
+}): ReactElement {
+  const [note, setNote] = useState('');
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const approving = deciding.decision === 'approve';
+  const label = approving ? 'Approve' : 'Reject';
+
+  return (
+    <Dialog
+      open
+      title={`${label} ${deciding.entry.name}`}
+      onClose={onClose}
+      actions={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={working}
+            onClick={() => {
+              setWorking(true);
+              setError(null);
+              void onDecide(approving || note.trim() === '' ? undefined : note.trim()).then(
+                (refusal) => {
+                  setWorking(false);
+                  if (refusal === null) onClose();
+                  else setError(refusal);
+                },
+              );
+            }}
+          >
+            {approving ? 'Approve and publish' : 'Reject'}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {approving ? (
+          <Text>
+            {`This starts the first publish and makes ${deciding.entry.name} public at ${deciding.entry.hostnames.join(', ')}.`}
+          </Text>
+        ) : (
+          <Field label="Note (optional)" hint="Shown to the site’s managers.">
+            {(control) => (
+              <Textarea
+                {...control}
+                value={note}
+                onChange={(event) => {
+                  setNote(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        )}
+        {error === null ? null : (
+          <Text role="alert" variant="note">
+            {error}
+          </Text>
+        )}
+      </div>
+    </Dialog>
+  );
+}

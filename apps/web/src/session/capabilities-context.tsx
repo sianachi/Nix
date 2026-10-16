@@ -7,10 +7,20 @@ export interface Capabilities {
   readonly mcpUrl: string | null;
   /** Listed as a deployment operator: may read instance-wide data such as backup status. */
   readonly operator: boolean;
+  /** May decide first publishes of sites. */
+  readonly siteApprover: boolean;
+  /** Holds the tenant administrator role (from `isTenantAdministrator`, not `features`). */
+  readonly tenantAdministrator: boolean;
 }
 
 /** Everything off until Core has answered: an entry that may not exist is not drawn first. */
-export const NO_CAPABILITIES: Capabilities = { sites: false, mcpUrl: null, operator: false };
+export const NO_CAPABILITIES: Capabilities = {
+  sites: false,
+  mcpUrl: null,
+  operator: false,
+  siteApprover: false,
+  tenantAdministrator: false,
+};
 
 const CapabilitiesContext = createContext<Capabilities>(NO_CAPABILITIES);
 
