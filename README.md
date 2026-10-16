@@ -107,9 +107,17 @@ and ADR status.
 ### Access, portability and operations
 
 - Core-owned browser BFF authentication with OIDC, PKCE, HttpOnly sessions and short-lived Nix tokens;
-  multi-issuer support; workspace-scoped roles, invitations, membership administration, personal
-  workspace provisioning and live revocation. Passwords, passkeys and second factors live at the
+  multi-issuer support; workspace-scoped roles, invitations, membership administration, tenant administrators
+  managed from Settings, personal workspace provisioning and live revocation. Passwords, passkeys and second factors live at the
   identity provider.
+- Nix Sites publish a subtree of a workspace as a static website at `<slug>.<sites-domain>` or a
+  verified custom hostname, in a docs or blog layout with navigation, search, feeds, a sitemap and
+  link previews. Images, captured Mermaid diagrams and attached PDF, text, CSV, MP4 and WebM files
+  are published (videos play in a player, up to 50 MB, and are published as stored, metadata
+  included). Locked, excluded, trashed and unscheduled content is withheld; a file removed from
+  the site stops being served at the next publish. Where first publishes need approval, operators
+  review them in Settings or with `nixctl site approvals`, and can name more approvers and tenant
+  administrators in Settings. Off unless `Nix:Sites:Enabled`; see ADR-0063.
 - Permission-filtered access backed by Postgres row-level security; roles live in the database, not
   in tokens.
 - Personal access tokens with independent `read`, `write` and `admin` scopes and a required expiry
