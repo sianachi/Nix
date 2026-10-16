@@ -3,10 +3,9 @@
 All notable changes to Nix are recorded here. The format follows Keep a Changelog and the project
 follows semantic versioning (`0.x` pre-1.0).
 
-## 0.3.0 - Unreleased
+## 0.3.0 - 2026-10-16
 
-Work completed so far, recorded on 2026-10-15 and extended on 2026-10-16. The `v0.3` branch is merged
-into `main` and pushed; 0.3.0 has not been released or tagged.
+Work recorded on 2026-10-15 and 2026-10-16. The `v0.3` branch is merged into `main`.
 
 ### Added
 
