@@ -54,6 +54,8 @@ public sealed class SiteCapabilitySignerTests
             ObjectStorageKeys.SiteBuild(SiteId, BuildId, "blog/hello/index.html"));
         Assert.Equal($"sites/{SiteId:D}/assets/{sha}.png", ObjectStorageKeys.SiteAsset(SiteId, sha, "png"));
         Assert.Equal($"sites/{SiteId:D}/assets/{sha}.svg", ObjectStorageKeys.SiteAsset(SiteId, sha, "svg"));
+        Assert.Equal($"sites/{SiteId:D}/assets/{sha}.mp4", ObjectStorageKeys.SiteAsset(SiteId, sha, "mp4"));
+        Assert.Equal($"sites/{SiteId:D}/assets/{sha}.webm", ObjectStorageKeys.SiteAsset(SiteId, sha, "webm"));
         Assert.Equal($"sites/{SiteId:D}/assets/{sha}.pdf", ObjectStorageKeys.SiteAsset(SiteId, sha, "pdf"));
         Assert.Equal("sites/_hosts/docs.example.test.json", ObjectStorageKeys.SiteHost("docs.example.test"));
     }
