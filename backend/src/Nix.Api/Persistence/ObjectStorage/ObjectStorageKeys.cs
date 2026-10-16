@@ -172,7 +172,7 @@ public static class ObjectStorageKeys
     {
         ArgumentNullException.ThrowIfNull(sha256);
         ArgumentNullException.ThrowIfNull(extension);
-        if (!SiteRules.IsSha256(sha256) || extension is not ("png" or "jpg" or "webp" or "svg" or "pdf" or "txt" or "csv"))
+        if (!SiteRules.IsSha256(sha256) || extension is not ("png" or "jpg" or "webp" or "svg" or "pdf" or "txt" or "csv" or "mp4" or "webm"))
         {
             throw new ArgumentException("The site asset identity is invalid.");
         }
