@@ -16,8 +16,10 @@ export const currentPrincipalSchema = z.object({
       mcpUrl: z.string().nullable().default(null),
       /** Listed in `Nix:Sites:Operators`: may read instance-wide data such as backup status. */
       operator: z.boolean().default(false),
+      /** May decide first publishes: configured, granted in Settings, or an administrator when none is configured. */
+      siteApprover: z.boolean().default(false),
     })
-    .default({ sites: false, mcpUrl: null, operator: false }),
+    .default({ sites: false, mcpUrl: null, operator: false, siteApprover: false }),
 });
 
 export type CurrentPrincipal = z.infer<typeof currentPrincipalSchema>;

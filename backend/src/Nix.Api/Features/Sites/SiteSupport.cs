@@ -133,6 +133,12 @@ public static class SiteErrors
     /// <summary>Only an operator may decide approvals.</summary>
     public const string OperatorRequiredCode = "sites.operator_required";
 
+    /// <summary>The operator is set in configuration, so Settings cannot revoke it.</summary>
+    public const string OperatorConfiguredCode = "sites.operator_configured";
+
+    /// <summary>No such principal in the caller's tenant.</summary>
+    public const string PrincipalNotFoundCode = "identity.principal_not_found";
+
     /// <summary>The site has no pending approval request.</summary>
     public const string NoApprovalPendingCode = "sites.no_approval_pending";
 
@@ -145,6 +151,11 @@ public static class SiteErrors
 
     internal static NixError ManagerRequired() =>
         new(ManagerRequiredCode, "Only a workspace manager can change or publish a site.");
+
+    internal static NixError OperatorRequired() =>
+        new(OperatorRequiredCode, "Only an operator of this deployment may decide first publishes.");
+
+    internal static NixError PrincipalNotFound() => new(PrincipalNotFoundCode, "No such person in this organization.");
 
     internal static NixError NotConfigured() =>
         new(NotConfiguredCode, "Sites are not enabled on this deployment.");
@@ -177,7 +188,7 @@ public static class SiteErrors
     /// <returns>The status.</returns>
     public static int StatusFor(string code) => code switch
     {
-        NotFoundCode or ItemNotFoundCode or BuildNotFoundCode or PageNotFoundCode or HostnameNotFoundCode => StatusCodes.Status404NotFound,
+        NotFoundCode or ItemNotFoundCode or PrincipalNotFoundCode or BuildNotFoundCode or PageNotFoundCode or HostnameNotFoundCode => StatusCodes.Status404NotFound,
         ManagerRequiredCode or OperatorRequiredCode => StatusCodes.Status403Forbidden,
         CheckTooSoonCode => StatusCodes.Status429TooManyRequests,
         NotConfiguredCode => StatusCodes.Status503ServiceUnavailable,

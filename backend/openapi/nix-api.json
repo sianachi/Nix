@@ -5119,7 +5119,7 @@
           "Roles"
         ],
         "summary": "Tenant-wide role holders",
-        "description": "Returns who holds a tenant-level role. Visible to tenant administrators; other callers receive an empty page rather than a refusal, because whether the endpoint refuses is itself information about the caller's standing.",
+        "description": "Returns the principals holding the tenant admin role. Visible to tenant administrators; other callers receive an empty page rather than a refusal, because whether the endpoint refuses is itself information about the caller's standing. One page holds them all.",
         "operationId": "ListTenantRoles",
         "parameters": [
           {
@@ -5153,9 +5153,89 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/tenant/admins/{principalId}": {
+      "put": {
+        "tags": [
+          "Roles"
+        ],
+        "summary": "Make a person a tenant administrator",
+        "description": "Idempotent; audited. The person must belong to the caller's organization. Needs a tenant administrator.",
+        "operationId": "GrantTenantAdmin",
+        "parameters": [
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           },
-          "501": {
-            "description": "Not Implemented",
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Roles"
+        ],
+        "summary": "Remove a person's tenant administrator role",
+        "description": "Idempotent; audited. Refused (409 roles.last_administrator) when it would leave no administrator. Needs a tenant administrator.",
+        "operationId": "RevokeTenantAdmin",
+        "parameters": [
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -11839,7 +11919,7 @@
           "Sites"
         ],
         "summary": "Sites waiting for an operator's approval",
-        "description": "Oldest request first, within the operator's organization. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).",
+        "description": "Oldest request first, within the operator's organization. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).",
         "operationId": "ListSiteApprovals",
         "responses": {
           "200": {
@@ -11871,7 +11951,7 @@
           "Sites"
         ],
         "summary": "Approve a first publish",
-        "description": "Runs the publish as the manager who asked, re-checking their manager rights; audited. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).",
+        "description": "Runs the publish as the manager who asked, re-checking their manager rights; audited. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).",
         "operationId": "ApproveSitePublish",
         "parameters": [
           {
@@ -11934,7 +12014,7 @@
           "Sites"
         ],
         "summary": "Reject a first publish",
-        "description": "The note is shown to the site's managers; audited. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).",
+        "description": "The note is shown to the site's managers; audited. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).",
         "operationId": "RejectSitePublish",
         "parameters": [
           {
@@ -12000,6 +12080,128 @@
           },
           "422": {
             "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sites/operators": {
+      "get": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Who may approve first publishes",
+        "description": "Operators set in configuration come first (source 'configured'), then those granted in Settings ('granted'). Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).",
+        "operationId": "ListSiteOperators",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteOperatorListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sites/operators/{principalId}": {
+      "put": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Let a person approve first publishes",
+        "description": "Idempotent. The person must belong to the caller's organization; audited. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).",
+        "operationId": "GrantSiteOperator",
+        "parameters": [
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Stop a person approving first publishes",
+        "description": "Idempotent. An operator set in configuration cannot be revoked (409 sites.operator_configured); audited. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).",
+        "operationId": "RevokeSiteOperator",
+        "parameters": [
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14860,7 +15062,8 @@
         "required": [
           "sites",
           "mcpUrl",
-          "operator"
+          "operator",
+          "siteApprover"
         ],
         "type": "object",
         "properties": {
@@ -14874,6 +15077,9 @@
             ]
           },
           "operator": {
+            "type": "boolean"
+          },
+          "siteApprover": {
             "type": "boolean"
           }
         }
@@ -21319,6 +21525,56 @@
           },
           "path": {
             "type": "string"
+          }
+        }
+      },
+      "SiteOperatorListResponse": {
+        "required": [
+          "operators"
+        ],
+        "type": "object",
+        "properties": {
+          "operators": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SiteOperatorResponse"
+            }
+          }
+        }
+      },
+      "SiteOperatorResponse": {
+        "required": [
+          "principalId",
+          "displayName",
+          "source",
+          "grantedAt",
+          "grantedBy"
+        ],
+        "type": "object",
+        "properties": {
+          "principalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "grantedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "grantedBy": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

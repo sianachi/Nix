@@ -38,4 +38,5 @@ internal sealed record CurrentPrincipalResponse(
 /// <param name="Sites">Whether publishing items as sites is configured and enabled here.</param>
 /// <param name="McpUrl">The remote MCP endpoint this deployment serves (<c>Nix:Mcp:PublicUrl</c>), or null.</param>
 /// <param name="Operator">Whether the caller is listed in <c>Nix:Sites:Operators</c> and so may read instance-wide data such as backup status.</param>
-internal sealed record CurrentPrincipalFeatures(bool Sites, string? McpUrl, bool Operator);
+/// <param name="SiteApprover">Whether the caller may decide first publishes: configured, granted in Settings, or an administrator when none is configured.</param>
+internal sealed record CurrentPrincipalFeatures(bool Sites, string? McpUrl, bool Operator, bool SiteApprover);

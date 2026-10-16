@@ -236,6 +236,9 @@ public static class NixTables
     /// <summary>A set of host-manifest operations a worker applies.</summary>
     public const string SiteActivation = "site_activation";
 
+    /// <summary>A principal granted the right to decide first publishes.</summary>
+    public const string SiteOperator = "site_operator";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -318,6 +321,7 @@ public static class NixTables
         SiteBuildFile,
         SiteBuildObject,
         SiteActivation,
+        SiteOperator,
     ];
 
     /// <summary>Pre-authentication capability state with no direct application, collaboration or PUBLIC access.</summary>
@@ -507,6 +511,9 @@ public static class NixTables
             [SiteBuildFile] = ImmutableRegistration,
             [SiteBuildObject] = ReplaceableGrant,
             [SiteActivation] = FullDml,
+
+            // Granted and revoked, never edited: a row is the whole fact.
+            [SiteOperator] = ["DELETE", "INSERT", "SELECT"],
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
 }

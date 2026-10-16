@@ -527,6 +527,11 @@ public static class NixPersistenceServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<ISiteRebuildCandidates, SiteRebuildCandidateFinder>();
         services.AddScoped<ISiteStore, SiteStore>();
+        services.AddScoped<IAccessGrantStore, Nix.Persistence.Identity.AccessGrantStore>();
+        services.AddScoped<Nix.Features.Roles.TenantAdminHandlers>();
+        services.AddScoped<IQueryHandler<Nix.Features.Roles.ListTenantAdmins, IReadOnlyList<AccessGrantRow>>>(static provider => provider.GetRequiredService<Nix.Features.Roles.TenantAdminHandlers>());
+        services.AddScoped<ICommandHandler<Nix.Features.Roles.GrantTenantAdmin, Guid>>(static provider => provider.GetRequiredService<Nix.Features.Roles.TenantAdminHandlers>());
+        services.AddScoped<ICommandHandler<Nix.Features.Roles.RevokeTenantAdmin, Guid>>(static provider => provider.GetRequiredService<Nix.Features.Roles.TenantAdminHandlers>());
         services.AddScoped<SiteAccess>();
         services.AddScoped<SiteAudit>();
         services.AddScoped<SiteViews>();

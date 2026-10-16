@@ -216,6 +216,9 @@ internal static class M0SchemaSeed
                         (tenant_id, id, site_id, job_id, build_id, reason, generation, ops, created_at)
                     VALUES ({tenant}, gen_random_uuid(), {site}, gen_random_uuid(), {build}, 'publish', 1,
                             '[]'::jsonb, now());
+
+                    INSERT INTO site_operator (tenant_id, principal_id, granted_by, granted_at)
+                    VALUES ({tenant}, {principal}, {principal}, now());
                     """);
             }
         }

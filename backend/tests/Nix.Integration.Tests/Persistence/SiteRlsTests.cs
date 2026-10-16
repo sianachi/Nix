@@ -16,7 +16,7 @@ public sealed class SiteRlsTests(NixPostgresFixture fixture) : IAsyncLifetime
     [
         NixTables.Site, NixTables.SiteHostname, NixTables.SiteExclusion, NixTables.SiteDatedCollection, NixTables.SitePage,
         NixTables.SiteRedirect, NixTables.SiteBuild, NixTables.SiteBuildPage, NixTables.SiteBuildFile,
-        NixTables.SiteBuildObject, NixTables.SiteActivation,
+        NixTables.SiteBuildObject, NixTables.SiteActivation, NixTables.SiteOperator,
     ];
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;

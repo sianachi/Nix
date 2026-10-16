@@ -161,6 +161,18 @@ public sealed record SiteApprovalResponse(
 /// <summary>The sites waiting for an operator.</summary>
 public sealed record SiteApprovalListResponse(IReadOnlyList<SiteApprovalResponse> Approvals);
 
+/// <summary>One person who may decide first publishes.</summary>
+/// <param name="PrincipalId">Who.</param>
+/// <param name="DisplayName">Their name.</param>
+/// <param name="Source"><c>configured</c> (deployment configuration, not revocable here) or <c>granted</c> (Settings).</param>
+/// <param name="GrantedAt">When it was granted; absent for configured operators.</param>
+/// <param name="GrantedBy">Who granted it; absent for configured operators.</param>
+public sealed record SiteOperatorResponse(Guid PrincipalId, string DisplayName, string Source, DateTimeOffset? GrantedAt, Guid? GrantedBy);
+
+/// <summary>The people who may decide first publishes.</summary>
+/// <param name="Operators">Configured operators first, then granted ones oldest first.</param>
+public sealed record SiteOperatorListResponse(IReadOnlyList<SiteOperatorResponse> Operators);
+
 /// <summary>A build as a manager sees it.</summary>
 /// <param name="Id">The build.</param>
 /// <param name="SiteId">The site.</param>
@@ -527,4 +539,5 @@ public sealed record SitePurgeJobPayload(Guid SiteId, Guid PurgeId);
 [JsonSerializable(typeof(RejectSiteApprovalRequest))]
 [JsonSerializable(typeof(SiteApprovalResponse))]
 [JsonSerializable(typeof(SiteApprovalListResponse))]
+[JsonSerializable(typeof(SiteOperatorListResponse))]
 internal sealed partial class SitesJsonContext : JsonSerializerContext;

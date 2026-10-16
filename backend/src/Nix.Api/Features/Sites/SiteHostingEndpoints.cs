@@ -9,7 +9,7 @@ namespace Nix.Features.Sites;
 internal static class SiteHostingEndpoints
 {
     private const string Manager = " Needs workspace manager rights; a caller who cannot read the workspace gets 404.";
-    private const string Operator = " Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).";
+    private const string Operator = " Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).";
 
     /// <summary>Registers the routes on the sites group.</summary>
     internal static RouteGroupBuilder MapSiteHostingEndpoints(this RouteGroupBuilder sites)
@@ -97,8 +97,42 @@ internal static class SiteHostingEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        sites.MapGet("/operators", ListOperators)
+            .WithName("ListSiteOperators")
+            .WithSummary("Who may approve first publishes")
+            .WithDescription("Operators set in configuration come first (source 'configured'), then those granted in Settings ('granted')." + Operator)
+            .Produces<SiteOperatorListResponse>()
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+        sites.MapPut("/operators/{principalId:guid}", GrantOperator)
+            .WithName("GrantSiteOperator")
+            .WithSummary("Let a person approve first publishes")
+            .WithDescription("Idempotent. The person must belong to the caller's organization; audited." + Operator)
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        sites.MapDelete("/operators/{principalId:guid}", RevokeOperator)
+            .WithName("RevokeSiteOperator")
+            .WithSummary("Stop a person approving first publishes")
+            .WithDescription("Idempotent. An operator set in configuration cannot be revoked (409 sites.operator_configured); audited." + Operator)
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         return sites;
     }
+
+    private static async Task<IResult> ListOperators(HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.QueryAsync<ListSiteOperators, Result<SiteOperatorListResponse>>(new ListSiteOperators(), context.RequestAborted).ConfigureAwait(false);
+        return result.IsSuccess ? TypedResults.Ok(result.Value) : SiteEndpoints.Problem(context, result.Error);
+    }
+
+    private static Task<IResult> GrantOperator(Guid principalId, HttpContext context, [FromServices] NixDispatcher dispatcher) =>
+        Send<GrantSiteOperator, Guid>(new GrantSiteOperator(principalId), context, dispatcher, _ => TypedResults.NoContent());
+
+    private static Task<IResult> RevokeOperator(Guid principalId, HttpContext context, [FromServices] NixDispatcher dispatcher) =>
+        Send<RevokeSiteOperator, Guid>(new RevokeSiteOperator(principalId), context, dispatcher, _ => TypedResults.NoContent());
 
     private static async Task<IResult> Send<TCommand, TValue>(
         TCommand command, HttpContext context, NixDispatcher dispatcher, Func<TValue, IResult> success)
