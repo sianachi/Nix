@@ -2,6 +2,34 @@
 
 # October 2026
 
+## Version 0.3.0
+
+### Sites
+
+- Attach an MP4 or WebM video (up to 50 MB) to a note and it plays on your published site, with a download link underneath. Videos are published exactly as you recorded them, so remove any location or device information first.
+- A file you remove from your site stops being served as soon as you publish again.
+- Publishing now lists posts that were left out because they are scheduled, undated or have an invalid date.
+- Site approvals can be handled in Settings: approvers see waiting sites, with the hostnames and who asked, and approve or reject them there.
+- An Administrators tab in Settings lets tenant administrators add and remove other administrators, and lets approvers name more site approvers.
+
+### My Day and views
+
+- My Day shows the tasks that are due, overdue or assigned to you and the habits scheduled today, and says when a limit hides some of them. `nixctl my-day` reads the same list.
+- Outline, timeline and calendar views use the same multi-select as the other views, and habit trackers gain the shared item actions.
+- Drive uses checkboxes, range selection and a floating bulk-action tray.
+- Dynamic fields, workspace groups and durable group chats.
+- Turn a note into sensible views, or write a note from your views, with the original always kept. PDF, Word and Markdown exports now include readable versions of every view.
+
+### nixctl
+
+- `nixctl canvas` reads and writes canvases.
+
+### Fixes
+
+- Selecting items across a long sidebar and deleting them works, and view selection keeps focus and native gestures.
+- Mermaid diagrams load only when one is shown.
+- Archive exports are identical across time zones.
+
 ## Offline notes
 
 - The installed app can download every note you have access to, open them with no connection, edit and create notes offline, and sync when you are back. See [Collaboration and offline](nix://item/01a130b0-0b97-7da4-aaf4-8ece03849441).
