@@ -76,6 +76,16 @@ const published: Record<string, string> = {
   [`${ASSETS_PREFIX}${SHA}.pdf`]: '%PDF-1.4',
   [`${ASSETS_PREFIX}${SHA}.csv`]: 'a,b',
   [`${ASSETS_PREFIX}${SHA}.mp4`]: '0123ftypvideo-bytes',
+  [`${BUILD_PREFIX}_nix/build.json`]: JSON.stringify({
+    files: [
+      `_nix/assets/${SHA}.png`,
+      `_nix/assets/${SHA}.svg`,
+      `_nix/files/${SHA}/My-CV.pdf`,
+      `_nix/files/${SHA}/data.csv`,
+      `_nix/files/${SHA}/clip.mp4`,
+    ].map((path) => ({ path, kind: 'asset' })),
+  }),
+  [`${ASSETS_PREFIX}${'b'.repeat(64)}.pdf`]: '%PDF-1.4 withdrawn',
   [`${BUILD_PREFIX}secret.bin`]: 'must never be served',
 };
 
@@ -352,6 +362,13 @@ describe('the sites server', () => {
     ]) {
       expect((await get(port, target, 'docs.sites.test')).status, target).toBe(404);
     }
+  });
+
+  it('does not serve a stored file the live build no longer lists', async () => {
+    const port = await start(published);
+    const gone = 'b'.repeat(64);
+    expect((await get(port, `/_nix/files/${gone}/Old.pdf`, 'docs.sites.test')).status).toBe(404);
+    expect((await get(port, `/_nix/assets/${gone}.png`, 'docs.sites.test')).status).toBe(404);
   });
 
   it('serves a video and answers a range, so a player can seek', async () => {

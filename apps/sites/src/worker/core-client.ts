@@ -280,7 +280,7 @@ export class CoreClient {
     try {
       return await this.expect<SiteWorkerFile>(
         'GET',
-        `/internal/worker-executions/sites/builds/${execution.jobId}/files/${fileItemId}?source=${sourceItemId}`,
+        `/internal/worker-executions/sites/builds/${execution.jobId}/files/${encodeURIComponent(fileItemId)}?source=${encodeURIComponent(sourceItemId)}`,
         undefined,
         execution,
         signal,
