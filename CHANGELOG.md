@@ -5,8 +5,8 @@ follows semantic versioning (`0.x` pre-1.0).
 
 ## 0.3.0 - Unreleased
 
-Work completed so far, recorded on 2026-10-15. These changes are recorded locally on `v0.3` and
-have not been pushed or released.
+Work completed so far, recorded on 2026-10-15 and extended on 2026-10-16. The `v0.3` branch is merged
+into `main` and pushed; 0.3.0 has not been released or tagged.
 
 ### Added
 
@@ -87,6 +87,32 @@ have not been pushed or released.
 - Proposed ADR-0062 records Core-owned chat history and the boundary between durable messages
   and private provider sessions. Existing architecture decision statuses are preserved.
 
+**Sites**
+
+- Attached MP4 and WebM videos play in a `<video controls>` player where a file block stands, with
+  the download link and size beneath it. Videos are at most 50 MB, are checked by their file
+  signature, and are published as stored, so metadata such as location is not stripped. The file
+  server answers single-range requests so players can seek, and the site policy allows media from
+  its own origin. Migration `SiteVideoFiles` widens the build-file size check.
+- Approving first publishes is available in Settings (a **Site approvals** tab for approvers) with
+  confirmation dialogs and an optional rejection note, as well as through `nixctl`.
+- An **Administrators** tab manages tenant administrators (`GET /api/v1/tenant/roles`,
+  `PUT`/`DELETE /api/v1/tenant/admins/{principalId}`; the last administrator cannot be removed)
+  and site approvers (`GET`/`PUT`/`DELETE /api/v1/sites/operators`). Approvers named in
+  `Nix:Sites:Operators` stay read-only; granted approvers live in the new `site_operator` table
+  and cannot read instance-wide backup status. `GET /api/v1/me` gains `features.siteApprover`.
+  Write routes need an admin-scope token. Grants and revocations are audited.
+- A publish reports dated posts it withheld as scheduled, undated or invalid-dated.
+
+**My Day, canvas CLI and habits**
+
+- `GET /api/v1/workspaces/{id}/my-day`, `nixctl my-day` and a My Day workspace page show the
+  caller's due, overdue and assigned tasks and the habits scheduled today, with explicit coverage
+  when a limit or an unreadable item narrows the answer.
+- `nixctl canvas` commands read and write canvases with guarded payload checks.
+- Outline, timeline and calendar views use the shared item selection, and habit trackers gain the
+  shared item actions.
+
 ### Changed
 
 - Workspace-menu groups are collapsible, and the desktop search bar is wider.
@@ -100,6 +126,19 @@ have not been pushed or released.
 
 ### Fixed
 
+- Sites no longer serve a stored file the live build does not list: assets live in one per-site
+  store, so a file removed from the site stayed public until its old build was purged. Downloads
+  and images now answer 404 once a publish drops them. Images already cached by a browser or CDN
+  (a one-year lifetime) are not recalled; see issue 166.
+- The worker encodes file item ids in its Core request path.
+- Site builds containing a video no longer fail at upload (the storage key builder rejected MP4
+  and WebM).
+- Views keep focus and native selection gestures, reveal selection controls on hover, and keep
+  habit selection beside titles. Deleting a selection that extends beyond the loaded sidebar page
+  works.
+- CI: the changed-path test used a file path in the wrong case (hidden on macOS), the video
+  styles used a raw colour the design-token guard rejects, and the video range code had lint
+  errors.
 - [#46](https://github.com/sianachi/Nix/issues/46): changed-path validation checks formatting of
   changed TypeScript files, including paths with spaces, and skips deleted files.
 - [#50](https://github.com/sianachi/Nix/issues/50): cancelling a broker publish clears its
@@ -111,6 +150,14 @@ have not been pushed or released.
   diagram rendering retains its serial queue, security settings and theme handling.
 - [#156](https://github.com/sianachi/Nix/issues/156): Drive selection and bulk actions follow the
   shared view behaviour, including visible checkboxes on hover or keyboard focus.
+
+### Security
+
+- The video, site-serving and approver/administrator changes were reviewed. No exploitable issue
+  was found. Design follow-ups are tracked as issues 162 to 167: approvers can grant approver
+  rights, grants made before operators are configured persist, the last-administrator guard counts
+  administrators who cannot act and is not race-proof, withdrawn images can remain in caches, and
+  two migrations were hand-written without a snapshot check.
 
 ### Validation and current limits
 
@@ -128,6 +175,11 @@ have not been pushed or released.
 - SVG exports show up to 60 logical messages with a truncation indicator; HTML exports retain
   the full eligible transcript. Provider context uses a bounded recent history while saved
   conversation history remains durable.
+- The video, approver and administrator work was verified with targeted backend unit and
+  integration tests, API client tests, targeted web tests and lint, typecheck and design guards.
+  The full web and backend suites ran only in CI, and the new settings tabs were not checked in a
+  browser. The person picker offers only people in the current workspace, and the approvals table
+  shows a shortened requester id.
 - Two optional Versity object-storage integration tests were skipped. Broker cancellation was
   tested through the publisher interface, without a live RabbitMQ cancellation probe. The
   Mermaid measurement compares build sizes, not browser loading speed.
@@ -140,6 +192,11 @@ have not been pushed or released.
 - `b57faf8e`: reproducible archive timestamps and catalog generation (#92).
 - `b80177aa`: lazy Mermaid loading (#51).
 - `d7dc47d8`: shared Drive selection and bulk actions (#156).
+- `5b1ca0c1`, `22aba668`: video player for attachments and its storage-key fix.
+- `269f8e48`: serve only the assets the live build lists.
+- `65578700`, `5c1fe65c`: approver and administrator management, API and Settings.
+- `e9e1540f`, `8d7349e6`: My Day read and `nixctl canvas`.
+- `895437f2`, `eb4ab14d`, `80ec8a27`: faster backend and frontend CI and the fixes it surfaced.
 
 ## 0.2.0 - 2026-10-15
 
