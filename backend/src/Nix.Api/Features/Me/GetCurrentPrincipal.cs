@@ -137,6 +137,7 @@ internal static class GetCurrentPrincipalEndpoint
 
         // Display only; the backups route checks the same list for itself.
         var isOperator = operators.IsInstanceOperator();
+        var isApprover = await operators.IsOperatorAsync(httpContext.RequestAborted).ConfigureAwait(false);
         return result.Match<Results<Ok<CurrentPrincipalResponse>, ProblemHttpResult>>(
             principal => TypedResults.Ok(
                 new CurrentPrincipalResponse(
@@ -150,7 +151,8 @@ internal static class GetCurrentPrincipalEndpoint
                         // Display only: the address people paste into an MCP client. Absent means
                         // the deployment serves MCP on stdio through nixctl alone.
                         Uri.TryCreate(configuration["Nix:Mcp:PublicUrl"], UriKind.Absolute, out var mcp) ? mcp.ToString() : null,
-                        isOperator))),
+                        isOperator,
+                        isApprover))),
             error => TypedResults.Problem(MeEndpoints.Problem(httpContext, error)));
     }
 }

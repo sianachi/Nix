@@ -3690,6 +3690,30 @@ namespace Nix.Persistence.Migrations.Generated
                         });
                 });
 
+            modelBuilder.Entity("Nix.Domain.Sites.SiteOperatorGrant", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.Property<DateTimeOffset>("GrantedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("granted_at");
+
+                    b.Property<Guid>("GrantedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("granted_by");
+
+                    b.HasKey("TenantId", "PrincipalId")
+                        .HasName("pk_site_operator");
+
+                    b.ToTable("site_operator", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Sites.SitePage", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -5483,6 +5507,17 @@ namespace Nix.Persistence.Migrations.Generated
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_site_hostname_site");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteOperatorGrant", b =>
+                {
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PrincipalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_operator_principal");
                 });
 
             modelBuilder.Entity("Nix.Domain.Sites.SitePage", b =>

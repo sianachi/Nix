@@ -264,6 +264,9 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets the host-manifest operation sets.</summary>
     public DbSet<SiteActivation> SiteActivations => Set<SiteActivation>();
 
+    /// <summary>Gets the principals granted site approval rights.</summary>
+    public DbSet<SiteOperatorGrant> SiteOperators => Set<SiteOperatorGrant>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -410,6 +413,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new SiteBuildFileConfiguration());
         modelBuilder.ApplyConfiguration(new SiteBuildObjectConfiguration());
         modelBuilder.ApplyConfiguration(new SiteActivationConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteOperatorGrantConfiguration());
 
         // Template trees and half-hydrated regular items are implementation state, not workspace
         // content. Special template/application paths opt out explicitly; every ordinary EF item

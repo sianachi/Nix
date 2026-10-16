@@ -1288,12 +1288,36 @@ export interface paths {
     };
     /**
      * Tenant-wide role holders
-     * @description Returns who holds a tenant-level role. Visible to tenant administrators; other callers receive an empty page rather than a refusal, because whether the endpoint refuses is itself information about the caller's standing.
+     * @description Returns the principals holding the tenant admin role. Visible to tenant administrators; other callers receive an empty page rather than a refusal, because whether the endpoint refuses is itself information about the caller's standing. One page holds them all.
      */
     get: operations['ListTenantRoles'];
     put?: never;
     post?: never;
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/tenant/admins/{principalId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Make a person a tenant administrator
+     * @description Idempotent; audited. The person must belong to the caller's organization. Needs a tenant administrator.
+     */
+    put: operations['GrantTenantAdmin'];
+    post?: never;
+    /**
+     * Remove a person's tenant administrator role
+     * @description Idempotent; audited. Refused (409 roles.last_administrator) when it would leave no administrator. Needs a tenant administrator.
+     */
+    delete: operations['RevokeTenantAdmin'];
     options?: never;
     head?: never;
     patch?: never;
@@ -3056,7 +3080,7 @@ export interface paths {
     };
     /**
      * Sites waiting for an operator's approval
-     * @description Oldest request first, within the operator's organization. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).
+     * @description Oldest request first, within the operator's organization. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).
      */
     get: operations['ListSiteApprovals'];
     put?: never;
@@ -3078,7 +3102,7 @@ export interface paths {
     put?: never;
     /**
      * Approve a first publish
-     * @description Runs the publish as the manager who asked, re-checking their manager rights; audited. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).
+     * @description Runs the publish as the manager who asked, re-checking their manager rights; audited. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).
      */
     post: operations['ApproveSitePublish'];
     delete?: never;
@@ -3098,10 +3122,54 @@ export interface paths {
     put?: never;
     /**
      * Reject a first publish
-     * @description The note is shown to the site's managers; audited. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).
+     * @description The note is shown to the site's managers; audited. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).
      */
     post: operations['RejectSitePublish'];
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/operators': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Who may approve first publishes
+     * @description Operators set in configuration come first (source 'configured'), then those granted in Settings ('granted'). Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).
+     */
+    get: operations['ListSiteOperators'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/operators/{principalId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Let a person approve first publishes
+     * @description Idempotent. The person must belong to the caller's organization; audited. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).
+     */
+    put: operations['GrantSiteOperator'];
+    post?: never;
+    /**
+     * Stop a person approving first publishes
+     * @description Idempotent. An operator set in configuration cannot be revoked (409 sites.operator_configured); audited. Only an operator of this deployment (Nix:Sites:Operators or granted in Settings; else the tenant administrators when none is configured).
+     */
+    delete: operations['RevokeSiteOperator'];
     options?: never;
     head?: never;
     patch?: never;
@@ -3799,6 +3867,7 @@ export interface components {
       sites: boolean;
       mcpUrl: null | string;
       operator: boolean;
+      siteApprover: boolean;
     };
     CurrentPrincipalResponse: {
       /** Format: uuid */
@@ -5374,6 +5443,19 @@ export interface components {
     SiteNavLinkDto: {
       label: string;
       path: string;
+    };
+    SiteOperatorListResponse: {
+      operators: components['schemas']['SiteOperatorResponse'][];
+    };
+    SiteOperatorResponse: {
+      /** Format: uuid */
+      principalId: string;
+      displayName: string;
+      source: string;
+      /** Format: date-time */
+      grantedAt: null | string;
+      /** Format: uuid */
+      grantedBy: null | string;
     };
     SitePageListResponse: {
       pages: components['schemas']['SitePageResponse'][];
@@ -9927,8 +10009,75 @@ export interface operations {
           'application/json': components['schemas']['CursorPageOfRoleGrantResponse'];
         };
       };
-      /** @description Not Implemented */
-      501: {
+    };
+  };
+  GrantTenantAdmin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        principalId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RevokeTenantAdmin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        principalId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -14830,6 +14979,111 @@ export interface operations {
       };
       /** @description Unprocessable Entity */
       422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListSiteOperators: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteOperatorListResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GrantSiteOperator: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        principalId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RevokeSiteOperator: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        principalId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
         headers: {
           [name: string]: unknown;
         };

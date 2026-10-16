@@ -28,18 +28,19 @@ public sealed record ApproveSitePublish(Guid SiteId) : ICommand<SiteApprovalResp
 public sealed record RejectSitePublish(Guid SiteId, string? Note) : ICommand<SiteApprovalResponse>;
 
 /// <summary>
-/// Who decides first publishes: the principals in <c>Nix:Sites:Operators</c>, or the tenant
-/// administrators when that list is empty. Core decides; nothing comes from a token's claims.
+/// Who decides first publishes: the principals in <c>Nix:Sites:Operators</c> or granted in Settings,
+/// or the tenant administrators when the configured list is empty. Core decides; nothing comes
+/// from a token's claims.
 /// </summary>
-public sealed class SiteOperators(SiteOptions options, IPermissionResolver permissions, INixSessionContextAccessor session)
+public sealed class SiteOperators(SiteOptions options, IPermissionResolver permissions, IAccessGrantStore grants, INixSessionContextAccessor session)
 {
     /// <summary>Whether the caller is an operator.</summary>
     public async ValueTask<bool> IsOperatorAsync(CancellationToken cancellationToken)
     {
         var context = session.Current ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
-        return options.Operators.Count > 0
-            ? options.Operators.Contains(context.PrincipalId.Value)
-            : await permissions.IsTenantAdministratorAsync(cancellationToken).ConfigureAwait(false);
+        return options.Operators.Contains(context.PrincipalId.Value)
+            || await grants.IsSiteOperatorAsync(context.PrincipalId, cancellationToken).ConfigureAwait(false)
+            || (options.Operators.Count == 0 && await permissions.IsTenantAdministratorAsync(cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -245,8 +246,7 @@ public sealed class SiteApprovalHandlers(
         return Result.Success(ToApproval(site, await HostsAsync(site.Id, cancellationToken).ConfigureAwait(false), null));
     }
 
-    private static NixError OperatorRequired() =>
-        new(SiteErrors.OperatorRequiredCode, "Only an operator of this deployment may decide first publishes.");
+    private static NixError OperatorRequired() => SiteErrors.OperatorRequired();
 
     private static NixError NoneWaiting() =>
         new(SiteErrors.NoApprovalPendingCode, "This site has no publish waiting for approval.");

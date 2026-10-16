@@ -412,3 +412,19 @@ public sealed class SiteActivation
     /// <summary>Gets or sets when the worker confirmed the operations.</summary>
     public DateTimeOffset? AppliedAt { get; set; }
 }
+
+/// <summary>A principal an administrator allowed to decide first publishes, beside <c>Nix:Sites:Operators</c>.</summary>
+public sealed class SiteOperatorGrant
+{
+    /// <summary>Gets the tenant, carried for row-level security.</summary>
+    public required TenantId TenantId { get; init; }
+
+    /// <summary>Gets the approver.</summary>
+    public required PrincipalId PrincipalId { get; init; }
+
+    /// <summary>Gets who granted it.</summary>
+    public required PrincipalId GrantedBy { get; init; }
+
+    /// <summary>Gets when it was granted.</summary>
+    public required DateTimeOffset GrantedAt { get; init; }
+}

@@ -27,7 +27,7 @@ namespace Nix.Tests.Features.Contracts;
 /// restore are implemented and covered by the integration suite instead, because they need a
 /// database and a tenant-scoped unit of work to say anything true. This host is deliberately built
 /// without persistence, so asserting anything about them here would be asserting the behaviour of
-/// a misconfiguration. What remains is workspaces, permissions and roles.
+/// a misconfiguration. What remains is workspaces and permissions.
 /// </para>
 /// </remarks>
 public sealed class ContractStubTests(ContractHostFactory factory)
@@ -46,7 +46,6 @@ public sealed class ContractStubTests(ContractHostFactory factory)
             """{"subjectType":"principal","subjectId":"8f7c3a10-0000-4000-8000-000000000004","role":"editor","effect":"allow","breaksInheritance":false}"""
         },
         { "DELETE", $"/api/v1/items/{ItemId}/permissions/entries/{AclEntryId}", null },
-        { "GET", "/api/v1/tenant/roles", null },
     };
 
     [Theory]

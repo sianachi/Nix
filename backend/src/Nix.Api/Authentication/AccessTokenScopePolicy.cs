@@ -171,7 +171,10 @@ public static class AccessTokenScopePolicy
             // `/public-link` does for a view: creating, changing, publishing, rolling back,
             // withdrawing or deleting one is an admin capability for a token. Reading a site and
             // its builds stays a read through the shortcut above.
-            || value.StartsWith("/api/v1/sites", StringComparison.OrdinalIgnoreCase))
+            || value.StartsWith("/api/v1/sites", StringComparison.OrdinalIgnoreCase)
+            // Tenant administrators can reach everything in the tenant: granting or removing one
+            // is an admin capability for a token. Listing them stays a read.
+            || value.StartsWith("/api/v1/tenant/admins", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.Admin;
         }

@@ -49,6 +49,10 @@ public static class SiteHostingServiceCollectionExtensions
         services.AddScoped<IQueryHandler<ListSiteApprovals, Result<SiteApprovalListResponse>>>(static provider => provider.GetRequiredService<SiteApprovalHandlers>());
         services.AddScoped<ICommandHandler<ApproveSitePublish, SiteApprovalResponse>>(static provider => provider.GetRequiredService<SiteApprovalHandlers>());
         services.AddScoped<ICommandHandler<RejectSitePublish, SiteApprovalResponse>>(static provider => provider.GetRequiredService<SiteApprovalHandlers>());
+        services.AddScoped<SiteOperatorHandlers>();
+        services.AddScoped<IQueryHandler<ListSiteOperators, Result<SiteOperatorListResponse>>>(static provider => provider.GetRequiredService<SiteOperatorHandlers>());
+        services.AddScoped<ICommandHandler<GrantSiteOperator, Guid>>(static provider => provider.GetRequiredService<SiteOperatorHandlers>());
+        services.AddScoped<ICommandHandler<RevokeSiteOperator, Guid>>(static provider => provider.GetRequiredService<SiteOperatorHandlers>());
         return services;
     }
 }

@@ -455,3 +455,23 @@ internal sealed class SiteActivationConfiguration : IEntityTypeConfiguration<Sit
         builder.HasIndex(row => new { row.TenantId, row.BuildId }).HasDatabaseName("ix_site_activation_build");
     }
 }
+
+/// <summary>Maps <see cref="SiteOperatorGrant"/> to <c>site_operator</c>.</summary>
+internal sealed class SiteOperatorGrantConfiguration : IEntityTypeConfiguration<SiteOperatorGrant>
+{
+    public void Configure(EntityTypeBuilder<SiteOperatorGrant> builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.ToTable(NixTables.SiteOperator);
+        builder.HasKey(row => new { row.TenantId, row.PrincipalId }).HasName("pk_site_operator");
+        builder.Property(row => row.TenantId).HasColumnName(NixTables.TenantIdColumn);
+        builder.Property(row => row.PrincipalId).HasColumnName("principal_id");
+        builder.Property(row => row.GrantedBy).HasColumnName("granted_by");
+        builder.Property(row => row.GrantedAt).HasColumnName("granted_at");
+        builder.HasOne<Principal>().WithMany()
+            .HasForeignKey(row => new { row.TenantId, row.PrincipalId })
+            .HasPrincipalKey(principal => new { principal.TenantId, principal.Id })
+            .HasConstraintName("fk_site_operator_principal")
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
