@@ -49,6 +49,9 @@ func InspectHeader(header []byte, totalBytes int64) Metadata {
 		}
 		metadata.Animated = true
 		metadata.Malformed = metadata.Width == nil || metadata.Height == nil
+	case videoMediaType(header) != "":
+		// Only the true type is recorded; sites publish a video by this type and nothing else.
+		metadata.MediaType = videoMediaType(header)
 	case audioMediaType(header) != "":
 		// Audio is never "previewable" in the pixel-bounded sense above; the server serves a vetted
 		// audio type inline on its own rule, so only the true type is recorded here.
@@ -443,6 +446,29 @@ func audioMediaType(header []byte) string {
 			}
 		}
 		return "audio/webm"
+	}
+	return ""
+}
+
+// videoMediaType names an MP4 or WebM video by its signature, and only those: other containers
+// (QuickTime, Matroska, 3GP) are not published by sites. Audio-only files are left to audioMediaType.
+func videoMediaType(header []byte) string {
+	switch {
+	case len(header) >= 12 && string(header[4:8]) == "ftyp":
+		switch string(header[8:12]) {
+		case "isom", "iso2", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "dash", "M4V ", "M4VH", "M4VP":
+			return "video/mp4"
+		}
+	case len(header) >= 4 && bytes.Equal(header[:4], []byte{0x1a, 0x45, 0xdf, 0xa3}):
+		if !bytes.Contains(header[:min(len(header), 64)], []byte("webm")) {
+			return ""
+		}
+		tracks := header[:min(len(header), 4096)]
+		for _, video := range []string{"V_VP8", "V_VP9", "V_AV1"} {
+			if bytes.Contains(tracks, []byte(video)) {
+				return "video/webm"
+			}
+		}
 	}
 	return ""
 }
