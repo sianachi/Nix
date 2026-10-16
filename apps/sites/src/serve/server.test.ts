@@ -23,7 +23,12 @@ function memory(objects: Record<string, string>): ObjectReader {
       const [from, to] = range === undefined ? [] : range.slice('bytes='.length).split('-');
       const start = from === undefined || from === '' ? 0 : Number(from);
       if (range !== undefined && start >= bytes.length) {
-        return { length: null, status: 416, contentRange: `bytes */${bytes.length}`, body: null };
+        return {
+          length: null,
+          status: 416,
+          contentRange: `bytes */${String(bytes.length)}`,
+          body: null,
+        };
       }
       const end = to === undefined || to === '' ? bytes.length - 1 : Number(to);
       const part = range === undefined ? bytes : bytes.subarray(start, end + 1);
@@ -31,7 +36,9 @@ function memory(objects: Record<string, string>): ObjectReader {
         length: part.length,
         status: range === undefined ? 200 : 206,
         contentRange:
-          range === undefined ? null : `bytes ${start}-${start + part.length - 1}/${bytes.length}`,
+          range === undefined
+            ? null
+            : `bytes ${String(start)}-${String(start + part.length - 1)}/${String(bytes.length)}`,
         body: method === 'HEAD' ? null : new Blob([part]).stream(),
       };
     },

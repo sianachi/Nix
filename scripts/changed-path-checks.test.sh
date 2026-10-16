@@ -18,9 +18,9 @@ assert_contains "$web_output" 'pnpm --filter @nix/web typecheck'
 assert_contains "$web_output" 'pnpm exec prettier --check apps/web/src/app.tsx'
 assert_contains "$web_output" 'check-frontend-layering.sh'
 
-package_output=$("$planner" packages/ui/src/controls/button.tsx)
+package_output=$("$planner" packages/ui/src/controls/Button.tsx)
 assert_contains "$package_output" 'pnpm --filter @nix/ui test'
-assert_contains "$package_output" 'pnpm exec prettier --check packages/ui/src/controls/button.tsx'
+assert_contains "$package_output" 'pnpm exec prettier --check packages/ui/src/controls/Button.tsx'
 
 cli_output=$("$planner" apps/cli/src/index.ts)
 assert_contains "$cli_output" 'pnpm exec prettier --check apps/cli/src/index.ts'
