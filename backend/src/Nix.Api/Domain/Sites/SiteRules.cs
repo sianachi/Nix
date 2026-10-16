@@ -91,6 +91,9 @@ public static partial class SiteRules
     /// <summary>The most objects one build may write.</summary>
     public const int MaximumObjects = 20_000;
 
+    /// <summary>The most publishing notes a build response retains.</summary>
+    public const int MaximumLossEntries = 128;
+
     /// <summary>The most bytes one build may write.</summary>
     public const long MaximumBuildBytes = 2L * 1024 * 1024 * 1024;
 
@@ -114,6 +117,12 @@ public static partial class SiteRules
     /// <c>MAX_DOWNLOAD_BYTES</c> in <c>@nix/site-render</c> and the eligibility statement.
     /// </summary>
     public const long MaximumDownloadBytes = 20L * 1024 * 1024;
+
+    /// <summary>
+    /// The most bytes one published video (MP4 or WebM) may hold; matches <c>MAX_VIDEO_BYTES</c> in
+    /// <c>@nix/site-render</c> and the eligibility statement.
+    /// </summary>
+    public const long MaximumVideoBytes = 50L * 1024 * 1024;
 
     /// <summary>The most custom hostnames one site may attach.</summary>
     public const int MaximumCustomHostnames = 10;

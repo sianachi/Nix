@@ -313,7 +313,7 @@ function checkSelect(definition: StructureProperty, value: unknown): string | nu
   if (typeof value !== 'string') {
     return `${definition.label} must be one of its options.`;
   }
-  return definition.options.includes(value)
+  return definition.choiceSource || definition.options.includes(value)
     ? null
     : `${definition.label} does not offer '${value}'.`;
 }
@@ -328,7 +328,7 @@ function checkMultiSelect(definition: StructureProperty, value: unknown): string
     if (typeof entry !== 'string') {
       return `${definition.label} takes text values; '${JSON.stringify(entry)}' is not one.`;
     }
-    if (!definition.options.includes(entry)) {
+    if (!definition.choiceSource && !definition.options.includes(entry)) {
       return `${definition.label} does not offer '${entry}'.`;
     }
     if (seen.has(entry)) {

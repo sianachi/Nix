@@ -4,7 +4,10 @@ import { publishNotice } from '../../lib/notices';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useId, useState, type DragEvent, type ReactNode } from 'react';
 
-import { useItemOpenProps } from '../core/item-open-click';
+import { useClickSelects } from '../core/item-open-click';
+import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { SelectCheckbox } from '../core/select-checkbox';
+import { rowGestures } from '../core/use-item-selection';
 import {
   readDateValue,
   type ContainerViews,
@@ -39,6 +42,7 @@ import {
   MONTH_CELL,
   MONTH_VISIBLE_ITEMS,
   MonthGrid,
+  buildWeeks,
   type DayCellSpec,
 } from './month-grid';
 import { RescheduleDialog } from './reschedule-dialog';
@@ -479,6 +483,23 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // The view's own grain, overridable by the address the way the view itself is - a link saying
   // "look at this week" should open on a week.
   const mode = readMode(urlMode ?? view.mode);
+  const shownDates = new Set(
+    narrow && !showGrid && mode === 'month'
+      ? [...byDate.keys()].filter((date) => date.startsWith(prefix))
+      : mode === 'month'
+        ? buildWeeks(month).flatMap((week) => week.map((cell) => cell.date))
+        : mode === 'week'
+          ? weekOf(anchor).map(dayText)
+          : [dayText(anchor)],
+  );
+  const shownItems = [
+    ...new Set([
+      ...unscheduled.map((item) => item.id),
+      ...[...byDate]
+        .filter(([date]) => shownDates.has(date))
+        .flatMap(([, dated]) => dated.map((item) => item.id)),
+    ]),
+  ];
 
   /** One step of whatever is on screen: a month, a week, or a day. */
   function step(delta: number): void {
@@ -495,6 +516,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     // the same shape - an optional error, a header row, then the view's content - and this was the
     // one drawn one step further apart than the rest for no stated reason.
     <div className="flex min-w-0 flex-col gap-3">
+      <ShownItems ids={shownItems} />
       {container.writeError === null ? null : (
         // Alongside the calendar rather than instead of it: the write was refused and the item has
         // already been put back where it was, so the grid is correct and only the reason is missing.
@@ -1044,7 +1066,23 @@ function ItemCard(props: ItemCardProps): ReactNode {
     dateProperty,
     zone,
   } = props.card;
-  const openProps = useItemOpenProps(onOpen);
+  const selection = useOptionalItemSelection();
+  const clickSelects = useClickSelects();
+  const openBeside = selection?.openBeside;
+  const openProps = rowGestures(
+    selection,
+    item.id,
+    selection?.shown ?? [],
+    () => {
+      onOpen(item.id);
+    },
+    openBeside === undefined
+      ? undefined
+      : () => {
+          openBeside(item.id);
+        },
+    clickSelects,
+  );
 
   const startDrag = (event: DragEvent<HTMLDivElement>): void => {
     setDragged(item.id, occurrenceDate);
@@ -1066,42 +1104,48 @@ function ItemCard(props: ItemCardProps): ReactNode {
         onReschedule={setRescheduling}
       >
         {(contextTarget) => (
-          <div
-            {...contextTarget}
-            draggable
-            onDragStart={startDrag}
-            onDragEnd={() => {
-              clearDragged();
-            }}
-            className="group/chip relative flex items-center gap-0.5 rounded-sm bg-accent/18 hover:bg-accent/25"
-          >
-            <button
-              type="button"
-              {...openProps(item.id)}
-              className={cn(
-                focusRing,
-                'min-w-0 flex-1 truncate rounded-sm px-1.5 py-0.5 text-left text-xs',
-              )}
+          <div className="group group/card relative">
+            <SelectCheckbox
+              item={item}
+              className="absolute left-1 top-1 z-20 rounded-sm bg-surface"
+            />
+            <div
+              {...contextTarget}
+              draggable
+              onDragStart={startDrag}
+              onDragEnd={() => {
+                clearDragged();
+              }}
+              className="group/chip relative flex items-center gap-0.5 rounded-sm bg-accent/18 hover:bg-accent/25"
             >
-              {time === null ? null : <span className="mr-1 text-muted">{time}</span>}
-              {item.title || 'Untitled'}
-            </button>
+              <button
+                type="button"
+                {...openProps}
+                className={cn(
+                  focusRing,
+                  'min-w-0 flex-1 truncate rounded-sm py-0.5 pl-7 pr-1.5 text-left text-xs',
+                )}
+              >
+                {time === null ? null : <span className="mr-1 text-muted">{time}</span>}
+                {item.title || 'Untitled'}
+              </button>
 
-            {/* Reschedule, for a keyboard and for touch, which have no drag. Shown on hover, on
+              {/* Reschedule, for a keyboard and for touch, which have no drag. Shown on hover, on
                 focus and always on a coarse pointer - on every chip at once it is forty clocks
                 beside forty titles. It lies over the chip's end rather than beside it, so a
                 chip is the full width of its day whether or not the control is showing. `opacity`, not `visibility`, so it stays in the tab order. */}
-            <Button
-              variant="ghost"
-              aria-label={`Reschedule ${item.title || 'Untitled'}`}
-              aria-haspopup="dialog"
-              className="absolute inset-y-0 right-0 rounded-sm bg-background px-0.5 py-0 opacity-0 focus-visible:opacity-100 group-hover/chip:opacity-100 pointer-coarse:opacity-100"
-              onClick={() => {
-                setRescheduling(item.id);
-              }}
-            >
-              <Icon icon={CalendarClock} size="sm" />
-            </Button>
+              <Button
+                variant="ghost"
+                aria-label={`Reschedule ${item.title || 'Untitled'}`}
+                aria-haspopup="dialog"
+                className="absolute inset-y-0 right-0 rounded-sm bg-background px-0.5 py-0 opacity-0 focus-visible:opacity-100 group-hover/chip:opacity-100 pointer-coarse:opacity-100"
+                onClick={() => {
+                  setRescheduling(item.id);
+                }}
+              >
+                <Icon icon={CalendarClock} size="sm" />
+              </Button>
+            </div>
           </div>
         )}
       </CalendarEntryMenu>
@@ -1116,41 +1160,44 @@ function ItemCard(props: ItemCardProps): ReactNode {
       onReschedule={setRescheduling}
     >
       {(contextTarget) => (
-        <div
-          {...contextTarget}
-          draggable
-          onDragStart={startDrag}
-          onDragEnd={() => {
-            clearDragged();
-          }}
-          className="flex items-start gap-1 border border-divider bg-surface px-1"
-        >
-          <div className="flex min-w-0 flex-1 flex-col">
-            {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
+        <div className="group group/card flex items-start gap-1">
+          <SelectCheckbox item={item} className="self-start" />
+          <div
+            {...contextTarget}
+            draggable
+            onDragStart={startDrag}
+            onDragEnd={() => {
+              clearDragged();
+            }}
+            className="flex min-w-0 flex-1 items-start gap-1 border border-divider bg-surface px-1"
+          >
+            <div className="flex min-w-0 flex-1 flex-col">
+              {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
             width is its text's, and a one- or two-character title lands under WCAG 2.5.8's 24px
             floor. Half a step each side is the widest the hit area can grow without reaching the
             reschedule control's own widened area beside it. */}
-            <Button
-              variant="ghost"
-              className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
-              {...openProps(item.id)}
-            >
-              <span className="truncate">{item.title || 'Untitled'}</span>
-            </Button>
+              <Button
+                variant="ghost"
+                className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
+                {...openProps}
+              >
+                <span className="truncate">{item.title || 'Untitled'}</span>
+              </Button>
 
-            {secondaryProperty === null ? null : (
-              <div className="min-w-0">
-                <Text variant="kicker" tone="muted" as="span">
-                  {secondaryProperty.label}
-                </Text>
-                <ListCell
-                  item={item}
-                  property={secondaryProperty}
-                  tabIndex={-1}
-                  onWrite={(value) => onWrite(item.id, secondaryProperty.key, value)}
-                />
-              </div>
-            )}
+              {secondaryProperty === null ? null : (
+                <div className="min-w-0">
+                  <Text variant="kicker" tone="muted" as="span">
+                    {secondaryProperty.label}
+                  </Text>
+                  <ListCell
+                    item={item}
+                    property={secondaryProperty}
+                    tabIndex={-1}
+                    onWrite={(value) => onWrite(item.id, secondaryProperty.key, value)}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* `before:-inset-x-1`: with `px-0` this is an 18px-wide target - the 16px glyph plus the

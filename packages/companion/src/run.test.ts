@@ -1914,3 +1914,48 @@ describe('reading values, the calendar, and completing tasks', () => {
     ).toBe(false);
   });
 });
+
+it('edits a field only with a current approved preview and keeps unrelated fields', async () => {
+  const { ports, query, execute, signal } = setup();
+  const who = { key: 'who', label: 'Who', type: 'text', options: [], required: false };
+  const reason = { key: 'reason', label: 'Reason', type: 'text', options: [], required: true };
+  query.mockImplementation((endpoint: { operation: string }) =>
+    Promise.resolve(
+      endpoint.operation === 'schema.get'
+        ? { properties: [who, reason], declared: [who, reason], inherit: false }
+        : endpoint.operation === 'views.getConfigurations'
+          ? { views: [], unrenderable: [], default: 'document', hideDocument: false }
+          : { id: itemId, workspaceId: workspace, parentId: null, title: 'Grudges', type: 'note' },
+    ),
+  );
+  const args = workspaceToolSchema.parse(
+    JSON.parse(
+      input('edit_fields', {
+        itemId,
+        specJson: JSON.stringify({
+          fields: [{ key: 'who', label: 'Who', type: 'select', choiceSource: {} }],
+        }),
+      }),
+    ),
+  );
+  const preview = await loadPreviewContext(ports, workspace, args, signal);
+  await expect(
+    runWorkspaceTool(ports, workspace, JSON.stringify(args), signal, { fence: 'old' }),
+  ).rejects.toThrow('changed since you approved');
+  expect(execute).not.toHaveBeenCalled();
+  const result = await runWorkspaceTool(ports, workspace, JSON.stringify(args), signal, {
+    fence: preview.fingerprint,
+  });
+  expect(execute).toHaveBeenCalledOnce();
+  expect(execute.mock.calls[0]?.[0]).toMatchObject({
+    operation: 'schema.set',
+    body: {
+      inherit: false,
+      properties: [
+        { ...who, type: 'select', choiceSource: { itemId: null, field: 'who' } },
+        reason,
+      ],
+    },
+  });
+  expect(result.touchedParents).toEqual([itemId]);
+});

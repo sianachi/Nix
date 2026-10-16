@@ -78,6 +78,52 @@ describe('the workspace menu', () => {
     expect(within(menu).getAllByRole('link', { name: SHARED.name })).toHaveLength(2);
   });
 
+  it('collapses a group, keeps it collapsed when reopening the menu, and opens its management page', async () => {
+    const user = userEvent.setup();
+    const groupId = '44444444-4444-4444-8444-444444444444';
+    stubCoreApi({
+      workspaces: [STUB_WORKSPACE, SHARED],
+      workspaceArrangement: {
+        revision: 3,
+        groups: [{ id: groupId, name: 'Clients', workspaceIds: [SHARED.id] }],
+        pinnedWorkspaceIds: [],
+      },
+    });
+    renderAt(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Workspace menu' }));
+    const toggle = await screen.findByRole('button', { name: 'Clients' });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('link', { name: SHARED.name })).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Workspace menu' }));
+    expect(screen.getByRole('button', { name: 'Clients' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    await user.click(screen.getByRole('link', { name: 'Manage group Clients' }));
+    expect(await screen.findByRole('heading', { name: 'Clients', level: 1 })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Manage' }));
+    const name = await screen.findByRole('textbox', { name: 'Name of group Clients' });
+    await user.clear(name);
+    await user.type(name, 'Customers');
+    await user.tab();
+    expect(await screen.findByRole('heading', { name: 'Customers', level: 1 })).toBeVisible();
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: `Group for ${STUB_WORKSPACE.name}` }),
+      groupId,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: `Group for ${STUB_WORKSPACE.name}` }),
+      ).toHaveDisplayValue('Customers'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Remove group Customers' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'This workspace group no longer exists.',
+    );
+  });
+
   it('lists saved groups with their workspaces and the rest under Other workspaces', async () => {
     const user = userEvent.setup();
     stubCoreApi({
@@ -150,6 +196,31 @@ describe('workspace groups in settings', () => {
     // Still here, now ungrouped: a removed group takes nothing with it.
     expect(select).toHaveDisplayValue('No group');
     expect(within(section).getByText(SHARED.name)).toBeVisible();
+  });
+
+  it('shows a missing group without exposing the other group controls', async () => {
+    stubCoreApi({
+      workspaces: [STUB_WORKSPACE, SHARED],
+      workspaceArrangement: { revision: 1, groups: [], pinnedWorkspaceIds: [] },
+    });
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/workspace-groups/missing`);
+    expect(await screen.findByText('This workspace group no longer exists.')).toBeVisible();
+    expect(
+      screen.queryByRole('combobox', { name: `Group for ${SHARED.name}` }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('creates an empty group in the global hub and opens its analysis page', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ workspaces: [STUB_WORKSPACE, SHARED] });
+    renderAt(<App />, '/workspaces/groups');
+    await user.type(await screen.findByRole('textbox', { name: 'New group name' }), 'Research');
+    await user.click(screen.getByRole('button', { name: 'Create group' }));
+    await user.click(await screen.findByRole('link', { name: 'Research' }));
+    expect(await screen.findByRole('heading', { name: 'Research', level: 1 })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Compare priorities' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Manage' }));
+    expect(screen.getByRole('combobox', { name: `Group for ${SHARED.name}` })).toBeVisible();
   });
 
   it('cancels a pending new group with Escape', async () => {

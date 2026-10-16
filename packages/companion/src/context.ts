@@ -345,6 +345,7 @@ export async function loadPreviewContext(
       'read_structure',
       'read_view',
       'add_fields',
+      'edit_fields',
       'edit_form',
       'update_view',
       'set_recurrence',

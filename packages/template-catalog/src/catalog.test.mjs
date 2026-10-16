@@ -162,14 +162,18 @@ test('onboarding fixture carries file bytes, resettable recurrence, links and re
   assert.ok(welcomeJson.includes('nix://item/09999999-9999-4999-8999-999999999999'));
 });
 
-test('catalog generation produces byte-identical archives on repeated builds', async () => {
+test('catalog generation produces byte-identical archives across time zones', async () => {
   const before = await catalogBytes();
-  const run = spawnSync(process.execPath, [build], {
-    cwd: resolve(here, '../..'),
-    encoding: 'utf8',
-  });
-  assert.equal(run.status, 0, run.stderr);
-  const after = await catalogBytes();
-  assert.deepEqual([...after.keys()], [...before.keys()]);
-  for (const [name, bytes] of before) assert.equal(sha256(after.get(name)), sha256(bytes), name);
+  for (const TZ of ['UTC', 'Pacific/Auckland']) {
+    const run = spawnSync(process.execPath, [build], {
+      cwd: resolve(here, '../..'),
+      encoding: 'utf8',
+      env: { ...process.env, TZ },
+    });
+    assert.equal(run.status, 0, run.stderr);
+    const after = await catalogBytes();
+    assert.deepEqual([...after.keys()], [...before.keys()]);
+    for (const [name, bytes] of before)
+      assert.equal(sha256(after.get(name)), sha256(bytes), `${TZ}: ${name}`);
+  }
 });

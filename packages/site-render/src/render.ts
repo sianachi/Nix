@@ -192,6 +192,7 @@ export function renderSite(input: RenderSiteInput): RenderedSite {
       url: `/${path}`,
       name: path.slice(path.lastIndexOf('/') + 1),
       label: `${file.ext.toUpperCase()}, ${formatBytes(file.bytes.length)}`,
+      isVideo: file.isVideo,
     };
   };
 

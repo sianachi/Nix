@@ -473,6 +473,7 @@ export function parseStoredViewsObject(value: unknown, ownerId: string): ViewsSn
 }
 
 const VIEW_KINDS = new Set([
+  'chat',
   'list',
   'board',
   'calendar',
@@ -1353,6 +1354,25 @@ function parseProperty(value: unknown, owner: string): SchemaSnapshot['propertie
       `The schema on ${owner} contains an invalid computed property.`,
     );
   }
+  let choiceSource: SchemaSnapshot['properties'][number]['choiceSource'];
+  if (value.choiceSource != null) {
+    const source = value.choiceSource;
+    if (
+      !record(source) ||
+      !['text', 'select', 'multi_select'].includes(value.type) ||
+      !shortText(source.field, 160) ||
+      source.field.startsWith('$') ||
+      (source.itemId !== null &&
+        (typeof source.itemId !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(source.itemId)))
+    ) {
+      throw refusal(
+        'archive.schema_invalid',
+        `The schema on ${owner} contains an invalid choice source.`,
+      );
+    }
+    choiceSource = { itemId: source.itemId, field: source.field };
+  }
   return {
     key: value.key,
     label: value.label,
@@ -1361,6 +1381,7 @@ function parseProperty(value: unknown, owner: string): SchemaSnapshot['propertie
     required: value.required,
     ...(value.expression !== undefined ? { expression: value.expression } : {}),
     ...(value.aggregate !== undefined ? { aggregate: value.aggregate } : {}),
+    ...(choiceSource === undefined ? {} : { choiceSource }),
     ...(value.source !== undefined ? { source: value.source } : {}),
   };
 }

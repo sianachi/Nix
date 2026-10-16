@@ -136,7 +136,9 @@ export type NodeHandler<T> = (node: ProseNode, ctx: VisitContext, children: () =
  * makes a missing block a runtime surprise, and this is exactly the type whose whole job is to make
  * it a build failure.
  */
-export type NodeHandlers<T> = Readonly<Record<ProseNodeName, NodeHandler<T>>>;
+export type NodeHandlers<T> = Readonly<Record<ProseNodeName, NodeHandler<T>>> & {
+  readonly unknownNode?: NodeHandler<T>;
+};
 
 export interface VisitRequest {
   /** Whose body this is. Every loss recorded during the walk is filed against it. */
@@ -183,18 +185,24 @@ export function visitProse<T>(
 }
 
 function walk<T>(node: ProseNode, handlers: NodeHandlers<T>, ctx: VisitContext): T | null {
-  if (!NODE_NAMES.has(node.type)) {
-    // Its children go with it, and the sentence says so: recursing into a block whose meaning is
-    // unknown would splice its contents into the parent as though the block had never been there,
-    // which reads as a document somebody edited rather than one this build could not draw.
-    ctx.loss.note(
-      'unknown-node',
-      `A "${node.type}" block, and everything inside it, was written by a newer version of Nix and could not be drawn.`,
-    );
+  if (ctx.depth > 64) {
+    ctx.loss.note('malformed-node', 'Content beyond the document nesting limit was omitted.');
     return null;
   }
+  if (!NODE_NAMES.has(node.type)) {
+    ctx.loss.note(
+      'unknown-node',
+      handlers.unknownNode
+        ? `A "${node.type}" block was flattened to readable content; its original presentation is unknown.`
+        : `A "${node.type}" block, and everything inside it, was written by a newer version of Nix and could not be drawn.`,
+    );
+    if (!handlers.unknownNode) return null;
+  }
 
-  const handler = handlers[node.type as ProseNodeName];
+  const handler = NODE_NAMES.has(node.type)
+    ? handlers[node.type as ProseNodeName]
+    : handlers.unknownNode;
+  if (handler === undefined) return null;
 
   return handler(node, ctx, () => {
     const childContext: VisitContext = { ...ctx, depth: ctx.depth + 1 };

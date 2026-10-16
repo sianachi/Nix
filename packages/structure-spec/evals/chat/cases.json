@@ -1,5 +1,55 @@
 [
   {
+    "id": "convert-note-to-views",
+    "prompt": "Turn the book list in {node:books-note} into a sensible Nix view on that same note. Add a list view called Books and create one child for each of its three books. Preserve the original prose, do not invent status or date values, and read the resulting view back.",
+    "tools": {
+      "requireSuccessful": [
+        "read_note",
+        "read_structure",
+        "add_view",
+        "create_entries",
+        "read_view"
+      ],
+      "forbid": ["trash_item", "replace_section", "replace_passage"],
+      "max": 12
+    },
+    "asserts": [
+      { "kind": "child", "parent": "books-note", "title": "^Piranesi$", "count": 1 },
+      {
+        "kind": "child",
+        "parent": "books-note",
+        "title": "^The Left Hand of Darkness$",
+        "count": 1
+      },
+      { "kind": "child", "parent": "books-note", "title": "^A Memory Called Empire$", "count": 1 },
+      {
+        "kind": "note",
+        "item": "books-note",
+        "contains": "Piranesi[\\s\\S]*The Left Hand of Darkness[\\s\\S]*A Memory Called Empire"
+      },
+      { "kind": "view", "item": "books-note", "name": "Books", "equals": { "kind": "list" } }
+    ]
+  },
+  {
+    "id": "convert-views-to-note",
+    "prompt": "Turn the board on {node:tasks} into a readable note called Task board summary inside {node:hub-note}. Include every returned task and status, a source link and any sampling limitations. Preserve the board and tasks, then read the saved note back.",
+    "tools": {
+      "requireSuccessful": ["read_structure", "read_view", "create_note", "read_note"],
+      "forbid": ["trash_item", "set_properties", "update_view", "create_entries"],
+      "max": 12
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "hub-note",
+        "title": "^Task board summary$",
+        "count": 1,
+        "noteContains": "Pay rent[\\s\\S]*Call dentist|Call dentist[\\s\\S]*Pay rent"
+      },
+      { "kind": "value", "item": "task-report", "key": "status", "equals": "Doing" }
+    ]
+  },
+  {
     "id": "read-board",
     "prompt": "What is on my {node:tasks} board right now? List every task with its status.",
     "tools": {

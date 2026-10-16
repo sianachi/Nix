@@ -106,7 +106,13 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
     public Task<Result<PetConnectionResponse>> ExecuteWatchAsync(Guid workspaceId, Guid petId, string mode, long after, CancellationToken cancellationToken, Guid? rootItemId = null) =>
         ExecuteCoreAsync(new PetRuntimeRequest("watch", workspaceId, petId, Mode: mode, RootItemId: rootItemId), after, cancellationToken);
 
-    private async Task<Result<PetConnectionResponse>> ExecuteCoreAsync(PetRuntimeRequest request, long after, CancellationToken cancellationToken)
+    internal Task<Result<PetConnectionResponse>> ExecuteConversationAsync(PetRuntimeRequest request, Guid conversationItemId,
+        IReadOnlyList<Guid> sourceWorkspaceIds, IReadOnlyList<PetMessage>? earlierMessages, CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(request with { ReadOnly = true, WorkspaceAccess = true, RootItemId = null }, 0, cancellationToken,
+            conversationItemId, sourceWorkspaceIds, earlierMessages);
+
+    private async Task<Result<PetConnectionResponse>> ExecuteCoreAsync(PetRuntimeRequest request, long after, CancellationToken cancellationToken,
+        Guid? conversationItemId = null, IReadOnlyList<Guid>? sourceWorkspaceIds = null, IReadOnlyList<PetMessage>? earlierMessages = null)
     {
         var context = session.Current ?? throw new InvalidOperationException("A session is required.");
         if (request.Operation is not ("status" or "connect" or "disconnect" or "models" or "read" or "watch" or "send" or "interrupt" or "reset" or "tool_claim" or "tool_result" or "history" or "read_history" or "delete_history" or "rename" or "resume_history")
@@ -123,6 +129,17 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             || !IsValidTurnContext(request))
         {
             return Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Check the message and try again."));
+        }
+
+        if (sourceWorkspaceIds is not null)
+        {
+            foreach (var sourceId in sourceWorkspaceIds)
+            {
+                if (!await permissions.CanReadWorkspaceAsync(new WorkspaceId(sourceId), cancellationToken).ConfigureAwait(false))
+                {
+                    return Result.Failure<PetConnectionResponse>(new("pets.not_found", "A source workspace is unavailable."));
+                }
+            }
         }
 
         var instructions = string.Empty;
@@ -248,7 +265,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
             request.Mode, after, request.Today, request.TimeZone, request.RootItemId is null ? request.WorkspaceMap : null, request.ToolLockedContent,
             request.RootItemId?.ToString(), request.ReadOnly, sharedItems.Count > 0 ? sharedItems : null,
-            request.ReplaceFromMessageId?.ToString(), provider == PetProviders.ChatGpt ? null : provider, apiKey), PetJsonContext.Default.PetWorkerRequest);
+            request.ReplaceFromMessageId?.ToString(), provider == PetProviders.ChatGpt ? null : provider, apiKey, conversationItemId?.ToString(),
+            sourceWorkspaceIds?.Select(id => id.ToString()).ToArray(), earlierMessages), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);

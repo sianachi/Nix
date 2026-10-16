@@ -111,6 +111,11 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(SchedulingReservedProperties.Error);
         }
 
+        if (ContainsKeyMatching(changes, name => name.StartsWith("$chat_", StringComparison.Ordinal)))
+        {
+            return Result.Failure<Item>(ReservedPropertyKeys.Refusal("$chat_config"));
+        }
+
         if (FirstKeySet(changes, name => ReservedPropertyKeys.IsRefused(name, command.HabitWrite, command.CalendarWrite, command.FinanceWrite)) is { } reserved)
         {
             return Result.Failure<Item>(ReservedPropertyKeys.Refusal(reserved));

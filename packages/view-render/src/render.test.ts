@@ -63,6 +63,7 @@ describe('drawing any view', () => {
     expect([...DRAWN_VIEW_KINDS].sort()).toEqual([
       'board',
       'calendar',
+      'chat',
       'form',
       'gallery',
       'habit_tracker',
@@ -328,5 +329,51 @@ describe('the bar a timeline draws', () => {
       const width = Number(/width="([\d.]+)"/.exec(bar)?.[1] ?? '0');
       expect(width).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('chat transcripts', () => {
+  it('draws split long messages once and counts logical messages at the ceiling', () => {
+    const result = draw('chat', [
+      ...Array.from({ length: ROW_CEILING - 1 }, (_, i) =>
+        row(String(i), { chat_role: 'user', chat_text: 'Before' }),
+      ),
+      row('part0', {
+        chat_role: 'assistant',
+        chat_message_id: 'long',
+        chat_part: 0,
+        chat_text: 'x'.repeat(3000),
+      }),
+      row('part1', {
+        chat_role: 'assistant',
+        chat_message_id: 'long',
+        chat_part: 1,
+        chat_text: 'The complete ending',
+      }),
+    ]);
+    expect(result.svg.match(/>assistant<\/text>/g)).toHaveLength(1);
+    expect(result.svg).toContain('The complete ending');
+    expect(result.notes).toEqual([]);
+  });
+
+  it('renders ordered roles and the complete escaped message text', () => {
+    const result = draw('chat', [
+      row('first', { chat_role: 'user', chat_text: '<script>hello</script>' }),
+      row('second', { chat_role: 'assistant', chat_text: 'A reply\nSecond paragraph' }),
+    ]);
+    expect(result.svg).toContain('&lt;script&gt;hello&lt;/script&gt;');
+    expect(result.svg).toContain('Second paragraph');
+    expect(result.svg.indexOf('user')).toBeLessThan(result.svg.indexOf('assistant'));
+    expect(result.notes).toEqual([]);
+  });
+
+  it('discloses a drawing ceiling without claiming the complete transcript', () => {
+    const result = draw(
+      'chat',
+      Array.from({ length: ROW_CEILING + 1 }, (_, i) => row(String(i), { chat_text: 'Message' })),
+    );
+    expect(result.notes).toEqual([
+      `Only the first ${String(ROW_CEILING)} of ${String(ROW_CEILING + 1)} messages are drawn. The native archive retains all message children.`,
+    ]);
   });
 });

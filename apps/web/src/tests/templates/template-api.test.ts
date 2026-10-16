@@ -114,6 +114,7 @@ describe('the template API boundary', () => {
           expression: null,
           aggregate: null,
           source: null,
+          choiceSource: null,
         },
       ],
       declared: [
@@ -126,6 +127,7 @@ describe('the template API boundary', () => {
           expression: null,
           aggregate: null,
           source: null,
+          choiceSource: null,
         },
       ],
     });

@@ -399,7 +399,7 @@ function EntryForm({
                   className="flex flex-col gap-1"
                 >
                   <PropertyInput
-                    item={{ title, properties: bag }}
+                    item={{ title, properties: bag, parentId: container.itemId }}
                     property={definition}
                     density="panel"
                     error={fieldErrors[definition.key] ?? null}

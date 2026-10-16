@@ -957,6 +957,7 @@ const WRITE_TEXT_SPEC_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = 
   'add_view',
   'create_entries',
   'add_fields',
+  'edit_fields',
   'edit_form',
   'set_recurrence',
   'apply_template',

@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { expect, it, vi } from 'vitest';
 
 import { ApiClientProvider } from '../../api/api-client-provider';
+import { executeBulkDelete } from '../../items/bulk-delete';
 import { ItemCommandsProvider } from '../../items/item-commands-context';
 import { useWorkspaceTree } from '../../items/use-workspace-tree';
 import { ContainerView } from '../../views/core/container-view';
@@ -38,16 +39,17 @@ function Harness(): ReactNode {
     <ItemCommandsProvider
       tree={tree}
       onDeleteItem={vi.fn()}
-      onDeleteItems={() => Promise.resolve([])}
+      onDeleteItems={async (items) => {
+        const outcome = await executeBulkDelete(tree, items);
+        return outcome.deleted.map((item) => item.id);
+      }}
     >
       <ContainerView container={container} view={aView({ kind: 'list' })} onOpen={vi.fn()} />
     </ItemCommandsProvider>
   );
 }
 
-it('drops a row from the list it left when Move to... finishes, without a reload', async () => {
-  const user = userEvent.setup();
-  stubCoreApi({ items: [FOLDER, MOVING, STAYING, DESTINATION] });
+function renderHarness(): void {
   render(
     <MemoryRouter initialEntries={[`/w/${STUB_WORKSPACE.id}`]}>
       <ApiClientProvider>
@@ -74,6 +76,12 @@ it('drops a row from the list it left when Move to... finishes, without a reload
       </ApiClientProvider>
     </MemoryRouter>,
   );
+}
+
+it('drops a row from the list it left when Move to... finishes, without a reload', async () => {
+  const user = userEvent.setup();
+  stubCoreApi({ items: [FOLDER, MOVING, STAYING, DESTINATION] });
+  renderHarness();
 
   await user.click(await screen.findByRole('checkbox', { name: 'Select Alpha' }));
   await user.click(
@@ -89,4 +97,30 @@ it('drops a row from the list it left when Move to... finishes, without a reload
     expect(screen.queryByRole('checkbox', { name: 'Select Alpha' })).not.toBeInTheDocument();
   });
   expect(screen.getByRole('checkbox', { name: 'Select Beta' })).toBeInTheDocument();
+});
+
+it('deletes a selected container child without loading its collapsed sidebar branch', async () => {
+  const user = userEvent.setup();
+  stubCoreApi({ items: [FOLDER, MOVING, STAYING, DESTINATION] });
+  renderHarness();
+
+  await user.click(await screen.findByRole('checkbox', { name: 'Select Alpha' }));
+  await user.click(
+    within(screen.getByRole('toolbar', { name: 'Selected items' })).getByRole('button', {
+      name: 'Delete',
+    }),
+  );
+  const dialog = await screen.findByRole('dialog', { name: 'Delete 1 item?' });
+  await user.click(within(dialog).getByRole('button', { name: 'Delete 1 item' }));
+
+  await waitFor(() => {
+    const deleted = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.filter(([, init]) => init?.method === 'DELETE')
+      .map(([input]) => (input instanceof Request ? input.url : String(input)));
+    expect(deleted).toEqual([expect.stringContaining(`/api/v1/items/${MOVING.id}`)]);
+  });
+  expect(screen.getByRole('checkbox', { name: 'Select Beta' })).toBeInTheDocument();
+  expect(screen.queryByRole('dialog', { name: 'Delete 1 item?' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
 });

@@ -72,6 +72,12 @@ export const TOOL_EXAMPLES: Readonly<
     parentId: EXAMPLE_ITEM_ID,
     spec: { entries: [{ title: 'The Hobbit' }] },
   },
+  edit_fields: {
+    itemId: EXAMPLE_ITEM_ID,
+    spec: {
+      fields: [{ key: 'person', label: 'Person', type: 'text', choiceSource: { field: 'person' } }],
+    },
+  },
   add_fields: {
     itemId: EXAMPLE_ITEM_ID,
     spec: { fields: [{ label: 'Rating', type: 'number' }] },

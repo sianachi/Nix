@@ -87,6 +87,7 @@ export function ContainerView({
   const selecting = capabilities.select && !container.locked;
   // What the view says it draws, for Select all and Cmd/Ctrl-A: filters live in the view, so it reports.
   const [shown, setShown] = useState<readonly string[]>([]);
+  const [trayActions, setTrayActions] = useState<ReactNode>(null);
   const show = useCallback((ids: readonly string[]): void => {
     setShown((current) =>
       current.length === ids.length && current.every((id, index) => id === ids[index])
@@ -121,11 +122,19 @@ export function ContainerView({
         commands === null || !capabilities.delete
           ? undefined
           : () => {
-              void commands.deleteItems([...selection.selected]).then(dropDeleted);
+              void commands
+                .deleteItems(
+                  container.children
+                    .filter((item) => selection.selected.has(item.id))
+                    .map((item) => ({ ...item, seq: Number(item.seq) })),
+                )
+                .then(dropDeleted);
             }
       }
       onClear={selection.clear}
-    />
+    >
+      {trayActions}
+    </SelectionBar>
   ) : null;
   // What a drop does here, said before it happens rather than discovered afterwards.
   const dragHint =
@@ -141,6 +150,7 @@ export function ContainerView({
     shown,
     show,
     openBeside: roomForPane ? onOpenBeside : undefined,
+    setTrayActions,
   };
   const tools =
     container.status === 'ready' &&

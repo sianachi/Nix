@@ -10,6 +10,10 @@ import { aContainer } from '../../container-fixture';
 import type { Item } from '../../../views/core/container-model';
 import { OutlineTree } from '../../../views/outline/outline-view';
 import type { OutlineSource } from '../../../views/outline/outline-source';
+import { ItemSelectionContext } from '../../../views/core/item-selection-context';
+import { SelectionBar } from '../../../views/core/selection-bar';
+import { useItemSelection } from '../../../views/core/use-item-selection';
+import { capabilitiesOf } from '../../../views/core/view-capabilities';
 
 /**
  * The outline, driven from the keyboard over an in-memory tree. The fake source keeps every item's
@@ -59,11 +63,14 @@ interface HarnessOptions {
   readonly lockedIds?: readonly string[];
   readonly onOpen?: (itemId: string) => void;
   readonly truncated?: boolean;
+  readonly selecting?: boolean;
   readonly onMove?: (itemId: string, parentId: string | null, afterId: string | null) => void;
 }
 
 function Harness(options: HarnessOptions): ReactNode {
   const [nodes, setNodes] = useState<Node[]>(initialTree);
+  const selection = useItemSelection();
+  const [shown, setShown] = useState<readonly string[]>([]);
   // The source reads the latest tree between renders, as Core would, so it is held in a ref.
   const latest = useRef(nodes);
 
@@ -127,13 +134,28 @@ function Harness(options: HarnessOptions): ReactNode {
     reload: () => Promise.resolve(),
   });
 
-  return (
+  const tree = (
     <OutlineTree
       container={container}
       view={aView({ kind: 'outline', name: 'Plan' })}
       onOpen={options.onOpen ?? vi.fn()}
       source={source}
     />
+  );
+  if (!options.selecting) return tree;
+  return (
+    <ItemSelectionContext
+      value={{
+        selected: selection.selected,
+        toggle: selection.toggle,
+        capabilities: capabilitiesOf('outline'),
+        shown,
+        show: setShown,
+      }}
+    >
+      {tree}
+      <SelectionBar count={selection.selected.size} onClear={selection.clear} />
+    </ItemSelectionContext>
   );
 }
 
@@ -158,6 +180,16 @@ function row(title: string): HTMLElement {
 }
 
 describe('OutlineTree', () => {
+  it('selects a tree row from its checkbox and shows the shared tray', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness selecting />);
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select Alpha' }));
+    expect(screen.getByRole('toolbar', { name: 'Selected items' })).toHaveTextContent('1 selected');
+    await user.keyboard(' ');
+    expect(screen.getByRole('checkbox', { name: 'Select Alpha' })).not.toBeChecked();
+  });
+
   it('opens and moves the row whose context menu was requested', async () => {
     const onOpen = vi.fn();
     const onMove = vi.fn();
@@ -354,6 +386,7 @@ describe('OutlineTree', () => {
     renderAt(<Harness onOpen={onOpen} />);
 
     await user.click(row('Charlie'));
+    expect(onOpen).not.toHaveBeenCalled();
     expect(screen.getByText('Acting on “Charlie”')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Open' }));
 

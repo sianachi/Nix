@@ -15,7 +15,7 @@ import type { ObjectReader, StoredObject } from './store.ts';
  */
 
 export const SITE_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /** A captured diagram's policy: its inline `<style>` applies; nothing runs or loads. */
 export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'";
@@ -47,11 +47,14 @@ const BUILD_PREFIX = /^sites\/[0-9a-f-]{36}\/builds\/[0-9a-f-]{36}\/$/;
 const ASSETS_PREFIX = /^sites\/[0-9a-f-]{36}\/assets\/$/;
 const ASSET_NAME = /^[0-9a-f]{64}\.(png|jpg|webp|svg)$/;
 /** A published download: its digest names the stored object, the file name only the download. */
-const DOWNLOAD = /^\/_nix\/files\/([0-9a-f]{64})\/([A-Za-z0-9][A-Za-z0-9_-]{0,79}\.(pdf|txt|csv))$/;
+const DOWNLOAD =
+  /^\/_nix\/files\/([0-9a-f]{64})\/([A-Za-z0-9][A-Za-z0-9_-]{0,79}\.(pdf|txt|csv|mp4|webm))$/;
 const DOWNLOAD_TYPES: Readonly<Record<string, string>> = {
   pdf: 'application/pdf',
   txt: 'text/plain; charset=utf-8',
   csv: 'text/csv; charset=utf-8',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
 };
 /** A published PDF is a download, and sandboxed should a browser render it anyway. */
 export const PDF_CSP = "sandbox; default-src 'none'; frame-ancestors 'none'";
@@ -362,12 +365,22 @@ export function createSiteServer(options: SiteServerOptions): Server {
     const extension = key.slice(key.lastIndexOf('.'));
     const type = download['content-type'] ?? TYPES[extension];
     if (type === undefined) return notFound();
-    const object = await options.reader.open(key, head ? 'HEAD' : 'GET');
+    // Only a download is ranged (a player seeks with it); one `bytes=a-b` range, never a list.
+    const rangeHeader = request.headers.range;
+    const range =
+      download['content-type'] !== undefined &&
+      typeof rangeHeader === 'string' &&
+      /^bytes=\d*-\d*$/.test(rangeHeader)
+        ? rangeHeader
+        : undefined;
+    const object = await options.reader.open(key, head ? 'HEAD' : 'GET', range);
     if (object === null) return notFound();
     send(
       response,
-      200,
+      object.status,
       {
+        ...(object.contentRange === null ? {} : { 'content-range': object.contentRange }),
+        ...(download['content-type'] === undefined ? {} : { 'accept-ranges': 'bytes' }),
         'content-type': type,
         ...(type === 'image/svg+xml' ? { 'content-security-policy': SVG_CSP } : {}),
         ...download,

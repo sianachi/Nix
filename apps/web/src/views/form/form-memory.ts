@@ -44,7 +44,7 @@ export function formMemoryNamespace(workspaceId: string, viewId: string, key: st
 }
 
 export function isRemembered(property: PropertyDefinition): boolean {
-  return REMEMBERED_TYPES.has(property.type);
+  return !property.choiceSource && REMEMBERED_TYPES.has(property.type);
 }
 
 /** The keys one submitted value is remembered under: each option of a multi-select, else one. */

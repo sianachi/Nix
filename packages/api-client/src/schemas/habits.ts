@@ -28,25 +28,23 @@ export const habitWeekSummarySchema = z.object({
   quantity: z.number().nonnegative(),
 });
 
+/** One local day of one habit: whether it was planned, and what was recorded. */
+export const habitOccurrenceSchema = z.object({
+  date: z.iso.date(),
+  scheduled: z.boolean(),
+  state: z.string(),
+  target: z.number(),
+  unit: z.string(),
+  quantity: z.number().nullable(),
+  completed: z.boolean(),
+});
+
 export const habitTrackerSchema = habitSettingsSchema.extend({
   habitId: z.uuid(),
   checkIns: z.array(habitCheckInSchema),
   weeks: z.array(habitWeekSummarySchema),
   status: z.enum(['active', 'paused', 'archived']).default('active'),
-  occurrences: z
-    .array(
-      z.object({
-        date: z.iso.date(),
-        scheduled: z.boolean(),
-        state: z.string(),
-        target: z.number(),
-        unit: z.string(),
-        quantity: z.number().nullable(),
-        completed: z.boolean(),
-      }),
-    )
-    .nullable()
-    .default(null),
+  occurrences: z.array(habitOccurrenceSchema).nullable().default(null),
   progress: z
     .object({
       currentStreak: z.int().nonnegative(),

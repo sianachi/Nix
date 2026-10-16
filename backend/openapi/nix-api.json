@@ -260,6 +260,88 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/conversations": {
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "CreateConversation",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/conversations/import": {
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "ImportConversation",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/items/{itemId}/views/{viewId}/public-link": {
       "get": {
         "tags": [
@@ -4732,7 +4814,7 @@
           "Structure"
         ],
         "summary": "The views a container offers",
-        "description": "Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'habit_tracker', 'gallery', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist' and 'outline') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.",
+        "description": "Returns the views in switcher order, plus the identifiers of any whose configured property no longer exists or no longer fits. A board grouping by a deleted property would otherwise render as an empty board, which is indistinguishable from an item with nothing in it. A kind that needs nothing from the schema ('list', 'chat', 'habit_tracker', 'gallery', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist' and 'outline') is never listed there: it needs no property to draw its items, so a gallery whose cover property is gone reports the missing cover and still shows every item.",
         "operationId": "GetContainerViews",
         "parameters": [
           {
@@ -4773,7 +4855,7 @@
           "Structure"
         ],
         "summary": "Replace the views a container offers",
-        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist', 'outline', 'matrix' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from, a matrix needs a property for its columns and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable. 'hideDocument' hides the document tab and nothing else: it is not an access control, and the body stays readable everywhere it already was. Absent leaves the stored flag as it is; true makes the first view open when the default was the document, and fails with 'views.document_cannot_be_hidden' when there are no views or the default explicitly names the document. Replacing the set with no views clears the flag. An optional expectedVersion from the views read atomically rejects stale replacements with views.version_conflict (409); absent preserves legacy unconditional replacement.",
+        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'chat', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist', 'outline', 'matrix' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from, a matrix needs a property for its columns and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable. 'hideDocument' hides the document tab and nothing else: it is not an access control, and the body stays readable everywhere it already was. Absent leaves the stored flag as it is; true makes the first view open when the default was the document, and fails with 'views.document_cannot_be_hidden' when there are no views or the default explicitly names the document. Replacing the set with no views clears the flag. An optional expectedVersion from the views read atomically rejects stale replacements with views.version_conflict (409); absent preserves legacy unconditional replacement.",
         "operationId": "SetContainerViews",
         "parameters": [
           {
@@ -5865,6 +5947,273 @@
         }
       }
     },
+    "/api/v1/conversations/{itemId}/configure": {
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "ConfigureConversation",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{itemId}": {
+      "get": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "GetConversation",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{itemId}/messages": {
+      "get": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "GetConversationMessages",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationMessagesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{itemId}/watch": {
+      "get": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "WatchConversation",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{itemId}/turns": {
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "SendConversation",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{itemId}/cancel": {
+      "post": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "CancelConversation",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{itemId}/sources": {
+      "put": {
+        "tags": [
+          "Conversations"
+        ],
+        "operationId": "ChangeConversationSources",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationSourcesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/preferences": {
       "get": {
         "tags": [
@@ -6928,6 +7277,69 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/my-day": {
+      "get": {
+        "tags": [
+          "My Day"
+        ],
+        "summary": "What the caller should do today in one workspace",
+        "description": "Returns the tasks due today, overdue, or assigned to the caller, and the habits scheduled today, from the workspace's original items. Nothing is stored or copied: each row names its item and an 'action' naming the existing command that finishes it (set the completion property, complete a recurrence occurrence, or check in a habit on the occurrence's own date). An action is a hint; the command still checks permission. A task is an item whose effective schema declares a completion field. A task whose start day is after today is left out. Repeating tasks appear only as today's open occurrence; earlier missed occurrences are not an overdue backlog. The caller's current day is computed once from their saved time zone (UTC when they saved none) and returned as 'taskDay'. Each habit carries its own local day in its occurrence, which can differ from 'taskDay'. Every section is bounded and says so: 'coverage' is 'partial' with stable reasons when a ceiling was reached or an item could not be judged, and 'omitted' is null when the count cannot be known. Zero rows with a partial coverage is not an empty day. Rows the caller may not read are excluded while the read runs. A workspace the caller may not see is reported as not found. At most four bulk reads run at once per person ('query.too_many_in_flight', 429).",
+        "operationId": "GetMyDay",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyDayResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -13905,6 +14317,26 @@
           }
         }
       },
+      "ConfigureConversationRequest": {
+        "required": [
+          "sourceWorkspaceIds",
+          "petId"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceWorkspaceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "petId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "ContainerViewsResponse": {
         "required": [
           "views",
@@ -13935,6 +14367,204 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "ConversationImportMessage": {
+        "required": [
+          "role",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "ConversationMessageResponse": {
+        "required": [
+          "id",
+          "role",
+          "text",
+          "createdAt",
+          "authorId"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "authorId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "seq": {
+            "type": "string",
+            "default": ""
+          },
+          "requestId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "ConversationMessagesResponse": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessageResponse"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ConversationResponse": {
+        "required": [
+          "itemId",
+          "workspaceId",
+          "title",
+          "sourceWorkspaceIds",
+          "petId",
+          "revision",
+          "canSend",
+          "turn"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sourceWorkspaceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "petId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "canSend": {
+            "type": "boolean"
+          },
+          "turn": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConversationTurnResponse"
+              }
+            ]
+          },
+          "canEdit": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "ConversationSourcesRequest": {
+        "required": [
+          "sourceWorkspaceIds",
+          "expectedRevision"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceWorkspaceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "expectedRevision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "ConversationTurnResponse": {
+        "required": [
+          "id",
+          "requestId",
+          "status",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "default": ""
           }
         }
       },
@@ -14018,6 +14648,54 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "CreateConversationRequest": {
+        "required": [
+          "title",
+          "parentId",
+          "sourceWorkspaceIds",
+          "petId"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "sourceWorkspaceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "petId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "groupId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "messages": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ConversationImportMessage"
+            }
           }
         }
       },
@@ -17666,6 +18344,288 @@
           }
         }
       },
+      "MyDayCoverage": {
+        "required": [
+          "kind",
+          "reasons"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyDayCoverageReason"
+            }
+          }
+        }
+      },
+      "MyDayCoverageReason": {
+        "required": [
+          "code",
+          "omitted"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "omitted": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "MyDayHabitRow": {
+        "required": [
+          "itemId",
+          "containerId",
+          "containerTitle",
+          "title",
+          "timezone",
+          "occurrence"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "containerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "containerTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "occurrence": {
+            "$ref": "#/components/schemas/HabitOccurrence"
+          }
+        }
+      },
+      "MyDayHabitSection": {
+        "required": [
+          "rows",
+          "coverage",
+          "limits"
+        ],
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyDayHabitRow"
+            }
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/MyDayCoverage"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/MyDayLimits"
+          }
+        }
+      },
+      "MyDayLimits": {
+        "required": [
+          "candidates",
+          "rows"
+        ],
+        "type": "object",
+        "properties": {
+          "candidates": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rows": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "MyDayResponse": {
+        "required": [
+          "workspaceId",
+          "evaluatedAt",
+          "taskDay",
+          "taskTimezone",
+          "tasks",
+          "habits"
+        ],
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "evaluatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "taskDay": {
+            "type": "string",
+            "format": "date"
+          },
+          "taskTimezone": {
+            "type": "string"
+          },
+          "tasks": {
+            "$ref": "#/components/schemas/MyDayTaskSection"
+          },
+          "habits": {
+            "$ref": "#/components/schemas/MyDayHabitSection"
+          }
+        }
+      },
+      "MyDayTaskAction": {
+        "required": [
+          "kind",
+          "key",
+          "occurredOn"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "occurredOn": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          }
+        }
+      },
+      "MyDayTaskRow": {
+        "required": [
+          "itemId",
+          "containerId",
+          "containerTitle",
+          "title",
+          "section",
+          "dueDay",
+          "startDay",
+          "priority",
+          "estimate",
+          "action"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "containerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "containerTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "dueDay": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "startDay": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "estimate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "action": {
+            "$ref": "#/components/schemas/MyDayTaskAction"
+          }
+        }
+      },
+      "MyDayTaskSection": {
+        "required": [
+          "rows",
+          "coverage",
+          "limits"
+        ],
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyDayTaskRow"
+            }
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/MyDayCoverage"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/MyDayLimits"
+          }
+        }
+      },
       "NotificationDto": {
         "required": [
           "id",
@@ -18693,6 +19653,25 @@
           }
         }
       },
+      "PropertyChoiceSource": {
+        "required": [
+          "itemId",
+          "field"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "field": {
+            "type": "string"
+          }
+        }
+      },
       "PropertyDefinitionRequest": {
         "required": [
           "key",
@@ -18740,6 +19719,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "choiceSource": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PropertyChoiceSource"
+              }
             ]
           }
         }
@@ -18791,6 +19780,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "choiceSource": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PropertyChoiceSource"
+              }
             ]
           }
         }
@@ -19715,6 +20714,35 @@
           },
           "truncated": {
             "type": "boolean"
+          }
+        }
+      },
+      "SendConversationRequest": {
+        "required": [
+          "requestId",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "text": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "petId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -21627,6 +22655,16 @@
               "null",
               "string"
             ]
+          },
+          "choiceSource": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PropertyChoiceSource"
+              }
+            ]
           }
         }
       },
@@ -23191,6 +24229,30 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "conversationItemIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "lastDestinationWorkspaceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "lastDestinationParentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -23644,6 +24706,9 @@
       "name": "Canvas"
     },
     {
+      "name": "Conversations"
+    },
+    {
       "name": "Forms"
     },
     {
@@ -23699,6 +24764,9 @@
     },
     {
       "name": "Calendar"
+    },
+    {
+      "name": "My Day"
     },
     {
       "name": "Recurrence"

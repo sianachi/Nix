@@ -30,7 +30,7 @@ export interface ItemCommands {
    * Confirms once, then deletes the top-level selected items with one summary toast. Settles with
    * the ids that were deleted (empty when cancelled or refused), so a selection can drop them.
    */
-  readonly deleteItems: (ids: readonly string[]) => Promise<readonly string[]>;
+  readonly deleteItems: (items: readonly TreeItem[]) => Promise<readonly string[]>;
 }
 
 const ItemCommandsContext = createContext<ItemCommands | null>(null);
@@ -91,9 +91,16 @@ export function ItemCommandsProvider({
     },
     renameItem: setRenaming,
     deleteItem: onDeleteItem,
-    deleteItems: (ids) =>
+    deleteItems: (selected) =>
       new Promise((settle) => {
-        const plan = planBulkDelete(ids, tree);
+        const byId = new Map(selected.map((item) => [item.id, item]));
+        const plan = planBulkDelete(
+          selected.map((item) => item.id),
+          {
+            ...tree,
+            find: (id) => tree.find(id) ?? byId.get(id) ?? null,
+          },
+        );
         if (plan.items.length === 0 && plan.blocked.length === 0) settle([]);
         else setDeleting({ plan, settle });
       }),

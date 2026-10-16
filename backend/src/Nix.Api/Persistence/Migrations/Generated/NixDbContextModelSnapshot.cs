@@ -3390,7 +3390,7 @@ namespace Nix.Persistence.Migrations.Generated
 
                     b.ToTable("site_build_file", null, t =>
                         {
-                            t.HasCheckConstraint("ck_site_build_file_bounded", "sha256 ~ '^[0-9a-f]{64}$' AND ((media_type IN ('image/png', 'image/jpeg', 'image/webp') AND byte_length BETWEEN 1 AND 10485760) OR (media_type = 'image/svg+xml' AND byte_length BETWEEN 1 AND 2097152) OR (media_type IN ('application/pdf', 'text/plain', 'text/csv') AND byte_length BETWEEN 1 AND 20971520))");
+                            t.HasCheckConstraint("ck_site_build_file_bounded", "sha256 ~ '^[0-9a-f]{64}$' AND ((media_type IN ('image/png', 'image/jpeg', 'image/webp') AND byte_length BETWEEN 1 AND 10485760) OR (media_type = 'image/svg+xml' AND byte_length BETWEEN 1 AND 2097152) OR (media_type IN ('application/pdf', 'text/plain', 'text/csv') AND byte_length BETWEEN 1 AND 20971520) OR (media_type IN ('video/mp4', 'video/webm') AND byte_length BETWEEN 1 AND 52428800))");
                         });
                 });
 

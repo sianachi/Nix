@@ -208,6 +208,7 @@ describe('the template schemas', () => {
           expression: null,
           aggregate: null,
           source: null,
+          choiceSource: null,
         },
       ],
       declared: [
@@ -220,6 +221,7 @@ describe('the template schemas', () => {
           expression: null,
           aggregate: null,
           source: null,
+          choiceSource: null,
         },
       ],
     });

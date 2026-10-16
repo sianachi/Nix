@@ -81,7 +81,7 @@ public sealed class ItemQueryReader : IItemQuery
         IReadOnlyList<WorkspaceId> readableWorkspaces,
         int limit,
         CancellationToken cancellationToken) =>
-        GuardedAsync(() => RunCoreAsync(spec, readableWorkspaces, limit, cancellationToken), cancellationToken);
+        GuardedAsync(_sql, () => RunCoreAsync(spec, readableWorkspaces, limit, cancellationToken), cancellationToken);
 
     /// <inheritdoc />
     public ValueTask<QueryAggregateResults> AggregateAsync(
@@ -90,7 +90,7 @@ public sealed class ItemQueryReader : IItemQuery
         IReadOnlyList<WorkspaceId> readableWorkspaces,
         int maximumGroups,
         CancellationToken cancellationToken) =>
-        GuardedAsync(() => AggregateCoreAsync(spec, aggregate, readableWorkspaces, maximumGroups, cancellationToken), cancellationToken);
+        GuardedAsync(_sql, () => AggregateCoreAsync(spec, aggregate, readableWorkspaces, maximumGroups, cancellationToken), cancellationToken);
 
     /// <summary>
     /// Runs one query inside a savepoint with its own statement timeout, and turns any database
@@ -109,13 +109,13 @@ public sealed class ItemQueryReader : IItemQuery
     /// cancellation the client asked for stays a cancellation.
     /// </para>
     /// </remarks>
-    private async ValueTask<T> GuardedAsync<T>(Func<ValueTask<T>> run, CancellationToken cancellationToken)
+    internal static async ValueTask<T> GuardedAsync<T>(NixSqlExecutor sql, Func<ValueTask<T>> run, CancellationToken cancellationToken)
     {
-        await _sql.ExecuteAsync($"SAVEPOINT {Savepoint}", cancellationToken: cancellationToken).ConfigureAwait(false);
-        var previous = await _sql.ScalarOrDefaultAsync<string>(
+        await sql.ExecuteAsync($"SAVEPOINT {Savepoint}", cancellationToken: cancellationToken).ConfigureAwait(false);
+        var previous = await sql.ScalarOrDefaultAsync<string>(
             "SELECT current_setting('statement_timeout')",
             cancellationToken: cancellationToken).ConfigureAwait(false) ?? "0";
-        await SetTimeoutAsync(StatementTimeout, cancellationToken).ConfigureAwait(false);
+        await SetTimeoutAsync(sql, StatementTimeout, cancellationToken).ConfigureAwait(false);
 
         T result;
         try
@@ -124,8 +124,8 @@ public sealed class ItemQueryReader : IItemQuery
         }
         catch (PostgresException failure) when (!cancellationToken.IsCancellationRequested)
         {
-            await _sql.ExecuteAsync($"ROLLBACK TO SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            await _sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await sql.ExecuteAsync($"ROLLBACK TO SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
             throw new ItemQueryFailedException(
                 timedOut: failure.SqlState == PostgresErrorCodes.QueryCanceled,
                 failure.SqlState,
@@ -138,8 +138,8 @@ public sealed class ItemQueryReader : IItemQuery
             // then let the failure surface as it is.
             try
             {
-                await _sql.ExecuteAsync($"ROLLBACK TO SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
-                await _sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await sql.ExecuteAsync($"ROLLBACK TO SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
             catch (NpgsqlException)
             {
@@ -149,14 +149,14 @@ public sealed class ItemQueryReader : IItemQuery
             throw;
         }
 
-        await _sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: cancellationToken).ConfigureAwait(false);
-        await SetTimeoutAsync(previous, cancellationToken).ConfigureAwait(false);
+        await sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: cancellationToken).ConfigureAwait(false);
+        await SetTimeoutAsync(sql, previous, cancellationToken).ConfigureAwait(false);
         return result;
     }
 
     /// <summary><c>SET LOCAL statement_timeout</c>, parameterised.</summary>
-    private async ValueTask SetTimeoutAsync(string value, CancellationToken cancellationToken) =>
-        await _sql.ExecuteAsync(
+    private static async ValueTask SetTimeoutAsync(NixSqlExecutor sql, string value, CancellationToken cancellationToken) =>
+        await sql.ExecuteAsync(
             "SELECT set_config('statement_timeout', @timeout, true)",
             [new NpgsqlParameter("timeout", NpgsqlDbType.Text) { Value = value }],
             cancellationToken).ConfigureAwait(false);

@@ -7,6 +7,7 @@ import type {
   FormCondition,
   InteractiveFormDefinition,
   PropertyValue,
+  PropertyDefinition,
 } from '../core/container-model';
 import { resolveLoadState } from '../core/view-chrome';
 import type { ViewRendererProps } from '../core/view-kinds';
@@ -303,6 +304,7 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
           value={answers[block.id]}
           error={errors[block.id] ?? null}
           allowInputStorage={saveResponse}
+          parentId={container.itemId}
           onValue={(value) => {
             const next = { ...answersRef.current, [block.id]: value };
             answersRef.current = next;
@@ -347,18 +349,12 @@ function InteractiveBlock({
   value,
   error,
   allowInputStorage,
+  parentId,
   onValue,
 }: {
   readonly block: FormBlock;
-  readonly definition:
-    | {
-        readonly key: string;
-        readonly label: string;
-        readonly type: string;
-        readonly options: string[];
-        readonly required: boolean;
-      }
-    | undefined;
+  readonly definition: PropertyDefinition | undefined;
+  readonly parentId: string | null;
   readonly value: PropertyValue | undefined;
   readonly error: string | null;
   readonly allowInputStorage: boolean;
@@ -387,7 +383,11 @@ function InteractiveBlock({
         </Text>
       )}
       <PropertyInput
-        item={{ title: '', properties: value === undefined ? {} : { [definition.key]: value } }}
+        item={{
+          parentId,
+          title: '',
+          properties: value === undefined ? {} : { [definition.key]: value },
+        }}
         property={{ ...definition, label: block.text, required: block.required }}
         error={error}
         allowInputStorage={allowInputStorage}

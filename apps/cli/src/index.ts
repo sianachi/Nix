@@ -13,6 +13,7 @@
  */
 
 import { Command, InvalidArgumentError } from 'commander';
+import { registerConversationCommands } from './commands/conversations.ts';
 import { login, logout, status } from './commands/auth.ts';
 import { readHealth } from './commands/health.ts';
 import {
@@ -71,6 +72,7 @@ import {
 } from './commands/calendar-sync.ts';
 import { readStdin } from './commands/shared.ts';
 import { readNote, writeNote } from './commands/notes.ts';
+import { readCanvas, writeCanvas } from './commands/canvas.ts';
 import {
   listHistory,
   listHistoryVersions,
@@ -94,6 +96,7 @@ import {
   runCalendar,
   setRecurrence,
 } from './commands/recurrence.ts';
+import { runMyDay } from './commands/my-day.ts';
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
 import * as siteCommands from './commands/sites.ts';
@@ -211,6 +214,8 @@ export function buildProgram(): Command {
       const flags = globalFlags(command);
       await run(() => readHealth(options.apiUrl, outputOptions(flags.json)));
     });
+
+  registerConversationCommands(program, { flags: globalFlags, run, output: outputOptions });
 
   const auth = program.command('auth').description('Sign in, check who you are, and sign out.');
   const pet = program
@@ -1110,6 +1115,27 @@ export function buildProgram(): Command {
       );
     });
 
+  const canvas = program.command('canvas').description("A canvas's durable elements, as JSON.");
+
+  canvas
+    .command('read <itemId>')
+    .description('Read a canvas scene, including element metadata and deletion tombstones.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readCanvas(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  canvas
+    .command('write <itemId>')
+    .description('Merge JSON scene elements from --file or stdin; omitted elements are retained.')
+    .option('--file <path>', 'read the scene from this file instead of stdin')
+    .action(async (itemId: string, options: { file?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        writeCanvas(flags.profile, itemId, { file: options.file }, outputOptions(flags.json)),
+      );
+    });
+
   const history = program
     .command('history')
     .description("A document's revisions, named versions, and earlier states.");
@@ -1408,6 +1434,17 @@ export function buildProgram(): Command {
           outputOptions(flags.json),
         ),
       );
+    });
+
+  program
+    .command('my-day')
+    .description(
+      "Print what to do today in one workspace: tasks due, overdue or assigned, and today's habits, with coverage.",
+    )
+    .requiredOption('--workspace <id>', 'the workspace to read')
+    .action(async (options: { workspace: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => runMyDay(flags.profile, options.workspace, outputOptions(flags.json)));
     });
 
   const money = program

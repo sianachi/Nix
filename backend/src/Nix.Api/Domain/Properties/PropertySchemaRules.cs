@@ -51,7 +51,7 @@ public static class PropertySchemaRules
                 return "'title' is managed by the item itself and cannot be redeclared.";
             }
 
-            if (property.Type.HasOptions() && property.Options.IsEmpty)
+            if (property.Type.HasOptions() && property.Options.IsEmpty && property.ChoiceSource is null)
             {
                 return $"'{property.Label}' is a select and needs at least one option.";
             }
@@ -59,6 +59,14 @@ public static class PropertySchemaRules
             if (!property.Type.HasOptions() && !property.Options.IsEmpty)
             {
                 return $"'{property.Label}' is not a select, so it cannot carry options.";
+            }
+
+            if (property.ChoiceSource is { } choices
+                && (property.Type is not (PropertyType.Text or PropertyType.Select or PropertyType.MultiSelect)
+                    || string.IsNullOrWhiteSpace(choices.Field) || choices.Field.Length > 160
+                    || choices.Field.StartsWith('$') || choices.ItemId == Guid.Empty))
+            {
+                return $"'{property.Label}' needs a text or choice type and a valid source field.";
             }
 
             if (property.Type == PropertyType.Formula)

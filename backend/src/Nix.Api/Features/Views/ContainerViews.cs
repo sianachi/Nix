@@ -291,14 +291,21 @@ public sealed class SetContainerViewsHandler
         ImmutableArray<ViewDefinition> views,
         CancellationToken cancellationToken)
     {
-        if (views.IsDefaultOrEmpty || !views.Any(view => view.Chart?.SplitBy is not null))
+        if (views.IsDefaultOrEmpty || !views.Any(view => view.Kind == ViewKind.Chat || view.Chart?.SplitBy is not null))
         {
             return null;
         }
 
-        var schema = await _schemas.ResolveForItemAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var schema = views.Any(view => view.Kind == ViewKind.Chat)
+            ? await _schemas.ResolveForChildrenAsync(itemId, cancellationToken).ConfigureAwait(false)
+            : await _schemas.ResolveForItemAsync(itemId, cancellationToken).ConfigureAwait(false);
         foreach (var view in views)
         {
+            if (view.Kind == ViewKind.Chat && ChatSchema.Refuse(schema) is { } chatReason)
+            {
+                return chatReason;
+            }
+
             if (view.Chart?.SplitBy is { } split
                 && schema.Find(split) is { } property
                 && !property.Type.CanSplitBy())

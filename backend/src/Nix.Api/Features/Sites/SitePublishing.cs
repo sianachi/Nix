@@ -135,6 +135,8 @@ public sealed class PublishSiteHandler(
                 $"A site may have at most {SiteRules.MaximumPages} pages; this subtree has {eligible.Count}. Exclude some of it."));
         }
 
+        var withheld = await sites.WithheldDatedPostsAsync(site, now, cancellationToken).ConfigureAwait(false);
+
         var dated = (await sites.ListDatedCollectionsAsync(site.Id, cancellationToken).ConfigureAwait(false))
             .ToDictionary(setting => setting.ItemId);
         var paths = await AssignPathsAsync(site, eligible, command.RefreshPaths, now, cancellationToken).ConfigureAwait(false);
@@ -203,6 +205,7 @@ public sealed class PublishSiteHandler(
             IdempotencyKey = key,
             Header = JsonSerializer.Serialize(manifest, SitesJsonContext.Default.SiteBuildManifest),
             PageCount = pages.Count,
+            Loss = JsonSerializer.Serialize(WithheldDatedLosses(withheld), SitesJsonContext.Default.StringArray),
             CreatedAt = now,
         };
         sites.AddBuild(build);
@@ -240,6 +243,32 @@ public sealed class PublishSiteHandler(
             new { buildId, pageCount = pages.Count, mode = site.RepublishMode, origin = command.Origin });
         await sites.SaveAsync(cancellationToken).ConfigureAwait(false);
         return Result.Success(SiteViews.ToBuild(new SiteBuildView(build, job.Status, null)));
+    }
+
+    private static string[] WithheldDatedLosses(IReadOnlyList<WithheldDatedPost> posts)
+    {
+        var losses = posts.Take(SiteRules.MaximumLossEntries).Select(post => post.PublishedAt is { } published
+            ? $"scheduled: {LossTitle(post.Title)} is scheduled for {published.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}."
+            : string.IsNullOrWhiteSpace(post.DateValue)
+                ? $"draft: {LossTitle(post.Title)} has no date."
+                : $"draft: {LossTitle(post.Title)} has an invalid date.").ToList();
+        if (posts.Count > losses.Count)
+        {
+            losses[^1] = "omitted: Additional dated posts were withheld.";
+        }
+
+        return [.. losses];
+    }
+
+    private static string LossTitle(string? rawTitle)
+    {
+        var title = (rawTitle ?? string.Empty).Trim();
+        if (title.Length == 0 || title.Any(char.IsControl))
+        {
+            return "Untitled";
+        }
+
+        return title.Length <= 200 ? title : title[..200];
     }
 
     private async ValueTask<PathPlan> AssignPathsAsync(

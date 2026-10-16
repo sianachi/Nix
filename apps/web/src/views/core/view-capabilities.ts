@@ -31,18 +31,19 @@ const NONE: ViewCapabilities = {
 };
 
 export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
+  chat: NONE,
   list: { ...ACTIONS, drag: 'parent' },
   gallery: ACTIONS,
   checklist: ACTIONS,
   board: { ...ACTIONS, drag: 'group-value' },
   matrix: { ...ACTIONS, drag: 'row-col-values' },
-  calendar: { ...ACTIONS, select: false, drag: 'date' },
-  timeline: { ...ACTIONS, select: false },
-  outline: { ...ACTIONS, select: false, drag: 'parent-order' },
+  calendar: { ...ACTIONS, drag: 'date' },
+  timeline: ACTIONS,
+  outline: { ...ACTIONS, drag: 'parent-order' },
   drive: { ...ACTIONS, rename: false },
   // Query rows are other containers' items shown in place; they keep their own location.
   query: { ...ACTIONS, select: false, move: false },
-  habit_tracker: { ...NONE, rename: true, delete: true },
+  habit_tracker: ACTIONS,
   sheet: ACTIONS,
   // These kinds draw aggregates or forms, not rows a person acts on.
   chart: NONE,

@@ -6,7 +6,8 @@ namespace Nix.Features.Workspaces;
 /// <param name="Id">A client-chosen stable id, so renames keep the group's place.</param>
 /// <param name="Name">What the switcher shows above the group.</param>
 /// <param name="WorkspaceIds">The workspaces in it, in order. A workspace belongs to at most one group.</param>
-public sealed record WorkspaceGroupDto(Guid Id, string Name, IReadOnlyList<Guid> WorkspaceIds);
+public sealed record WorkspaceGroupDto(Guid Id, string Name, IReadOnlyList<Guid> WorkspaceIds,
+    IReadOnlyList<Guid>? ConversationItemIds = null, Guid? LastDestinationWorkspaceId = null, Guid? LastDestinationParentId = null);
 
 /// <summary>The fields a caller may set. Used for both the read default and a write.</summary>
 public sealed record WorkspaceArrangementInput(IReadOnlyList<WorkspaceGroupDto> Groups, IReadOnlyList<Guid> PinnedWorkspaceIds);

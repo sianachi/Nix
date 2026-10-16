@@ -1,7 +1,7 @@
 import { labelsFor, renderChartSvg } from '@nix/chart-render';
 import { PRINT_PALETTE } from '@nix/design-tokens/print';
 import type { LossSink, ViewSnapshot } from '@nix/export';
-import { renderView } from '@nix/view-render';
+import { chatTranscript, renderView } from '@nix/view-render';
 
 import { coverOf, formatDate, isoDay, type SiteModel, type SiteNode } from '../site-model.js';
 import { cardFacts, subtitleOf } from '../theme/facts.js';
@@ -102,6 +102,20 @@ function board(node: SiteNode, view: ViewSnapshot, children: readonly SiteNode[]
   return `<figure class="nix-board"><figcaption>${escapeHtml(view.name)}</figcaption><div class="nix-board-paper" role="img" aria-label="${escapeHtml(`${view.name}: ${children.map((child) => child.page.title).join(', ')}`)}">${drawn.svg}</div>${titleList(children)}</figure>`;
 }
 
+function chat(children: readonly SiteNode[]): string {
+  return `<ol aria-label="Conversation">${chatTranscript(
+    children.map((child) => child.page.properties),
+  )
+    .map(
+      (message) =>
+        `<li><article><header><strong>${escapeHtml(message.role)}</strong>${message.createdAt === '' ? '' : ` <time>${escapeHtml(message.createdAt)}</time>`}</header>${message.text
+          .split('\n')
+          .map((line) => `<p>${escapeHtml(line)}</p>`)
+          .join('')}</article></li>`,
+    )
+    .join('')}</ol>`;
+}
+
 export function renderViewHtml(model: SiteModel, node: SiteNode, loss: LossSink): string {
   const view = defaultView(node);
   const children = node.children;
@@ -109,6 +123,8 @@ export function renderViewHtml(model: SiteModel, node: SiteNode, loss: LossSink)
     return '';
   }
   switch (view.kind) {
+    case 'chat':
+      return chat(children);
     case 'list':
       return children.length === 0 ? '' : titleList(children);
     case 'gallery':

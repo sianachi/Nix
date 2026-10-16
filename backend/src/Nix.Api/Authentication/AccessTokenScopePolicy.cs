@@ -62,7 +62,9 @@ public static class AccessTokenScopePolicy
         if (path.StartsWithSegments("/api/v1/me/tokens", StringComparison.OrdinalIgnoreCase)
             || path.StartsWithSegments("/api/v1/me/pets/runtime", StringComparison.OrdinalIgnoreCase)
             || path.StartsWithSegments("/api/v1/me/pets/connection", StringComparison.OrdinalIgnoreCase)
-            || path.StartsWithSegments("/api/v1/me/pets/inline", StringComparison.OrdinalIgnoreCase))
+            || path.StartsWithSegments("/api/v1/me/pets/inline", StringComparison.OrdinalIgnoreCase)
+            || (path.StartsWithSegments("/api/v1/conversations", StringComparison.OrdinalIgnoreCase)
+                && (path.Value ?? string.Empty).TrimEnd('/').EndsWith("/turns", StringComparison.OrdinalIgnoreCase)))
         {
             return Requirement.InteractiveOnly;
         }

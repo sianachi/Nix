@@ -672,6 +672,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
               // sending one would be refused for naming a property the fold ignores.
               aggregate: property.type === 'rollup' ? (property.aggregate ?? null) : null,
               source: property.type === 'rollup' ? (property.source ?? null) : null,
+              choiceSource: property.choiceSource ?? null,
             })),
           }),
           { signal: controller.signal },
@@ -738,6 +739,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
             properties: properties.map((property) => ({
               ...property,
               options: property.options.length === 0 ? null : property.options,
+              choiceSource: property.choiceSource ?? null,
             })),
             views: addedViews.map(toViewRequest),
             makeDefault,
@@ -776,6 +778,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
               properties: properties.map((property) => ({
                 ...property,
                 options: property.options.length === 0 ? null : property.options,
+                choiceSource: property.choiceSource ?? null,
               })),
             },
             originalPropertyKeys: schema?.declared.map((property) => property.key) ?? [],

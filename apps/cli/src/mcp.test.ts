@@ -117,6 +117,15 @@ describe('nixctl mcp workspace tools', () => {
         'search_items',
         'read_note',
         'write_note',
+        'create_chat_note',
+        'import_chat_note',
+        'get_chat_note',
+        'read_chat_messages',
+        'send_chat_message',
+        'watch_chat_note',
+        'cancel_chat_turn',
+        'configure_chat_note',
+        'set_chat_sources',
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');

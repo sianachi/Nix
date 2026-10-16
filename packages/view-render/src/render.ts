@@ -1,6 +1,7 @@
 import type { RenderRequest, RenderedView } from './types.js';
 import {
   drawBoard,
+  drawChat,
   drawCalendar,
   drawForm,
   drawGallery,
@@ -35,6 +36,7 @@ function drawHabitTracker(request: RenderRequest): Drawing {
 
 const DRAWERS: Readonly<Record<string, (request: RenderRequest) => Drawing>> = {
   list: drawList,
+  chat: drawChat,
   board: drawBoard,
   gallery: drawGallery,
   calendar: drawCalendar,

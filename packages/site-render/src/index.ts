@@ -20,6 +20,7 @@ export { collectFileReferences, type FileReference } from './references.js';
 export { UnsupportedImage, stripImageMetadata, type StrippedImage } from './images.js';
 export {
   MAX_DOWNLOAD_BYTES,
+  MAX_VIDEO_BYTES,
   UnsupportedDownload,
   downloadType,
   prepareDownload,

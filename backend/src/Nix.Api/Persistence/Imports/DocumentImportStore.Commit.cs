@@ -145,11 +145,12 @@ public sealed partial class DocumentImportStore
                 Seq = sequence,
                 // A planned set-by value comes from the imported file, not from anyone who acted
                 // here: the importing principal is attributed for every scheduled value. Of the
-                // reserved $ space only habit and finance content is imported.
+                // reserved space carries habit, finance and sanitized native chat settings.
                 Properties = ItemProperties.RestampCopiedSetBy(
-                    ReservedPropertyContent.Strip(
-                        ItemProperties.WithTitle(planned.Properties, planned.Title),
-                        ReservedPropertyContent.ContentPrefixes),
+                    ConversationNativeImportProperties.Restore(operation.Format == "nix" ? planned.Properties : null,
+                        ReservedPropertyContent.Strip(
+                            ItemProperties.WithTitle(planned.Properties, planned.Title),
+                            ReservedPropertyContent.ContentPrefixes)),
                     context.PrincipalId.ToString()),
                 Schema = planned.Schema,
                 Views = planned.Views,

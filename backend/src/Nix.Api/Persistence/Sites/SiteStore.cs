@@ -370,6 +370,31 @@ public sealed class SiteStore(NixDbContext database, NixSqlExecutor sql, INixSes
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<WithheldDatedPost>> WithheldDatedPostsAsync(Site site, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(site);
+        var posts = new List<WithheldDatedPost>();
+        var rows = sql.QueryAsync<WithheldDatedPost, WithheldDatedPostMapper>(
+            SiteEligibilitySql.WithheldDatedPosts,
+            default,
+            [
+                TenantParameter(),
+                Uuid("workspace_id", site.WorkspaceId.Value),
+                Uuid("root_id", site.RootItemId.Value),
+                Uuid("site_id", site.Id),
+                new NpgsqlParameter("now", NpgsqlDbType.TimestampTz) { Value = now },
+                new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = SiteRules.MaximumLossEntries + 1 },
+            ],
+            cancellationToken);
+        await foreach (var row in rows.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            posts.Add(row);
+        }
+
+        return posts;
+    }
+
+    /// <inheritdoc />
     public async ValueTask<IReadOnlySet<ItemId>> ContainersWithHiddenChildrenAsync(
         IReadOnlyCollection<ItemId> containerIds, IReadOnlyCollection<ItemId> eligibleIds, CancellationToken cancellationToken)
     {
@@ -826,6 +851,18 @@ public sealed class SiteStore(NixDbContext database, NixSqlExecutor sql, INixSes
             Guid? docId = reader.IsDBNull(9) ? null : reader.GetGuid(9);
             long? head = reader.IsDBNull(10) ? null : reader.GetInt64(10);
             return new EligiblePage(id, parent, type, seq, properties, schema, views, created, modified, docId, head);
+        }
+    }
+
+    private readonly struct WithheldDatedPostMapper : INixRowMapper<WithheldDatedPost>
+    {
+        public WithheldDatedPost Map(NpgsqlDataReader reader)
+        {
+            ArgumentNullException.ThrowIfNull(reader);
+            return new WithheldDatedPost(
+                reader.IsDBNull(0) ? null : reader.GetString(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2));
         }
     }
 }

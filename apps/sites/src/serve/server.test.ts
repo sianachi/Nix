@@ -16,13 +16,23 @@ const SHA = 'a'.repeat(64);
 function memory(objects: Record<string, string>): ObjectReader {
   return {
     // eslint-disable-next-line @typescript-eslint/require-await
-    async open(key, method) {
+    async open(key, method, range) {
       const value = objects[key];
       if (value === undefined) return null;
       const bytes = Buffer.from(value);
+      const [from, to] = range === undefined ? [] : range.slice('bytes='.length).split('-');
+      const start = from === undefined || from === '' ? 0 : Number(from);
+      if (range !== undefined && start >= bytes.length) {
+        return { length: null, status: 416, contentRange: `bytes */${bytes.length}`, body: null };
+      }
+      const end = to === undefined || to === '' ? bytes.length - 1 : Number(to);
+      const part = range === undefined ? bytes : bytes.subarray(start, end + 1);
       return {
-        length: bytes.length,
-        body: method === 'HEAD' ? null : new Blob([bytes]).stream(),
+        length: part.length,
+        status: range === undefined ? 200 : 206,
+        contentRange:
+          range === undefined ? null : `bytes ${start}-${start + part.length - 1}/${bytes.length}`,
+        body: method === 'HEAD' ? null : new Blob([part]).stream(),
       };
     },
   };
@@ -58,6 +68,7 @@ const published: Record<string, string> = {
   [`${ASSETS_PREFIX}${SHA}.svg`]: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
   [`${ASSETS_PREFIX}${SHA}.pdf`]: '%PDF-1.4',
   [`${ASSETS_PREFIX}${SHA}.csv`]: 'a,b',
+  [`${ASSETS_PREFIX}${SHA}.mp4`]: '0123ftypvideo-bytes',
   [`${BUILD_PREFIX}secret.bin`]: 'must never be served',
 };
 
@@ -97,10 +108,16 @@ interface Answer {
 }
 
 /** A raw request: unlike fetch, it sends the target and Host exactly as given. */
-function get(port: number, target: string, host: string, method = 'GET'): Promise<Answer> {
+function get(
+  port: number,
+  target: string,
+  host: string,
+  method = 'GET',
+  extra: Record<string, string> = {},
+): Promise<Answer> {
   return new Promise((resolve, reject) => {
     const outgoing = request(
-      { port, host: '127.0.0.1', path: target, method, headers: { host } },
+      { port, host: '127.0.0.1', path: target, method, headers: { host, ...extra } },
       (incoming) => {
         const chunks: Buffer[] = [];
         incoming.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -330,6 +347,24 @@ describe('the sites server', () => {
     }
   });
 
+  it('serves a video and answers a range, so a player can seek', async () => {
+    const port = await start(published);
+    const path = `/_nix/files/${SHA}/clip.mp4`;
+    const whole = await get(port, path, 'docs.sites.test');
+    expect(whole.status).toBe(200);
+    expect(whole.headers['content-type']).toBe('video/mp4');
+    expect(whole.headers['accept-ranges']).toBe('bytes');
+    const part = await get(port, path, 'docs.sites.test', 'GET', { range: 'bytes=4-7' });
+    expect(part.status).toBe(206);
+    expect(part.body).toBe('ftyp');
+    expect(part.headers['content-range']).toBe('bytes 4-7/19');
+    const past = await get(port, path, 'docs.sites.test', 'GET', { range: 'bytes=500-' });
+    expect(past.status).toBe(416);
+    // A range list is ignored, not forwarded.
+    const list = await get(port, path, 'docs.sites.test', 'GET', { range: 'bytes=0-1,4-5' });
+    expect(list.status).toBe(200);
+  });
+
   it('allows only GET and HEAD, and HEAD carries no body', async () => {
     const port = await start(published);
     const post = await get(port, '/', 'docs.sites.test', 'POST');
@@ -399,6 +434,8 @@ describe('the sites server', () => {
           await Promise.resolve();
           return {
             length: 1000,
+            status: 200,
+            contentRange: null,
             body: new ReadableStream<Uint8Array>({
               pull(controller) {
                 controller.enqueue(new TextEncoder().encode('<h1>par'));

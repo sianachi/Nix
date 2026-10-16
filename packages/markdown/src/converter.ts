@@ -4,10 +4,9 @@
  * **Markdown is for reading and re-editing as plain text, which is a different promise from a PDF's
  * page or a DOCX's editing copy.** The body maps through {@link documentToMarkdown}, so a note comes
  * across as headings, lists, code and prose that any Markdown reader understands - and keeps its
- * references as `nix://` links and its images as image links, because Markdown has both. What
- * Markdown has no vocabulary for (a comment thread, a text colour, a side-by-side column, a board
- * drawn over children) is dropped, and the drop is stated twice: declared before the export runs,
- * and written into the file's own closing section, because the file outlives the download.
+ * references as `nix://` links and its images as image links. Views, canvases and spreadsheets
+ * have readable static alternatives. Formatting and interaction limits are declared before
+ * export and recorded in the closing section because the file outlives the download.
  *
  * The converter reaches for nothing - no clock, no filesystem, no rasteriser - and streams its
  * output as UTF-8 chunks, one item at a time in manifest order (parents before children).
@@ -16,6 +15,7 @@
 import type { ConvertRequest, DocumentConverter, LossKind, LossNotice } from '@nix/export';
 
 import { documentToMarkdown } from './to-markdown.js';
+import { portableBody, portableStructure } from './portable.js';
 
 const DECLARED_LOSS: readonly LossNotice[] = [
   { kind: 'comment-dropped', detail: 'Comment threads are not carried over.' },
@@ -29,16 +29,23 @@ const DECLARED_LOSS: readonly LossNotice[] = [
     detail: 'Side-by-side columns become a single column, one after another.',
   },
   {
-    kind: 'views-not-rendered',
-    detail: 'Boards, calendars and galleries are not drawn, because Markdown cannot show a view.',
+    kind: 'views-as-text',
+    detail:
+      'Views become readable source records and form content; live queries, calculations and interactions are not reproduced.',
   },
   {
-    kind: 'body-not-rendered',
-    detail: 'A canvas or spreadsheet body is left out, because Markdown has no way to carry it.',
+    kind: 'body-as-text',
+    detail:
+      'Canvases become element inventories and spreadsheets retain cell contents and formulas as text. Attachments link to their original Nix items.',
+  },
+  {
+    kind: 'view-rows-truncated',
+    detail: 'View source records may be limited or unavailable; incomplete snapshots are labelled.',
   },
   {
     kind: 'unknown-node',
-    detail: 'Blocks written by a newer version of Nix are left out and listed at the end.',
+    detail:
+      'Unfamiliar blocks retain their readable text and children; their original presentation is not preserved.',
   },
   {
     kind: 'unknown-mark',
@@ -108,12 +115,25 @@ export const markdownConverter: DocumentConverter = {
           note(classify(loss.kind), loss.detail);
         }
       } else {
-        yield encoder.encode('*(This item has no text body that Markdown can carry.)*\n\n');
-        note('body-not-rendered', 'A canvas or spreadsheet body was left out.');
+        const rendered = portableBody(body);
+        yield encoder.encode(`${rendered}\n\n`);
+        if (body !== null)
+          note(
+            'body-as-text',
+            'Canvas layout and spreadsheet calculations are represented as readable stored content.',
+          );
       }
 
+      yield encoder.encode(`${portableStructure(bundle)}\n\n`);
+      if (bundle.type === 'file')
+        note('body-as-text', 'Attachments link to their original Nix items.');
       if (bundle.views !== null && bundle.views.views.length > 0) {
-        note('views-not-rendered', 'A board, calendar or gallery was not drawn.');
+        note(
+          'views-as-text',
+          'Views are represented by accessible source records and form content; live queries, calculations and interactions are not reproduced.',
+        );
+        if (bundle.viewRowsTruncated)
+          note('view-rows-truncated', 'The exported view source records are incomplete.');
       }
     }
 

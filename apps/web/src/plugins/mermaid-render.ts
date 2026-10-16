@@ -1,5 +1,3 @@
-import mermaid from 'mermaid';
-
 function mermaidThemeVariables() {
   const style = getComputedStyle(document.documentElement);
   const color = (token: string): string | undefined => {
@@ -80,6 +78,7 @@ let pending = Promise.resolve();
 export function renderMermaid(source: string, id: string, capture = false): Promise<string> {
   // Mermaid keeps its configuration and diagram databases shared across asynchronous renders.
   const result = pending.then(async () => {
+    const { default: mermaid } = await import('mermaid');
     const fontDocument: { readonly fonts?: FontFaceSet } = document;
     await fontDocument.fonts?.ready;
     const themeVariables = capture

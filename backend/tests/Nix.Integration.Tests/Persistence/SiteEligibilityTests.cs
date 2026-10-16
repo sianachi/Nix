@@ -105,6 +105,51 @@ public sealed class SiteEligibilityTests(NixPostgresFixture fixture) : IAsyncLif
     }
 
     [Fact]
+    public async Task A_build_reports_the_dated_posts_that_were_withheld_without_naming_locked_ones()
+    {
+        var locked = await Item("Locked future post", _items["Blog"], props: new JsonObject { ["published"] = "2999-01-01" });
+        await Sql($"""
+            INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+            VALUES ('{locked.Value}', '{TestTenants.Alpha}', 'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', '{TestTenants.AlphaPrincipal}', now())
+            """);
+
+        var withheld = await _scenario.ReadAsync(SiteScenario.Manager, async unit =>
+        {
+            var store = unit.Resolve<ISiteStore>();
+            var site = await store.FindAsync(_siteId, Cancellation);
+            return await store.WithheldDatedPostsAsync(site!, DateTimeOffset.UtcNow, Cancellation);
+        });
+        Assert.Collection(withheld,
+            post => Assert.Equal("Future post", post.Title),
+            post => Assert.Equal("Undated post", post.Title),
+            post => Assert.Equal("Garbled date post", post.Title));
+
+        var published = await Publish("withheld");
+        Assert.True(published.IsSuccess, published.IsFailure ? published.Error.Message : string.Empty);
+        Assert.Equal(
+            [
+                "scheduled: Future post is scheduled for 2999-01-01.",
+                "draft: Undated post has no date.",
+                "draft: Garbled date post has an invalid date.",
+            ],
+            published.Value.Loss);
+    }
+
+    [Fact]
+    public async Task A_build_bounds_its_withheld_post_report_and_discloses_truncation()
+    {
+        for (var index = 0; index < SiteRules.MaximumLossEntries + 2; index++)
+        {
+            _ = await Item($"Draft {index}", _items["Blog"]);
+        }
+
+        var published = await Publish("many-withheld");
+        Assert.True(published.IsSuccess, published.IsFailure ? published.Error.Message : string.Empty);
+        Assert.Equal(SiteRules.MaximumLossEntries, published.Value.Loss.Count);
+        Assert.Equal("omitted: Additional dated posts were withheld.", published.Value.Loss[^1]);
+    }
+
+    [Fact]
     public async Task A_post_dated_with_a_zoned_date_time_is_published_with_its_instant()
     {
         var zoned = await Item("Zoned post", _items["Blog"], props: new JsonObject { ["published"] = "2026-01-01T09:00:00+01:00[Europe/Paris]" });

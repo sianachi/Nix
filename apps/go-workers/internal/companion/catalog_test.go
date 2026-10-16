@@ -16,7 +16,7 @@ import (
 // operation added to workspaceTools() and forgotten here would not fail this test. Nothing in the
 // schema marks an operation as "structure-shaped", so there is no enum to derive the other
 // direction from without inventing one.
-var structureOperationsFixture = []string{"create_structured", "add_view", "create_entries", "add_fields", "edit_form", "update_view", "set_recurrence", "build_blueprint"}
+var structureOperationsFixture = []string{"create_structured", "add_view", "create_entries", "add_fields", "edit_fields", "edit_form", "update_view", "set_recurrence", "build_blueprint"}
 
 func TestCatalogIsEmbeddedAndBounded(t *testing.T) {
 	if chatCatalog == "" {
@@ -43,8 +43,8 @@ func TestCatalogNamesEveryStructureOperation(t *testing.T) {
 // is offered once, the design tools among them, and neither the old single nix_workspace tool nor
 // the retired nix_validate_blueprint is.
 func TestWorkspaceToolsOffersOneToolPerOperation(t *testing.T) {
-	if len(toolNamesChat) != 29 || len(workspaceTools()) != 29 {
-		t.Fatalf("offers %d tools, want 29", len(toolNamesChat))
+	if len(toolNamesChat) != 30 || len(workspaceTools()) != 30 {
+		t.Fatalf("offers %d tools, want 30", len(toolNamesChat))
 	}
 	for _, name := range []string{"nix_workspace", "workspace", "nix_validate_blueprint"} {
 		if _, ok := toolNamesChat[name]; ok {

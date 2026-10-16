@@ -18,11 +18,10 @@ export interface CollabConfig {
   /**
    * The secret this service presents on Core's `/internal` surface.
    *
-   * It proves *which service* is calling, never *on whose behalf*: every internal request
-   * also forwards the user's own token, and Core answers for that principal. Losing this
-   * secret therefore yields no authority over any document its holder could not already
-   * reach with a stolen user token - but it does open the internal surface, so it is
-   * required rather than defaulted.
+   * It proves which service is calling. User operations forward the caller's token;
+   * durable conversation reads ask Core to validate the persisted running turn,
+   * its actor and its selected source. The secret alone authorizes neither path.
+   * Required rather than defaulted because it protects the internal surface.
    */
   readonly internalSecret: string;
 
