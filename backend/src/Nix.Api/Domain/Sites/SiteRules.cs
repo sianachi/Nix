@@ -118,6 +118,12 @@ public static partial class SiteRules
     /// </summary>
     public const long MaximumDownloadBytes = 20L * 1024 * 1024;
 
+    /// <summary>
+    /// The most bytes one published video (MP4 or WebM) may hold; matches <c>MAX_VIDEO_BYTES</c> in
+    /// <c>@nix/site-render</c> and the eligibility statement.
+    /// </summary>
+    public const long MaximumVideoBytes = 50L * 1024 * 1024;
+
     /// <summary>The most custom hostnames one site may attach.</summary>
     public const int MaximumCustomHostnames = 10;
 

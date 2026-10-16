@@ -558,12 +558,13 @@ internal static class SiteWorkerEndpoints
         {
             if (entry.Kind == SiteRules.AssetObject)
             {
-                if (extension is not ("png" or "jpg" or "webp" or "svg" or "pdf" or "txt" or "csv")
+                if (extension is not ("png" or "jpg" or "webp" or "svg" or "pdf" or "txt" or "csv" or "mp4" or "webm")
                     || entry.Path != entry.Sha256 + "." + extension
                     || entry.ByteLength > extension switch
                     {
                         "svg" => SiteRules.MaximumDiagramBytes,
                         "pdf" or "txt" or "csv" => SiteRules.MaximumDownloadBytes,
+                        "mp4" or "webm" => SiteRules.MaximumVideoBytes,
                         _ => SiteRules.MaximumImageBytes,
                     })
                 {
@@ -604,6 +605,8 @@ internal static class SiteWorkerEndpoints
         "woff2" => "font/woff2",
         "pdf" => "application/pdf",
         "csv" => "text/csv",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
         _ => null,
     };
 
