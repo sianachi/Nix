@@ -224,7 +224,7 @@ public static class SiteEligibilitySql
     /// post a dated collection withholds, a supported raster type of at most 10 MiB or any SVG of
     /// at most 2 MiB (meant for captured Mermaid diagrams, but not limited to them; the worker
     /// re-sanitises every SVG before publishing), or a download (PDF, plain text or CSV) of at
-    /// most 20 MiB, <c>SiteRules.MaximumDownloadBytes</c>, with its bytes in the store. The same withholding rules as <see cref="EligiblePages"/>, applied to the
+    /// most 20 MiB, <c>SiteRules.MaximumDownloadBytes</c>, or a video (MP4 or WebM) of at most 50 MiB, <c>SiteRules.MaximumVideoBytes</c>, with its bytes in the store. The same withholding rules as <see cref="EligiblePages"/>, applied to the
     /// file's ancestors through the closure. Binds <c>@tenant_id</c>, <c>@workspace_id</c>,
     /// <c>@root_id</c>, <c>@site_id</c>, <c>@now</c> and <c>@file_item_id</c>.
     /// </summary>
@@ -256,6 +256,8 @@ public static class SiteEligibilitySql
               OR (version.media_type = 'image/svg+xml' AND version.byte_length BETWEEN 1 AND 2097152)
               OR (version.media_type IN ('application/pdf', 'text/plain', 'text/csv')
                   AND version.byte_length BETWEEN 1 AND 20971520)
+              OR (version.media_type IN ('video/mp4', 'video/webm')
+                  AND version.byte_length BETWEEN 1 AND 52428800)
           )
           AND EXISTS (
               SELECT 1

@@ -190,6 +190,7 @@ h2:hover .nix-anchor,h3:hover .nix-anchor,h4:hover .nix-anchor,.nix-anchor:focus
 .nix-item-link a{display:block;padding:.8rem 1rem;border:1px solid var(--border);border-radius:var(--radius-md);text-decoration:none;font-weight:700}
 .nix-ref-text{border-bottom:1px dotted var(--muted)}
 .nix-file{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .8rem;padding:.8rem 1rem;border:1px solid var(--border);border-radius:var(--radius-md)}
+.nix-video{margin:1.5rem 0}.nix-video video{display:block;width:100%;max-height:70vh;border-radius:var(--radius-md);background:#000}.nix-video figcaption{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .8rem;margin-top:.5rem}
 .nix-file-link{font-weight:700}
 .nix-file-meta{font-family:var(--mono);font-size:.8125rem;color:var(--muted)}
 

@@ -365,7 +365,8 @@ internal sealed class SiteBuildFileConfiguration : IEntityTypeConfiguration<Site
             "sha256 ~ '^[0-9a-f]{64}$' AND ("
                 + "(media_type IN ('image/png', 'image/jpeg', 'image/webp') AND byte_length BETWEEN 1 AND 10485760)"
                 + " OR (media_type = 'image/svg+xml' AND byte_length BETWEEN 1 AND 2097152)"
-                + " OR (media_type IN ('application/pdf', 'text/plain', 'text/csv') AND byte_length BETWEEN 1 AND 20971520))"));
+                + " OR (media_type IN ('application/pdf', 'text/plain', 'text/csv') AND byte_length BETWEEN 1 AND 20971520)"
+                + " OR (media_type IN ('video/mp4', 'video/webm') AND byte_length BETWEEN 1 AND 52428800))"));
         builder.HasKey(row => new { row.TenantId, row.BuildId, row.SourceItemId, row.FileItemId })
             .HasName("pk_site_build_file");
         builder.Property(row => row.TenantId).HasColumnName(NixTables.TenantIdColumn);

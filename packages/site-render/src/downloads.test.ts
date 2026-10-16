@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MAX_DOWNLOAD_BYTES,
+  MAX_VIDEO_BYTES,
   UnsupportedDownload,
   prepareDownload,
   safeFileName,
@@ -24,6 +25,30 @@ describe('prepareDownload', () => {
     );
     expect(prepareDownload(bytes('hi'), 'text/plain', '../../etc/passwd').fileName).toBe(
       'passwd.txt',
+    );
+  });
+
+  it('accepts an MP4 or WebM by its signature, up to the video cap', () => {
+    const mp4 = prepareDownload(
+      new Uint8Array([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70]),
+      'video/mp4',
+      'My Clip.mov',
+    );
+    expect(mp4).toMatchObject({ ext: 'mp4', isVideo: true, fileName: 'My-Clip.mp4' });
+    const webm = prepareDownload(
+      new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1]),
+      'video/webm',
+      'a.webm',
+    );
+    expect(webm.ext).toBe('webm');
+    expect(() => prepareDownload(bytes('not a video'), 'video/mp4', 'a')).toThrow(
+      UnsupportedDownload,
+    );
+    expect(() => prepareDownload(bytes('not a video'), 'video/webm', 'a')).toThrow(
+      UnsupportedDownload,
+    );
+    expect(() => prepareDownload(new Uint8Array(MAX_VIDEO_BYTES + 1), 'video/mp4', 'a')).toThrow(
+      UnsupportedDownload,
     );
   });
 
