@@ -42,6 +42,17 @@ export {
   type UnplaceableCalendar,
   type WorkspaceCalendar,
 } from './workspace-calendar.js';
+export {
+  myDayCoverageCodeSchema,
+  myDayHabitRowSchema,
+  myDaySchema,
+  myDayTaskActionSchema,
+  myDayTaskRowSchema,
+  type MyDay,
+  type MyDayCoverageCode,
+  type MyDayHabitRow,
+  type MyDayTaskRow,
+} from './my-day.js';
 export { keptItemSchema, shelfSchema, type KeptItem, type Shelf } from './bookmarks.js';
 export {
   itemLockSchema,

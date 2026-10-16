@@ -294,28 +294,9 @@ public static class QuerySql
             sql.Append("\n  AND item.id <> @query_item_id");
         }
 
-        // No hidden proper ancestor: a plain correlated anti-join, which the planner can turn
-        // into one hashed pass over the closure for a workspace-wide read (measured on 60k items:
-        // a grouped sum fell from 883k to 16k buffers) while a narrow read keeps its per-row
-        // index probe. An inner join is safe here because an edge whose ancestor row is missing
-        // cannot exist: FK_item_closure_item_tenant_id_ancestor_id cascades the edge away with
-        // its ancestor. The other bulk reads keep the older fenced LEFT JOIN LATERAL probe.
-        sql.Append(
-            """
-
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM item_closure AS visibility_edge
-                  JOIN item AS visibility_ancestor
-                    ON visibility_ancestor.tenant_id = @tenant_id
-                   AND visibility_ancestor.id = visibility_edge.ancestor_id
-                  WHERE visibility_edge.tenant_id = @tenant_id
-                    AND visibility_edge.descendant_id = item.id
-                    AND visibility_edge.depth > 0
-                    AND (visibility_ancestor.template_id IS NOT NULL
-                         OR visibility_ancestor.lifecycle_state <> 'active')
-              )
-            """);
+        // No hidden proper ancestor; the fragment is shared with the My Day candidate read.
+        sql.Append("\n  AND ");
+        sql.Append(ItemVisibilitySql.NoHiddenAncestor);
         sql.Append("\n  AND ");
         sql.Append(ItemLockSql.ItemIsNotUnderClosedLock);
 

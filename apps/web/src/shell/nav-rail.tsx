@@ -1,6 +1,7 @@
 import { Button, Icon, Menu, Text, chromeSurface, focusRing, type MenuEntry } from '@nix/ui';
 import {
   Bookmark,
+  CalendarCheck,
   CalendarClock,
   CalendarDays,
   ChevronDown,
@@ -158,6 +159,13 @@ const QUERIES_ITEM: RailAction = {
 
 const ITEMS: readonly RailItem[] = [
   { kind: 'destination', to: '', label: 'Notes', icon: NotebookText, group: 'workspace' },
+  {
+    kind: 'destination',
+    to: '/my-day',
+    label: 'My Day',
+    icon: CalendarCheck,
+    group: 'workspace',
+  },
   {
     kind: 'destination',
     to: '/daily',
