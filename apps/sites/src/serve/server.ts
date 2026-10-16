@@ -158,13 +158,14 @@ export function createSiteServer(options: SiteServerOptions): Server {
       : host.endsWith(suffix);
   const manifests = new Map<string, Cached<HostManifest>>();
   const redirectTables = new Map<string, Cached<Record<string, string>>>();
+  const assetTables = new Map<string, Cached<ReadonlySet<string>>>();
 
   // Fixed: the maps are bounded, not only swept. Host headers are client-chosen and misses are
   // cached, so a burst of distinct hosts within one TTL could grow them without limit; past the
   // cap the oldest entries (a Map keeps insertion order) are dropped and simply re-read later.
   function sweep(): void {
     const at = now();
-    for (const table of [manifests, redirectTables] as const) {
+    for (const table of [manifests, redirectTables, assetTables] as const) {
       if (table.size < 1024) continue;
       for (const [key, entry] of table) if (entry.expires <= at) table.delete(key);
       for (const key of table.keys()) {
@@ -174,14 +175,14 @@ export function createSiteServer(options: SiteServerOptions): Server {
     }
   }
 
-  async function readJson(key: string): Promise<unknown> {
+  async function readJson(key: string, limit = 1 << 20): Promise<unknown> {
     const object = await options.reader.open(key, 'GET');
     if (object?.body == null) return null;
     const chunks: Uint8Array[] = [];
     let total = 0;
     for await (const chunk of object.body) {
       total += chunk.byteLength;
-      if (total > 1 << 20) return null;
+      if (total > limit) return null;
       chunks.push(chunk);
     }
     try {
@@ -225,6 +226,26 @@ export function createSiteServer(options: SiteServerOptions): Server {
     }
     redirectTables.set(buildPrefix, { value: table, expires: now() + ttl });
     return table;
+  }
+
+  /**
+   * The asset and download paths the live build lists in its index. Assets are stored once per site,
+   * so a superseded build's files are still in the store; only this list says a file is published.
+   * An unreadable index lists nothing, so a missing file is never served by mistake.
+   */
+  async function liveAssets(buildPrefix: string): Promise<ReadonlySet<string>> {
+    const cached = assetTables.get(buildPrefix);
+    if (cached !== undefined && cached.expires > now()) return cached.value ?? new Set();
+    const json = await readJson(`${buildPrefix}_nix/build.json`, 16 << 20);
+    const paths = new Set<string>();
+    const files = (json as { files?: unknown } | null)?.files;
+    if (Array.isArray(files)) {
+      for (const file of files as { path?: unknown; kind?: unknown }[]) {
+        if (file.kind === 'asset' && typeof file.path === 'string') paths.add(file.path);
+      }
+    }
+    assetTables.set(buildPrefix, { value: paths, expires: now() + ttl });
+    return paths;
   }
 
   function send(
@@ -330,6 +351,7 @@ export function createSiteServer(options: SiteServerOptions): Server {
     if (path.startsWith('/_nix/files/')) {
       const [, digest, name, ext] = DOWNLOAD.exec(path) ?? [];
       if (digest === undefined || name === undefined || ext === undefined) return notFound();
+      if (!(await liveAssets(manifest.buildPrefix)).has(path.slice(1))) return notFound();
       key = `${manifest.assetsPrefix}${digest}.${ext}`;
       cacheControl = DOWNLOAD_CACHE;
       // The name is limited to letters, digits, `-` and `_` by the pattern, so quoting is enough.
@@ -341,6 +363,7 @@ export function createSiteServer(options: SiteServerOptions): Server {
     } else if (path.startsWith('/_nix/assets/')) {
       const name = path.slice('/_nix/assets/'.length);
       if (!ASSET_NAME.test(name)) return notFound();
+      if (!(await liveAssets(manifest.buildPrefix)).has(path.slice(1))) return notFound();
       key = manifest.assetsPrefix + name;
       cacheControl = IMMUTABLE;
     } else {
