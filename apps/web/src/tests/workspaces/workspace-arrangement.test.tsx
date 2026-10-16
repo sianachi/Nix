@@ -163,11 +163,11 @@ describe('workspace groups in settings', () => {
     expect(within(section).queryByText('Manage groups')).not.toBeInTheDocument();
 
     await user.selectOptions(
-      within(section).getByRole('combobox', { name: `Group for ${SHARED.name}` }),
+      await within(section).findByRole('combobox', { name: `Group for ${SHARED.name}` }),
       'New group…',
     );
     await user.type(
-      within(section).getByRole('textbox', { name: `New group for ${SHARED.name}` }),
+      await within(section).findByRole('textbox', { name: `New group for ${SHARED.name}` }),
       'Clients',
     );
     await user.click(within(section).getByRole('button', { name: 'Add' }));
@@ -230,7 +230,7 @@ describe('workspace groups in settings', () => {
 
     const section = await screen.findByRole('region', { name: 'Workspace groups and pins' });
     await user.selectOptions(
-      within(section).getByRole('combobox', { name: `Group for ${SHARED.name}` }),
+      await within(section).findByRole('combobox', { name: `Group for ${SHARED.name}` }),
       'New group…',
     );
     await user.type(
