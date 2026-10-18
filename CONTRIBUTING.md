@@ -48,6 +48,12 @@ go -C apps/go-workers test ./...
 
 The backend integration tests need Docker. If you cannot run a check, say so in the PR.
 
+## Your editor or AI tool
+
+- **With AI.** Point your assistant (Claude Code, Codex, Cursor or similar) at [AGENTS.md](AGENTS.md) first; it routes each path to the guide the assistant must read. Ask it to work in a worktree (`scripts/new-goal-worktree.sh <slug>`), run `./scripts/changed-path-checks.sh --working-tree`, and report what it could not run. You are responsible for every line you submit, so read the diff before you open the PR.
+- **Rider.** Open `Nix.slnx` for the backend. Let Rider restore NuGet packages, and run the `Nix.Tests` project from the test explorer. Rider reads `.editorconfig` for formatting. Start the rest of the stack with `pnpm dev` in a terminal.
+- **Neovim or a plain text editor.** Nothing needs an IDE. `pnpm dev` runs the stack, and the commands under "Check your change" run the checks. Use any editor that honours `.editorconfig` and Prettier (`.prettierrc`); `pnpm lint` and `pnpm typecheck` catch the rest. For C#, `dotnet build` and `dotnet test` work from the terminal.
+
 ## Rules that are easy to break
 
 - **One kind of item.** The body type (note, canvas, spreadsheet) never controls structure. Views render children.
