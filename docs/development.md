@@ -57,7 +57,7 @@ go build ./cmd/nix-worker
 **Validation selection**
 
 Run `./scripts/changed-path-checks.sh --working-tree` first, or pass explicit changed paths.
-Follow its selected checks and [the validation guide](docs/agent-guides/workflow-and-validation.md).
+Follow its selected checks and [the validation guide](agent-guides/workflow-and-validation.md).
 Frontend guards include raw design values, layering, text primitives and spacing roles; each
 fixture self-test runs before its guard. Broad root commands above are useful for cross-cutting work.
 Query or stress a live Nix instance through `nixctl` or its MCP server.
