@@ -23,7 +23,7 @@
     "build": "tsc --project tsconfig.build.json"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
+    "@types/node": "^26.6.5",
     "typescript": "^5.9.0",
     "vitest": "^3.2.4"
   }

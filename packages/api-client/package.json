@@ -29,7 +29,7 @@
     "zod": "^4.1.0"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
+    "@types/node": "^26.6.5",
     "msw": "^2.11.0",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.6.0",
