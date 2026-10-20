@@ -1,21 +1,11 @@
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 
-import {
-  adjacentLine,
-  edgeLine,
-  lastCharacter,
-  lineAt,
-  lineText,
-  nextGrapheme,
-  previousGrapheme,
-  type Line,
-} from './text-motions';
+import { adjacentLine, lineAt, lineText, type Line } from './text-motions';
 
 /**
- * Vim's text objects, character finds, paragraph motions and search, as pure functions of the
- * document. Like the motions in `vim-motions.ts`, each works on text blocks as lines: a quote or
- * bracket pair is found within one block (a whole code block counts as one), and a paragraph is a
- * run of non-empty blocks between empty ones.
+ * Vim's text objects, as pure functions of the document. Like the motions in `vim-motions.ts`,
+ * each works on text blocks as lines: a quote or bracket pair is found within one block (a whole
+ * code block counts as one), and a paragraph is a run of non-empty blocks between empty ones.
  */
 
 export type Range =
@@ -213,123 +203,4 @@ export function textObjectRange(
   return span === null
     ? null
     : { linewise: false, from: line.start + span[0], to: line.start + span[1] };
-}
-
-export type FindKey = 'f' | 't' | 'F' | 'T';
-
-/**
- * Where `f`, `t`, `F` or `T` lands in the block, or null when the character is not there. `repeat`
- * is `;` or `,`: a repeated `t` starts one character on, so it never finds the one it stands before.
- */
-export function findInLine(
-  line: Line,
-  offset: number,
-  key: FindKey,
-  char: string,
-  count: number,
-  repeat: boolean,
-): number | null {
-  const text = lineText(line);
-  const forward = key === 'f' || key === 't';
-  let at = repeat && key === 't' ? offset + 1 : repeat && key === 'T' ? offset - 1 : offset;
-  for (let step = 0; step < count; step += 1) {
-    if (!forward && at <= 0) return null;
-    at = forward ? text.indexOf(char, at + 1) : text.lastIndexOf(char, at - 1);
-    if (at === -1) return null;
-  }
-  if (key === 't') return previousGrapheme(line, at);
-  if (key === 'T') return nextGrapheme(line, at);
-  return at;
-}
-
-/**
- * `}` and `{`: the next or previous empty block past the current paragraph. With none left, the
- * motion stops at the document's edge, on its last character going down (`end: true`).
- */
-export function paragraphTarget(
-  doc: ProseMirrorNode,
-  line: Line,
-  direction: 1 | -1,
-  count: number,
-): { readonly line: Line; readonly offset: number; readonly end: boolean } {
-  let current = line;
-  for (let step = 0; step < count; step += 1) {
-    let next = adjacentLine(doc, current, direction);
-    while (next !== null && next.size === 0) {
-      current = next;
-      next = adjacentLine(doc, current, direction);
-    }
-    while (next !== null && next.size > 0) {
-      current = next;
-      next = adjacentLine(doc, current, direction);
-    }
-    if (next === null) {
-      return direction === 1
-        ? { line: current, offset: lastCharacter(current), end: true }
-        : { line: current, offset: 0, end: false };
-    }
-    current = next;
-  }
-  return { line: current, offset: 0, end: false };
-}
-
-/**
- * A search pattern as a regular expression. It is JavaScript's syntax, matched case-insensitively
- * unless it has a capital letter (Vim's `smartcase`); a pattern that does not compile is literal.
- */
-export function searchExpression(pattern: string, ignoreCase?: boolean): RegExp {
-  const flags = (ignoreCase ?? !/\p{Lu}/u.test(pattern)) ? 'giu' : 'gu';
-  try {
-    return new RegExp(pattern, flags);
-  } catch {
-    return new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
-  }
-}
-
-function matchStarts(line: Line, expression: RegExp): number[] {
-  return Array.from(lineText(line).matchAll(expression), (match) => match.index);
-}
-
-/**
- * The start of the next (or previous) match after `from`, wrapping around the document once as
- * Vim's `wrapscan` does. Matches stay inside one block.
- */
-export function searchFrom(
-  doc: ProseMirrorNode,
-  from: number,
-  expression: RegExp,
-  forward: boolean,
-): { readonly pos: number; readonly wrapped: boolean } | null {
-  const origin = lineAt(doc, from);
-  if (origin === null) return null;
-  const offset = from - origin.start;
-  const direction = forward ? 1 : -1;
-  const pick = (starts: number[], test: (start: number) => boolean): number | undefined =>
-    forward ? starts.find(test) : starts.findLast(test);
-
-  const first = pick(matchStarts(origin, expression), (start) =>
-    forward ? start > offset : start < offset,
-  );
-  if (first !== undefined) return { pos: origin.start + first, wrapped: false };
-
-  let line: Line = origin;
-  let wrapped = false;
-  for (;;) {
-    let next = adjacentLine(doc, line, direction);
-    if (next === null) {
-      if (wrapped) return null;
-      wrapped = true;
-      next = edgeLine(doc, direction);
-      if (next === null) return null;
-    }
-    if (wrapped && next.start === origin.start) {
-      const back = pick(matchStarts(next, expression), (start) =>
-        forward ? start <= offset : start >= offset,
-      );
-      return back === undefined ? null : { pos: next.start + back, wrapped };
-    }
-    const hit = pick(matchStarts(next, expression), () => true);
-    if (hit !== undefined) return { pos: next.start + hit, wrapped };
-    line = next;
-  }
 }

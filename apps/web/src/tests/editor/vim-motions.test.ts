@@ -1114,6 +1114,15 @@ describe('Vim finds and paragraph motions', () => {
     expect(editor.state.selection.from).toBe(1);
   });
 
+  it('stops { on an empty block straight before the cursor', () => {
+    const editor = open('<p>one</p><p></p><p>three</p>');
+    editor.commands.setTextSelection(9);
+
+    key(editor, '{');
+
+    expect(editor.state.selection.from).toBe(6);
+  });
+
   it('deletes whole lines with d} from a line start, and to the paragraph end from inside one', () => {
     const lines = open('<p>one</p><p>two</p><p></p><p>three</p><p>four</p>');
     lines.commands.setTextSelection(1);

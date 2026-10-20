@@ -34,6 +34,17 @@ follows semantic versioning (`0.x` pre-1.0).
 - Marks (`m`, `` ` ``, `'`), named registers and the `"+` clipboard register, macros (`q`, `@`),
   and `:` commands for line numbers and `:s` substitution.
 
+**Emacs mode**
+
+- Incremental search with Ctrl+S and Ctrl+R, query replace with Alt+%, and goto-line with Alt+G G,
+  typed in a status line under the note.
+- Numeric arguments (Ctrl+U, Alt+digits) and Ctrl+X Z to repeat the last command.
+- Word case (Alt+U/L/C, Ctrl+X Ctrl+U/L), transposing (Ctrl+T, Alt+T), Alt+Backspace, Alt+Z,
+  Alt+\ and Alt+Space, Ctrl+O, Alt+^, Alt+M, and paragraph motion with Alt+{ and Alt+}.
+- A mark ring (Ctrl+U Ctrl+Space), Ctrl+X Ctrl+X and Ctrl+X H; registers for text and places
+  (Ctrl+X R S/I/Space/J); and keyboard macros (Ctrl+X ( ) E, F3 and F4).
+- Vim's `{` now stops on an empty block straight before the cursor.
+
 ## 0.3.0 - 2026-10-16
 
 Work recorded on 2026-10-15 and 2026-10-16. The `v0.3` branch is merged into `main`.

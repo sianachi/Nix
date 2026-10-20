@@ -65,7 +65,8 @@ describe('editor preferences', () => {
 
     expect(useKeyboardModeStore.getState().mode).toBe('emacs');
     expect(screen.getByText(/Ctrl\+F\/B and Alt\+F\/B move by character and word/i)).toBeVisible();
-    expect(screen.getByText(/the browser keeps Ctrl\+N and Ctrl\+W/i)).toBeVisible();
+    expect(screen.getByText(/the browser keeps Ctrl\+N, Ctrl\+T and Ctrl\+W/i)).toBeVisible();
+    expect(screen.getByText(/Ctrl\+S and Ctrl\+R search as you type/i)).toBeVisible();
   });
 
   it('announces when a new choice cannot be remembered', async () => {

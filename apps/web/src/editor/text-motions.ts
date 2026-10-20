@@ -2,7 +2,7 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Selection } from '@tiptap/pm/state';
 
 /**
- * Position arithmetic shared by the Vim and Emacs presets.
+ * Position arithmetic and search shared by the Vim and Emacs presets.
  *
  * Both presets move through a rich document by text block - a paragraph, a heading, a list item's
  * paragraph, a code block - because those are the document's lines. Inside a block, every
@@ -132,4 +132,161 @@ export function nextWordEnd(line: Line, offset: number): number | null {
     if (word.end > offset) return word.end;
   }
   return null;
+}
+
+export type FindKey = 'f' | 't' | 'F' | 'T';
+
+/**
+ * Where `f`, `t`, `F` or `T` lands in the block, or null when the character is not there. `repeat`
+ * is `;` or `,`: a repeated `t` starts one character on, so it never finds the one it stands before.
+ */
+export function findInLine(
+  line: Line,
+  offset: number,
+  key: FindKey,
+  char: string,
+  count: number,
+  repeat: boolean,
+): number | null {
+  const text = lineText(line);
+  const forward = key === 'f' || key === 't';
+  let at = repeat && key === 't' ? offset + 1 : repeat && key === 'T' ? offset - 1 : offset;
+  for (let step = 0; step < count; step += 1) {
+    if (!forward && at <= 0) return null;
+    at = forward ? text.indexOf(char, at + 1) : text.lastIndexOf(char, at - 1);
+    if (at === -1) return null;
+  }
+  if (key === 't') return previousGrapheme(line, at);
+  if (key === 'T') return nextGrapheme(line, at);
+  return at;
+}
+
+/**
+ * `}` and `{`: the next or previous empty block past the current paragraph. With none left, the
+ * motion stops at the document's edge, on its last character going down (`end: true`).
+ */
+export function paragraphTarget(
+  doc: ProseMirrorNode,
+  line: Line,
+  direction: 1 | -1,
+  count: number,
+): { readonly line: Line; readonly offset: number; readonly end: boolean } {
+  let current = line;
+  for (let step = 0; step < count; step += 1) {
+    let next = adjacentLine(doc, current, direction);
+    // From an empty block, the empty blocks around it are passed first; from text, the next one is
+    // already the target.
+    while (current.size === 0 && next !== null && next.size === 0) {
+      current = next;
+      next = adjacentLine(doc, current, direction);
+    }
+    while (next !== null && next.size > 0) {
+      current = next;
+      next = adjacentLine(doc, current, direction);
+    }
+    if (next === null) {
+      return direction === 1
+        ? { line: current, offset: lastCharacter(current), end: true }
+        : { line: current, offset: 0, end: false };
+    }
+    current = next;
+  }
+  return { line: current, offset: 0, end: false };
+}
+
+/**
+ * A search pattern as a regular expression: JavaScript's syntax, or `literal` text as Emacs's
+ * I-search takes it. It matches case-insensitively unless it has a capital letter (Vim's
+ * `smartcase`, Emacs's default); a pattern that does not compile is literal.
+ */
+export function searchExpression(pattern: string, ignoreCase?: boolean, literal = false): RegExp {
+  const flags = (ignoreCase ?? !/\p{Lu}/u.test(pattern)) ? 'giu' : 'gu';
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (literal) return new RegExp(escaped, flags);
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return new RegExp(escaped, flags);
+  }
+}
+
+interface Match {
+  readonly start: number;
+  readonly end: number;
+}
+
+function matches(line: Line, expression: RegExp): Match[] {
+  return Array.from(lineText(line).matchAll(expression), (match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
+}
+
+/**
+ * The next (or previous) match after `from`, wrapping around the document once as Vim's
+ * `wrapscan` and Emacs's wrapped I-search do. `including` also accepts a match at `from` itself.
+ * Matches stay inside one block.
+ */
+export function searchFrom(
+  doc: ProseMirrorNode,
+  from: number,
+  expression: RegExp,
+  forward: boolean,
+  including = false,
+): { readonly pos: number; readonly end: number; readonly wrapped: boolean } | null {
+  const origin = lineAt(doc, from);
+  if (origin === null) return null;
+  const offset = from - origin.start;
+  const direction = forward ? 1 : -1;
+  const pick = (found: Match[], test: (start: number) => boolean): Match | undefined =>
+    forward
+      ? found.find((match) => test(match.start))
+      : found.findLast((match) => test(match.start));
+  const at = (line: Line, match: Match, wrapped: boolean) => ({
+    pos: line.start + match.start,
+    end: line.start + match.end,
+    wrapped,
+  });
+
+  const first = pick(matches(origin, expression), (start) =>
+    forward
+      ? start > offset || (including && start === offset)
+      : start < offset || (including && start === offset),
+  );
+  if (first !== undefined) return at(origin, first, false);
+
+  let line: Line = origin;
+  let wrapped = false;
+  for (;;) {
+    let next = adjacentLine(doc, line, direction);
+    if (next === null) {
+      if (wrapped) return null;
+      wrapped = true;
+      next = edgeLine(doc, direction);
+      if (next === null) return null;
+    }
+    if (wrapped && next.start === origin.start) {
+      const back = pick(matches(next, expression), (start) =>
+        forward ? start <= offset : start >= offset,
+      );
+      return back === undefined ? null : at(next, back, wrapped);
+    }
+    const hit = pick(matches(next, expression), () => true);
+    if (hit !== undefined) return at(next, hit, wrapped);
+    line = next;
+  }
+}
+
+/** The `n`th text block, counting from 1; the last one when there are fewer. */
+export function nthLine(doc: ProseMirrorNode, n: number): Line | null {
+  let seen = 0;
+  let found: Line | null = null;
+  doc.descendants((node, pos) => {
+    if (found !== null && seen >= n) return false;
+    if (!node.isTextblock) return true;
+    seen += 1;
+    found = { node, start: pos + 1, size: node.content.size };
+    return false;
+  });
+  return found;
 }

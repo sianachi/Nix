@@ -8,7 +8,8 @@ The full list of what Nix does today, moved out of the README. Behaviour is defi
 - Rich notes with headings, lists, tasks, quotes, code, callouts, tables, images, links, columns,
   collapsible sections, colour, page breaks, embedded live note sections, drag handles and slash
   commands. Optional Vim (Normal, Visual, Visual Line, text objects, `.` repeat, search, marks,
-  registers, macros and `:s`) and Emacs (kill ring, mark) keyboard modes.
+  registers, macros and `:s`) and Emacs (kill ring, mark ring, I-search, query replace,
+  numeric arguments, registers and keyboard macros) keyboard modes.
 - Notes, canvases and spreadsheets as body kinds. Canvases use shared Excalidraw scenes; spreadsheets
   provide A1 addressing, references, ranges, formula functions, dependency tracking and cycle checks.
 - Durable file items with immutable versions, replace-in-place, PDF and image previews, file-backed

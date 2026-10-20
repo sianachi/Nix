@@ -2,7 +2,7 @@ import { nixEditingExtensions } from '@nix/editor-schema';
 import { Editor, Extension } from '@tiptap/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EmacsKeymap, emacsKillRing } from '../../editor/emacs-keymap';
+import { EmacsKeymap, emacsKillRing, emacsStatus } from '../../editor/emacs-keymap';
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 
 let editor: Editor | null = null;
@@ -448,5 +448,430 @@ describe('Emacs basics kill ring', () => {
     expect(key('k').defaultPrevented).toBe(false);
     expect(key('d').defaultPrevented).toBe(false);
     expect(blocks()).toEqual(['alpha beta']);
+  });
+});
+
+const plain = { ctrlKey: false } as const;
+
+/** Types plain keys as a person would: each goes to the editor, then the text lands if unclaimed. */
+function type(text: string): void {
+  for (const char of text) {
+    if (!key(char, plain).defaultPrevented) {
+      editor?.view.dispatch(editor.state.tr.insertText(char));
+    }
+  }
+}
+
+function status() {
+  if (editor === null) throw new Error('The editor is not open.');
+  return emacsStatus(editor.state);
+}
+
+describe('Emacs words, case and whitespace', () => {
+  it('upcases, downcases and capitalises to the end of the word with Alt+U, Alt+L and Alt+C', () => {
+    openEmacs('<p>alpha beta gamma</p>');
+    at(1);
+
+    key('u', alt);
+    expect(blocks()).toEqual(['ALPHA beta gamma']);
+    expect(selection().from).toBe(6);
+    key('c', alt);
+    expect(blocks()).toEqual(['ALPHA Beta gamma']);
+    at(1);
+    key('l', alt);
+    expect(blocks()).toEqual(['alpha Beta gamma']);
+  });
+
+  it('capitalises a word split by formatting as one word', () => {
+    openEmacs('<p><strong>al</strong>PHA</p>');
+    at(1);
+
+    key('c', alt);
+
+    expect(blocks()).toEqual(['Alpha']);
+    expect(editor?.state.doc.firstChild?.firstChild?.marks.map((mark) => mark.type.name)).toEqual([
+      'bold',
+    ]);
+  });
+
+  it('kills words backward with Alt+Backspace into one kill-ring entry', () => {
+    openEmacs('<p>alpha beta gamma</p>');
+    at(11);
+
+    key('Backspace', alt);
+    expect(blocks()).toEqual(['alpha  gamma']);
+    key('Backspace', alt);
+    expect(blocks()).toEqual([' gamma']);
+    key('y');
+    expect(blocks()).toEqual(['alpha beta gamma']);
+  });
+
+  it('transposes characters with Ctrl+T and words with Alt+T', () => {
+    openEmacs('<p>abcd</p>');
+    at(2);
+    key('t');
+    expect(blocks()).toEqual(['bacd']);
+    expect(selection().from).toBe(3);
+    at(5);
+    key('t');
+    expect(blocks()).toEqual(['badc']);
+
+    openEmacs('<p>alpha beta gamma</p>');
+    at(9);
+    key('t', alt);
+    expect(blocks()).toEqual(['alpha gamma beta']);
+    expect(selection().from).toBe(17);
+    at(6);
+    key('t', alt);
+    expect(blocks()).toEqual(['gamma alpha beta']);
+  });
+
+  it('closes up blanks with Alt+\\ and leaves one with Alt+Space', () => {
+    openEmacs('<p>ab</p>');
+    editor?.view.dispatch(editor.state.tr.insertText('    ', 2));
+    at(4);
+    key('\\', alt);
+    expect(blocks()).toEqual(['ab']);
+    key(' ', alt);
+    expect(blocks()).toEqual(['a b']);
+  });
+
+  it('opens a line with Ctrl+O, joins upward with Alt+^ and goes to the indentation with Alt+M', () => {
+    openEmacs('<p>alpha</p>');
+    at(3);
+    key('o');
+    expect(blocks()).toEqual(['al', 'pha']);
+    expect(selection().from).toBe(3);
+
+    openEmacs('<p>one</p><p>  two</p>');
+    at(8);
+    key('^', { ...alt, shiftKey: true });
+    expect(blocks()).toEqual(['one two']);
+    expect(selection().from).toBe(4);
+
+    openEmacs('<p>indented</p>');
+    editor?.view.dispatch(editor.state.tr.insertText('  ', 1));
+    at(8);
+    key('m', alt);
+    expect(selection().from).toBe(3);
+  });
+
+  it('moves by paragraph with Alt+} and Alt+{', () => {
+    openEmacs('<p>one</p><p>two</p><p></p><p>three</p>');
+    at(1);
+
+    key('}', { ...alt, shiftKey: true });
+    expect(selection().from).toBe(11);
+    key('}', { ...alt, shiftKey: true });
+    expect(selection().from).toBe(18);
+    key('{', { ...alt, shiftKey: true });
+    expect(selection().from).toBe(11);
+    key('{', { ...alt, shiftKey: true });
+    expect(selection().from).toBe(1);
+  });
+
+  it('zaps to a character with Alt+Z', () => {
+    openEmacs('<p>alpha, beta</p>');
+    at(1);
+
+    key('z', alt);
+    expect(status().keys).toBe('Zap to char: ');
+    key(',', plain);
+
+    expect(blocks()).toEqual([' beta']);
+  });
+});
+
+describe('Emacs mark ring and C-x', () => {
+  it('marks the whole note with Ctrl+X H and swaps caret and mark with Ctrl+X Ctrl+X', () => {
+    openEmacs('<p>alpha</p><p>beta</p>');
+    at(3);
+    key('x');
+    expect(status().keys).toBe('C-x-');
+    key('h', plain);
+    expect(selection()).toEqual({ from: 1, to: 12 });
+
+    openEmacs('<p>alpha beta</p>');
+    at(1);
+    key(' ');
+    key('e');
+    key('g');
+    expect(selection()).toEqual({ from: 11, to: 11 });
+    key('x');
+    key('x');
+    expect(selection()).toEqual({ from: 1, to: 11 });
+    expect(editor?.state.selection.head).toBe(1);
+  });
+
+  it('walks back through the mark ring with Ctrl+U Ctrl+Space', () => {
+    openEmacs('<p>alpha beta gamma</p>');
+    at(1);
+    key(' ');
+    at(7);
+    key(' ');
+    at(15);
+
+    key('u');
+    key(' ');
+    expect(selection().from).toBe(7);
+    key('u');
+    key(' ');
+    expect(selection().from).toBe(1);
+  });
+
+  it('says Ctrl+X Ctrl+S is not needed, names an undefined key and quits on Ctrl+G', () => {
+    openEmacs('<p>alpha</p>');
+    key('x');
+    key('s');
+    expect(status().message).toBe('Notes save as you type');
+    key('x');
+    key('q');
+    expect(status().message).toBe('C-x C-q is undefined');
+    key('x');
+    key('g');
+    expect(status().keys).toBe('');
+    expect(blocks()).toEqual(['alpha']);
+  });
+});
+
+describe('Emacs numeric arguments and repeat', () => {
+  it('repeats a command by Ctrl+U, Ctrl+U digits and Alt+digits', () => {
+    openEmacs('<p>abcdefgh</p>');
+    at(1);
+
+    key('u');
+    expect(status().keys).toBe('C-u 4-');
+    key('f');
+    expect(selection().from).toBe(5);
+    key('2', { ...alt, code: 'Digit2' });
+    key('f');
+    expect(selection().from).toBe(7);
+    key('u');
+    key('3', plain);
+    key('b');
+    expect(selection().from).toBe(4);
+    key('u');
+    key('u');
+    key('f');
+    expect(selection().from).toBe(9);
+  });
+
+  it('inserts a typed character that many times', () => {
+    openEmacs('<p>ab</p>');
+    at(2);
+
+    key('u');
+    key('3', plain);
+    key('x', plain);
+
+    expect(blocks()).toEqual(['axxxb']);
+  });
+
+  it('repeats the last command with Ctrl+X Z, and again with each Z', () => {
+    openEmacs('<p>one two three four</p>');
+    at(1);
+
+    key('d', alt);
+    expect(blocks()).toEqual([' two three four']);
+    key('x');
+    key('z', plain);
+    expect(blocks()).toEqual([' three four']);
+    key('z', plain);
+    expect(blocks()).toEqual([' four']);
+  });
+});
+
+describe('Emacs I-search', () => {
+  it('searches as you type, finds the next with Ctrl+S, wraps, and saves the mark on Enter', () => {
+    openEmacs('<p>alpha beta</p><p>gamma beta</p>');
+    at(1);
+
+    key('s');
+    type('beta');
+    expect(status().keys).toBe('I-search: beta');
+    expect(selection()).toEqual({ from: 7, to: 11 });
+    key('s');
+    expect(selection()).toEqual({ from: 19, to: 23 });
+    key('s');
+    expect(selection()).toEqual({ from: 7, to: 11 });
+    expect(status().keys).toBe('Wrapped I-search: beta');
+
+    key('Enter', plain);
+    expect(selection()).toEqual({ from: 11, to: 11 });
+    expect(status().message).toBe('Mark saved where search started');
+    key('u');
+    key(' ');
+    expect(selection().from).toBe(1);
+  });
+
+  it('searches backward with Ctrl+R', () => {
+    openEmacs('<p>alpha beta</p><p>gamma beta</p>');
+    at(24);
+
+    key('r');
+    type('beta');
+    expect(selection()).toEqual({ from: 19, to: 23 });
+    expect(editor?.state.selection.head).toBe(19);
+    expect(status().keys).toBe('I-search backward: beta');
+  });
+
+  it('says when a search fails, and returns to the start on Ctrl+G', () => {
+    openEmacs('<p>alpha beta</p>');
+    at(3);
+
+    key('s');
+    type('zzz');
+    expect(status().keys).toBe('Failing I-search: zzz');
+    key('g');
+    expect(selection()).toEqual({ from: 3, to: 3 });
+    expect(status().keys).toBe('');
+  });
+
+  it('ends the search on another command and then runs it', () => {
+    openEmacs('<p>alpha beta</p>');
+    at(1);
+
+    key('s');
+    type('beta');
+    key('e');
+
+    expect(status().keys).toBe('');
+    expect(selection()).toEqual({ from: 11, to: 11 });
+  });
+
+  it('edits the search text with Backspace', () => {
+    openEmacs('<p>alpha beta</p>');
+    at(1);
+
+    key('s');
+    type('bx');
+    key('Backspace', plain);
+    expect(status().keys).toBe('I-search: b');
+    expect(selection()).toEqual({ from: 7, to: 8 });
+  });
+});
+
+describe('Emacs query replace and goto-line', () => {
+  function startReplace(from: string, to: string): void {
+    key('%', { ...alt, shiftKey: true });
+    type(from);
+    key('Enter', plain);
+    type(to);
+    key('Enter', plain);
+  }
+
+  it('asks at each match: y replaces, n skips', () => {
+    openEmacs('<p>a b a b a</p>');
+    at(1);
+
+    startReplace('a', 'x');
+    expect(status().keys).toBe('Query replacing a with x: (y, n, !, ., q)');
+    expect(selection()).toEqual({ from: 1, to: 2 });
+    key('y', plain);
+    expect(selection()).toEqual({ from: 5, to: 6 });
+    key('n', plain);
+    key('y', plain);
+
+    expect(blocks()).toEqual(['x b a b x']);
+    expect(status().message).toBe('Replaced 2 occurrences');
+  });
+
+  it('replaces every remaining match with !', () => {
+    openEmacs('<p>a b a</p><p>a</p>');
+    at(1);
+
+    startReplace('a', 'xy');
+    key('!', { ...plain, shiftKey: true });
+
+    expect(blocks()).toEqual(['xy b xy', 'xy']);
+    expect(status().message).toBe('Replaced 3 occurrences');
+  });
+
+  it('goes to a line with Alt+G G', () => {
+    openEmacs('<p>one</p><p>two</p><p>three</p>');
+    at(1);
+
+    key('g', alt);
+    key('g', plain);
+    type('3');
+    expect(status().keys).toBe('Goto line: 3');
+    key('Enter', plain);
+
+    expect(selection().from).toBe(11);
+  });
+});
+
+describe('Emacs registers and keyboard macros', () => {
+  it('copies the region to a register and inserts it with Ctrl+X R S and I', () => {
+    openEmacs('<p>alpha beta</p>');
+    at(1);
+    key(' ');
+    key('f', alt);
+    key('x');
+    key('r', plain);
+    key('s', plain);
+    key('a', plain);
+    expect(status().message).toBe('Copied to register a');
+
+    at(11);
+    key('x');
+    key('r', plain);
+    key('i', plain);
+    key('a', plain);
+    expect(blocks()).toEqual(['alpha betaalpha']);
+    expect(selection().from).toBe(11);
+  });
+
+  it('saves the caret to a register and jumps back with Ctrl+X R Space and J', () => {
+    openEmacs('<p>alpha beta</p>');
+    at(4);
+    key('x');
+    key('r', plain);
+    key(' ', plain);
+    key('b', plain);
+    at(1);
+    key('x');
+    key('r', plain);
+    key('j', plain);
+    key('b', plain);
+
+    expect(selection().from).toBe(4);
+  });
+
+  function recordExclamation(): void {
+    at(1);
+    key('x');
+    key('(', { ...plain, shiftKey: true });
+    expect(status().recording).toBe(true);
+    key('e');
+    type('!');
+    key('n');
+    key('x');
+    key(')', { ...plain, shiftKey: true });
+    expect(status().recording).toBe(false);
+  }
+
+  it('records a keyboard macro and runs it with Ctrl+X E, then E again', () => {
+    openEmacs('<p>one</p><p>two</p><p>three</p>');
+    recordExclamation();
+    expect(blocks()).toEqual(['one!', 'two', 'three']);
+
+    key('x');
+    key('e', plain);
+    expect(blocks()).toEqual(['one!', 'two!', 'three']);
+    key('e', plain);
+    expect(blocks()).toEqual(['one!', 'two!', 'three!']);
+  });
+
+  it('ends a counted run at the first key that fails', () => {
+    openEmacs('<p>one</p><p>two</p><p>three</p>');
+    recordExclamation();
+
+    key('u');
+    key('9', plain);
+    key('x');
+    key('e', plain);
+
+    expect(blocks()).toEqual(['one!', 'two!', 'three!']);
   });
 });

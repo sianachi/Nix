@@ -10,14 +10,21 @@ import {
   type Transaction,
 } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
-import {
-  absolutePositionToRelativePosition,
-  redo,
-  relativePositionToAbsolutePosition,
-  undo,
-  ySyncPluginKey,
-} from 'y-prosemirror';
+import { redo, undo, ySyncPluginKey } from 'y-prosemirror';
 
+import {
+  hasModifier,
+  isChangeOrigin,
+  joinWithNext,
+  mapSaved,
+  replayStroke,
+  restorePosition,
+  rewriteText,
+  savePosition,
+  strokeOf,
+  type KeyStroke,
+  type SavedPosition,
+} from './preset-support';
 import {
   adjacentLine,
   edgeLine,
@@ -30,19 +37,15 @@ import {
   previousGrapheme,
   previousWordStart,
   words,
-  type Line,
-} from './text-motions';
-import {
   findInLine,
-  isTextObject,
+  nthLine,
   paragraphTarget,
   searchExpression,
   searchFrom,
-  textObjectRange,
   type FindKey,
-  type Range,
-  type TextObject,
-} from './vim-objects';
+  type Line,
+} from './text-motions';
+import { isTextObject, textObjectRange, type Range, type TextObject } from './vim-objects';
 
 /**
  * Vim basics: a bounded modal preset over a rich, collaborative document.
@@ -75,9 +78,6 @@ import {
  */
 
 export type VimMode = 'normal' | 'insert' | 'visual' | 'visual-line';
-
-/** A position that survives edits: a Yjs position in a collaborative document, else a mapped one. */
-type SavedPosition = { readonly pos: number } | { readonly relative: unknown };
 
 interface VimMotionState {
   readonly enabled: boolean;
@@ -135,14 +135,6 @@ interface Saved {
   readonly linewise: boolean;
 }
 
-interface KeyStroke {
-  readonly key: string;
-  readonly ctrlKey: boolean;
-  readonly metaKey: boolean;
-  readonly altKey: boolean;
-  readonly shiftKey: boolean;
-}
-
 const registers = new Map<string, Saved>();
 const macros = new Map<string, readonly KeyStroke[]>();
 let recorded: KeyStroke[] = [];
@@ -197,10 +189,6 @@ function isLegacyCompositionKey(event: KeyboardEvent): boolean {
   return keyCode === 229;
 }
 
-function hasModifier(event: { ctrlKey: boolean; metaKey: boolean; altKey: boolean }): boolean {
-  return event.ctrlKey || event.metaKey || event.altKey;
-}
-
 // ---------------------------------------------------------------------------------------------
 // Positions
 // ---------------------------------------------------------------------------------------------
@@ -238,19 +226,6 @@ function insertFallback(state: EditorState): Selection | null {
     : new GapCursor(state.doc.resolve(state.doc.content.size));
 }
 
-function nthLine(doc: ProseMirrorNode, n: number): Line | null {
-  let seen = 0;
-  let found: Line | null = null;
-  doc.descendants((node, pos) => {
-    if (found !== null && seen >= n) return false;
-    if (!node.isTextblock) return true;
-    seen += 1;
-    found = { node, start: pos + 1, size: node.content.size };
-    return false;
-  });
-  return found;
-}
-
 function firstWordOrStart(line: Line): number {
   return line.size === 0 ? 0 : (nextWordStart(line, -1) ?? 0);
 }
@@ -259,45 +234,10 @@ function lastWordOrStart(line: Line): number {
   return line.size === 0 ? 0 : (previousWordStart(line, line.size + 1) ?? 0);
 }
 
-interface SyncBinding {
-  readonly type: Parameters<typeof absolutePositionToRelativePosition>[1];
-  readonly doc: Parameters<typeof relativePositionToAbsolutePosition>[0];
-  readonly binding: { readonly mapping: Parameters<typeof absolutePositionToRelativePosition>[2] };
-}
-
-function syncBinding(state: EditorState): SyncBinding | null {
-  const value: unknown = ySyncPluginKey.getState(state);
-  return typeof value === 'object' && value !== null && 'binding' in value
-    ? (value as SyncBinding)
-    : null;
-}
-
-/** A remote edit or an undo rebuilds a collaborative document, so a mark there is a Yjs position. */
-function savePosition(state: EditorState, pos: number): SavedPosition {
-  const sync = syncBinding(state);
-  return sync === null
-    ? { pos }
-    : { relative: absolutePositionToRelativePosition(pos, sync.type, sync.binding.mapping) };
-}
-
 function markPosition(state: EditorState, name: string): number | null {
   const saved = current(state).marks.get(name);
   if (saved === undefined) return null;
-  let pos: number | null = null;
-  if ('pos' in saved) pos = saved.pos;
-  else {
-    const sync = syncBinding(state);
-    pos =
-      sync === null
-        ? null
-        : relativePositionToAbsolutePosition(
-            sync.doc,
-            sync.type,
-            saved.relative,
-            sync.binding.mapping,
-          );
-  }
-  return pos === null || pos > state.doc.content.size ? null : pos;
+  return restorePosition(state, saved);
 }
 
 function withMark(
@@ -1050,38 +990,6 @@ function pasteSaved(view: EditorView, saved: Saved | null, after: boolean, count
 // Edits
 // ---------------------------------------------------------------------------------------------
 
-/** Rewrites the text between `from` and `to` piece by piece, keeping each piece's marks. */
-function rewriteText(
-  transaction: Transaction,
-  from: number,
-  to: number,
-  rewrite: (text: string) => string,
-): void {
-  const pieces: { from: number; to: number; text: string; node: ProseMirrorNode }[] = [];
-  transaction.doc.nodesBetween(from, to, (node, pos) => {
-    if (!node.isText) return true;
-    const start = Math.max(from, pos);
-    const end = Math.min(to, pos + node.nodeSize);
-    pieces.push({
-      from: start,
-      to: end,
-      text: (node.text ?? '').slice(start - pos, end - pos),
-      node,
-    });
-    return false;
-  });
-  for (const piece of pieces.reverse()) {
-    const next = rewrite(piece.text);
-    if (next !== piece.text && next !== '') {
-      transaction.replaceWith(
-        piece.from,
-        piece.to,
-        transaction.doc.type.schema.text(next, piece.node.marks),
-      );
-    }
-  }
-}
-
 function toggleCase(text: string): string {
   return Array.from(text, (char) => {
     const upper = char.toUpperCase();
@@ -1139,15 +1047,8 @@ function joinLines(view: EditorView, first: Line, joins: number): void {
   let joined = false;
   for (let step = 0; step < joins; step += 1) {
     const line = lineAt(transaction.doc, at);
-    const next = line === null ? null : adjacentLine(transaction.doc, line, 1);
-    if (line === null || next === null) break;
-    const end = line.start + line.size;
-    const blanks = Math.min(firstNonBlank(next), next.size);
-    const before = transaction.doc;
-    transaction.delete(end, next.start + blanks);
-    if (transaction.doc.eq(before)) break;
-    const endsBlank = line.size > 0 && /[\t ]/.test(lineText(line, line.size - 1, line.size));
-    if (line.size > 0 && blanks < next.size && !endsBlank) transaction.insertText(' ', end);
+    const end = line === null ? null : joinWithNext(transaction, line);
+    if (end === null) break;
     at = end;
     joined = true;
   }
@@ -1649,59 +1550,6 @@ function repeatChange(view: EditorView, editor: Editor, count: number | null): v
   leaveInsert(view);
 }
 
-function strokeOf(event: KeyboardEvent): KeyStroke {
-  return {
-    key: event.key,
-    ctrlKey: event.ctrlKey,
-    metaKey: event.metaKey,
-    altKey: event.altKey,
-    shiftKey: event.shiftKey,
-  };
-}
-
-/** Text typed by a replayed key, through the same input rules a real keystroke runs. */
-function typeText(view: EditorView, text: string): void {
-  const { from, to } = view.state.selection;
-  const handled = view.someProp('handleTextInput', (handler) =>
-    handler(view, from, to, text, () => view.state.tr.insertText(text, from, to)),
-  );
-  if (handled !== true) view.dispatch(view.state.tr.insertText(text, from, to).scrollIntoView());
-}
-
-/** A synthetic Backspace or Delete has no default action, so Insert's plain deletion is done here. */
-function deleteCharacter(view: EditorView, backward: boolean): void {
-  const { selection, doc } = view.state;
-  if (!selection.empty) {
-    view.dispatch(view.state.tr.deleteSelection());
-    return;
-  }
-  const line = lineAt(doc, selection.head);
-  if (line === null) return;
-  const offset = selection.head - line.start;
-  if (backward ? offset === 0 : offset === line.size) return;
-  const from = backward ? line.start + previousGrapheme(line, offset) : selection.head;
-  const to = backward ? selection.head : line.start + nextGrapheme(line, offset);
-  view.dispatch(view.state.tr.delete(from, to));
-}
-
-function replayStroke(view: EditorView, stroke: KeyStroke): void {
-  const insert = current(view.state).mode === 'insert';
-  if (insert && !hasModifier(stroke) && stroke.key.length === 1) {
-    typeText(view, stroke.key);
-    return;
-  }
-  const event = new KeyboardEvent('keydown', { ...stroke, bubbles: true, cancelable: true });
-  view.dom.dispatchEvent(event);
-  if (
-    insert &&
-    !event.defaultPrevented &&
-    !hasModifier(stroke) &&
-    (stroke.key === 'Backspace' || stroke.key === 'Delete')
-  ) {
-    deleteCharacter(view, stroke.key === 'Backspace');
-  }
-}
-
 /**
  * `@a` replays the keys recorded into `a`, `count` times; `@@` the macro run last. Like Vim, a
  * key that fails (a motion with nowhere to go, a search with no match) ends the replay.
@@ -1726,7 +1574,7 @@ function replayMacro(view: EditorView, name: string, count: number): void {
         replayedKeys += 1;
         if (replayedKeys > MAX_REPLAYED_KEYS) failed = true;
         if (failed || view.isDestroyed) break;
-        replayStroke(view, stroke);
+        replayStroke(view, stroke, current(view.state).mode === 'insert');
       }
     }
   } finally {
@@ -2065,11 +1913,6 @@ function cursorDecorations(state: EditorState): DecorationSet | null {
   ]);
 }
 
-function isChangeOrigin(transaction: Transaction): boolean {
-  const meta: unknown = transaction.getMeta(ySyncPluginKey);
-  return typeof meta === 'object' && meta !== null && Reflect.get(meta, 'isChangeOrigin') === true;
-}
-
 function vimPlugin(editor: Editor, isApplePlatform: boolean): Plugin<VimMotionState> {
   return new Plugin<VimMotionState>({
     key: vimMotionsKey,
@@ -2093,10 +1936,7 @@ function vimPlugin(editor: Editor, isApplePlatform: boolean): Plugin<VimMotionSt
             next = {
               ...next,
               marks: new Map(
-                Array.from(value.marks, ([name, saved]) => [
-                  name,
-                  'pos' in saved ? { pos: mapping.map(saved.pos) } : saved,
-                ]),
+                Array.from(value.marks, ([name, saved]) => [name, mapSaved(saved, mapping)]),
               ),
             };
           }

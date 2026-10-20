@@ -54,7 +54,7 @@ import { announce } from '../a11y/announcer';
 import { playRecordingFrom } from '../audio/play-from';
 import { parseAudioTimestamp } from '../lib/audio-timestamp-link';
 import { EditorAddressDialog, type EditorAddressKind } from './editor-address-dialog';
-import { EmacsKeymap } from './emacs-keymap';
+import { EmacsKeymap, emacsStatus } from './emacs-keymap';
 import { GhostText, setGhostTextContext } from './ghost-text';
 import { useGhostTextPreference } from './ghost-text-preference';
 import { warmPhraseLibrary } from './phrase-library';
@@ -799,6 +799,28 @@ export function NoteEditor({
     editor,
     selector: ({ editor: current }) => vimStatus(current.state),
   });
+  const activeEmacs = useEditorState({
+    editor,
+    selector: ({ editor: current }) =>
+      keyboardMode === 'emacs' ? emacsStatus(current.state) : null,
+  });
+  // One status line for whichever keyboard preset is on: its mode, recording, feedback and keys.
+  const presetStatus =
+    activeVim !== null
+      ? {
+          label: `Vim ${vimModeLabel(activeVim.mode)}`,
+          recording: activeVim.recording === null ? null : `recording @${activeVim.recording}`,
+          message: activeVim.message,
+          keys: activeVim.keys,
+        }
+      : activeEmacs !== null
+        ? {
+            label: 'Emacs',
+            recording: activeEmacs.recording ? 'defining macro' : null,
+            message: activeEmacs.message,
+            keys: activeEmacs.keys,
+          }
+        : null;
 
   useEffect(() => {
     setEditorWritingMode(editor, writingMode);
@@ -1483,7 +1505,7 @@ export function NoteEditor({
                 />
               )}
 
-              {activeVim === null ? null : (
+              {presetStatus === null ? null : (
                 <div className="flex min-w-0 items-baseline gap-3 px-8 py-1.5">
                   <Text
                     variant="caption"
@@ -1493,17 +1515,17 @@ export function NoteEditor({
                     aria-atomic="true"
                     className="shrink-0 font-heading font-semibold tracking-wider text-muted"
                   >
-                    <span className="uppercase">Vim {vimModeLabel(activeVim.mode)}</span>
-                    {activeVim.recording === null ? null : (
-                      <span className="uppercase"> · recording @{activeVim.recording}</span>
+                    <span className="uppercase">{presetStatus.label}</span>
+                    {presetStatus.recording === null ? null : (
+                      <span className="uppercase"> · {presetStatus.recording}</span>
                     )}
-                    {activeVim.message === '' ? null : (
-                      <span className="font-normal"> · {activeVim.message}</span>
+                    {presetStatus.message === '' ? null : (
+                      <span className="font-normal"> · {presetStatus.message}</span>
                     )}
                   </Text>
                   {/* The command being typed, kept out of the live region so it is not read per key. */}
                   <Text variant="caption" as="p" className="min-w-0 truncate font-mono text-muted">
-                    {activeVim.keys}
+                    {presetStatus.keys}
                   </Text>
                 </div>
               )}
