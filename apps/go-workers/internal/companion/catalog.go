@@ -10,6 +10,13 @@ import (
 //go:embed catalog/chat.txt
 var chatCatalog string
 
+// openUICatalog teaches interactive replies: when to answer with an openui-lang component rather
+// than text or new items, and the component library the web renders them with. Generated from
+// that library by apps/web's openui-prompt.test.ts (`vitest -u`), never hand-edited.
+//
+//go:embed catalog/openui.txt
+var openUICatalog string
+
 // toolsChatJSON is @nix/structure-spec's buildPetTools(), written by `pnpm --filter
 // @nix/structure-spec catalog` (scripts/build-catalog.ts) from the same Zod schemas
 // @nix/companion/run.ts parses with. One typed function tool per operation, each already reduced
