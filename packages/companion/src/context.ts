@@ -9,7 +9,12 @@ import type {
 import { parseStructureView } from './structure/view-configuration.js';
 import type { BodyEdit, BodyEditPlan, CompanionPorts } from './ports.js';
 import type { WorkspaceToolArgs } from './tool-args.js';
-import { checkItem, structureFingerprint, type StructureFingerprint } from './guards.js';
+import {
+  checkItem,
+  hasProseBody,
+  structureFingerprint,
+  type StructureFingerprint,
+} from './guards.js';
 import { WorkspaceToolRefusal } from './tool-args.js';
 import { prepareNoteScopedTool, checkNoteScopedItem, type NoteToolScope } from './scope.js';
 import { validateBlueprint } from '@nix/structure-spec';
@@ -258,7 +263,7 @@ export async function loadPreviewContext(
       fingerprint: '',
       problems: [{ path, code: 'body_edit_refused', message, modelMessage }],
     });
-    if (item.type !== 'note')
+    if (!hasProseBody(item.type))
       return refused(
         'itemId',
         'Only a note’s text can be edited this way.',

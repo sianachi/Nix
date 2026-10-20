@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { checkOpenUi } from './openui-check.ts';
 import { z } from 'zod';
 import {
   items,
@@ -945,6 +947,7 @@ export async function runChatCase(
     for (const ref of checks.cites)
       if (!citationPattern(options.workspace, resolveNode(fixture, ref)).test(answer))
         failures.push(`answer does not link fixture item '${ref}'`);
+    if (checks.openui) failures.push(...(await checkOpenUi(answer, checks.openui)));
   }
   const citations = await scoreCitations(session, options.workspace, answer);
   if (citations.invalid > 0)
@@ -971,6 +974,11 @@ export async function runChatCase(
       );
     }
   }
+  // Opt-in, for diagnosing a failing case: results stay answer-free by default, since a reply can
+  // quote workspace content.
+  const answersDir = process.env.NIX_EVAL_ANSWERS_DIR;
+  if (answersDir)
+    await writeFile(join(answersDir, `${chatCase.id}-${String(run)}.md`), answer, 'utf8');
   return {
     id: chatCase.id,
     run,

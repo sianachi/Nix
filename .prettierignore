@@ -10,3 +10,5 @@ pnpm-lock.yaml
 *.md
 # Byte-exact renderer output; regenerate with UPDATE_GOLDEN=1, never reformat.
 packages/site-render/src/__golden__/
+# Written by apps/web openui-prompt.test.ts as a file snapshot; regenerate with vitest -u, never reformat.
+packages/structure-spec/evals/openui-library.json

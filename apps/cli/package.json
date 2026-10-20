@@ -20,6 +20,7 @@
     "@nix/editor-schema": "workspace:*",
     "@nix/markdown": "workspace:*",
     "@nix/structure-spec": "workspace:*",
+    "@openuidev/lang-core": "1.0.1",
     "commander": "^14.0.2",
     "lib0": "^0.2.117",
     "prosemirror-model": "^1.25.11",

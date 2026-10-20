@@ -1,0 +1,11 @@
+root = Stack([title, question, controls, result])
+title = Text("Are you a cat?", "title")
+question = Text($step == 0 ? "Do you nap more than 12 hours a day?" : $step == 1 ? "Do you knock things off tables to watch them fall?" : $step == 2 ? "Do you sit in boxes that are too small for you?" : "", "body")
+controls = $step < 3 ? answers : again
+answers = Row([yes, no])
+yes = Button("Yes", Action([@Set($score, $score + 1), @Set($step, $step + 1)]), "primary")
+no = Button("No", Action([@Set($step, $step + 1)]))
+again = Button("Start over", Action([@Reset($step, $score)]))
+result = Text($step < 3 ? "Question " + ($step + 1) + " of 3" : $score >= 2 ? "You are a cat." : "You are probably not a cat.", "display")
+$step = 0
+$score = 0

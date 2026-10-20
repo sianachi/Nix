@@ -139,6 +139,26 @@ export const chatCaseSchema = z
         references: z.array(nodeRef).max(8).default([]),
         /** The reply carries a Nix link, `/w/<workspace>?item=<id>`, to each of these fixture items. */
         cites: z.array(nodeRef).max(8).default([]),
+        /** Generated UI in the reply: it parses against the web's library and uses these names. */
+        openui: z
+          .object({
+            absent: z.boolean().optional(),
+            patch: z.boolean().optional(),
+            components: z
+              .array(z.string().regex(/^[A-Z][A-Za-z]+$/))
+              .max(8)
+              .optional(),
+            mutations: z
+              .array(z.string().regex(/^[a-z_]+$/))
+              .max(4)
+              .optional(),
+            functions: z
+              .array(z.string().regex(/^[A-Z][A-Za-z]+$/))
+              .max(4)
+              .optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

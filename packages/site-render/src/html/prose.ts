@@ -215,6 +215,17 @@ export function renderProse(
       const language = readString(node.attrs, 'language');
       const code = plainText({ type: 'codeBlock', content: node.content });
       const label = language === null ? '' : ` data-language="${escapeHtml(language)}"`;
+      // Generated UI runs in the app, against the reader's session; a static page has neither.
+      const kind = language?.trim().toLowerCase().split(/\s+/)[0];
+      // An artifact's saved values belong to the app and its readers, never to a page.
+      if (kind === 'openui-state') {
+        ctx.loss.note('body-not-rendered', 'Saved component values are not published.');
+        return '';
+      }
+      if (kind === 'openui-lang') {
+        ctx.loss.note('body-not-rendered', 'An interactive component is not published.');
+        return notice('An interactive component is not published.');
+      }
       if (language?.trim().toLowerCase() === 'mermaid') {
         const fileItemId = readString(node.attrs, 'renderFileId');
         const picture =
