@@ -49,6 +49,7 @@ describe('diagnose', () => {
 describe('the program editor', () => {
   it('highlights the text it edits once the highlighter has loaded', async () => {
     const { container } = render(<Harness initial={'root = Stack([t])\nt = Text("Hi")'} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
     await waitFor(() => {
       expect(container.querySelector('.hljs-title')).toHaveTextContent('Stack');
     });
@@ -58,6 +59,7 @@ describe('the program editor', () => {
 
   it('previews the program beside the editor and follows an edit', async () => {
     render(<Harness initial={'root = Stack([t])\nt = Text("Hello there")'} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
     expect(await screen.findByText('Hello there')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Program'), {
       target: { value: 'root = Stack([t])\nt = Text("Changed")' },

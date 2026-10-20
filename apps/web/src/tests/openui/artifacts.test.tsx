@@ -125,6 +125,7 @@ describe('an artifact', () => {
     );
     fireEvent.click(await screen.findByRole('button', { name: 'Edit source' }));
     const next = 'root = Stack([t])\nt = Text("Edited")';
+    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
     fireEvent.change(screen.getByLabelText('Program'), { target: { value: next } });
     fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
     await waitFor(() => {

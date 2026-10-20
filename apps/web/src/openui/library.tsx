@@ -33,6 +33,8 @@ import { seriesStyle } from '../views/chart/chart-model';
 import { ChartTable } from '../views/chart/chart-table';
 import { ColumnChart, LineChart, PieChart } from '../views/chart/svg-charts';
 import { CONTRACTS, type ContractName, type ContractProps } from './contracts';
+import { DesignFrame, OpenUiDesign } from './design-frame';
+import { isContainer } from './designer-model';
 import { NIX_FUNCTIONS } from './functions';
 
 /** The workspaces a block may link into: the conversation's, or the artifact's own. */
@@ -444,11 +446,24 @@ function bind<T extends z.ZodObject>(
   contract: { readonly description: string; readonly props: T },
   component: ComponentRenderer<z.infer<T>>,
 ) {
+  // Out of design mode this is the renderer itself plus one context read; in it, a selectable frame.
+  const Framed: ComponentRenderer<z.infer<T>> = (args) => {
+    const design = useContext(OpenUiDesign);
+    // Every renderer here is synchronous; the type allows an async one.
+    const body = component(args) as ReactNode;
+    return design !== null && args.statementId !== undefined ? (
+      <DesignFrame design={design} id={args.statementId} type={name} container={isContainer(name)}>
+        {body}
+      </DesignFrame>
+    ) : (
+      body
+    );
+  };
   return defineComponent({
     name,
     description: contract.description,
     props: contract.props,
-    component,
+    component: Framed,
   });
 }
 

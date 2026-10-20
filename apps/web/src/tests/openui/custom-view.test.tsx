@@ -126,6 +126,7 @@ describe('a custom view', () => {
   it('saves an edited program through the view set', async () => {
     const setViews = open(customView(STARTER_PROGRAM));
     fireEvent.click(await screen.findByRole('button', { name: 'Edit program' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
     fireEvent.change(screen.getByLabelText('Program for Mine'), {
       target: { value: 'root = Stack([t])\nt = Text("Hi")' },
     });

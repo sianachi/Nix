@@ -215,6 +215,9 @@ importers:
       '@nix/view-render':
         specifier: workspace:*
         version: link:../../packages/view-render
+      '@openuidev/lang-core':
+        specifier: 1.0.1
+        version: 1.0.1(@modelcontextprotocol/sdk@1.30.0(zod@4.5.4))(zod@4.5.4)
       '@openuidev/react-lang':
         specifier: 1.0.1
         version: 1.0.1(@modelcontextprotocol/sdk@1.30.0(zod@4.5.4))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.5.4)

@@ -70,6 +70,7 @@ describe('the view editor', () => {
 
     await user.click(screen.getByRole('button', { name: /add a view/i }));
     await user.selectOptions(screen.getByRole('combobox', { name: 'View type' }), 'custom');
+    await user.click(await screen.findByRole('button', { name: 'Code' }));
     const program = await screen.findByLabelText('Program for Custom');
     expect((program as HTMLTextAreaElement).value).toContain('Query("list_items"');
     fireEvent.change(program, { target: { value: 'root = Stack([t])\nt = Text("Mine")' } });
