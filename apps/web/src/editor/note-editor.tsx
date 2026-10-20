@@ -81,7 +81,7 @@ import { SlashMenu } from './slash-menu';
 import { InlineAiPanel } from './inline-ai/inline-ai-panel';
 import { useInlineAi } from './inline-ai/use-inline-ai';
 import { renderToggleButton, toggleSummaryView } from './toggle-button';
-import { setVimEnabled, vimModeLabel, vimStatusMode, VimMotions } from './vim-motions';
+import { setVimEnabled, vimModeLabel, vimStatus, VimMotions } from './vim-motions';
 import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { MermaidCodeBlockView } from '../plugins/mermaid-code-block-view';
 import {
@@ -795,9 +795,9 @@ export function NoteEditor({
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const inlineAi = useInlineAi({ editor, itemId, workspaceId });
 
-  const activeVimMode = useEditorState({
+  const activeVim = useEditorState({
     editor,
-    selector: ({ editor: current }) => vimStatusMode(current.state),
+    selector: ({ editor: current }) => vimStatus(current.state),
   });
 
   useEffect(() => {
@@ -1483,17 +1483,29 @@ export function NoteEditor({
                 />
               )}
 
-              {activeVimMode === null ? null : (
-                <Text
-                  variant="caption"
-                  as="p"
-                  role="status"
-                  aria-live="polite"
-                  aria-atomic="true"
-                  className="px-8 py-1.5 font-heading font-semibold tracking-wider uppercase text-muted"
-                >
-                  Vim {vimModeLabel(activeVimMode)}
-                </Text>
+              {activeVim === null ? null : (
+                <div className="flex min-w-0 items-baseline gap-3 px-8 py-1.5">
+                  <Text
+                    variant="caption"
+                    as="p"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="shrink-0 font-heading font-semibold tracking-wider text-muted"
+                  >
+                    <span className="uppercase">Vim {vimModeLabel(activeVim.mode)}</span>
+                    {activeVim.recording === null ? null : (
+                      <span className="uppercase"> · recording @{activeVim.recording}</span>
+                    )}
+                    {activeVim.message === '' ? null : (
+                      <span className="font-normal"> · {activeVim.message}</span>
+                    )}
+                  </Text>
+                  {/* The command being typed, kept out of the live region so it is not read per key. */}
+                  <Text variant="caption" as="p" className="min-w-0 truncate font-mono text-muted">
+                    {activeVim.keys}
+                  </Text>
+                </div>
               )}
             </div>
             <DocumentIssueDialog

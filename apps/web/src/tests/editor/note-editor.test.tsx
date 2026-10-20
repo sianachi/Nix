@@ -902,7 +902,7 @@ describe('Vim basics in a note', () => {
     });
     const beforeNormal = JSON.stringify(doc.getXmlFragment('default').toJSON());
 
-    fireEvent.keyDown(body, { key: 'q' });
+    fireEvent.keyDown(body, { key: 'Z' });
     body.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',

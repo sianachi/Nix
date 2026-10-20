@@ -52,11 +52,9 @@ describe('editor preferences', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Keyboard mode' }), 'vim');
 
     expect(screen.getByText(/h\/l by character, j\/k by line, w\/b\/e by word/i)).toBeVisible();
-    expect(
-      screen.getByText(/Operators d, c and y take a motion or double for whole lines/i),
-    ).toBeVisible();
+    expect(screen.getByText(/Operators d, c and y take a motion, a text object/i)).toBeVisible();
     expect(screen.getByText(/Visual \(v\) and Visual Line \(V\)/i)).toBeVisible();
-    expect(screen.getByText(/Not included: the \. repeat, named registers/i)).toBeVisible();
+    expect(screen.getByText(/Not included: Visual Block, uppercase marks/i)).toBeVisible();
   });
 
   it('applies the choice immediately and explains its scope', async () => {

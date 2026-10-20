@@ -24,6 +24,16 @@ follows semantic versioning (`0.x` pre-1.0).
 - Ask the pet to adjust a component it just made, and it changes only what you asked.
 - Published sites show a notice in place of an interactive component.
 
+**Vim mode**
+
+- Text objects (`iw`, `aw`, quotes, brackets, `ip`, `ap`) with `d`, `c`, `y` and in Visual mode.
+- `.` repeats the last change, including the text typed in its Insert.
+- `f`, `t`, `F`, `T` with `;` and `,`; `{` and `}`; `r`, `~`, `J`, `s`, `S`, `Y`, and `>>`/`<<`
+  to indent list items.
+- Search with `/` and `?`, then `n` and `N`, typed in the status line.
+- Marks (`m`, `` ` ``, `'`), named registers and the `"+` clipboard register, macros (`q`, `@`),
+  and `:` commands for line numbers and `:s` substitution.
+
 ## 0.3.0 - 2026-10-16
 
 Work recorded on 2026-10-15 and 2026-10-16. The `v0.3` branch is merged into `main`.

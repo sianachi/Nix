@@ -14,6 +14,7 @@ import {
   vimMode,
   vimModeLabel,
   vimMotionsKey,
+  vimStatus,
   vimStatusMode,
   VimMotions,
 } from '../../editor/vim-motions';
@@ -950,5 +951,570 @@ describe('Vim basics history and display', () => {
   it('names Visual Line mode for the status line', () => {
     expect(vimModeLabel('visual-line')).toBe('visual line');
     expect(vimModeLabel('normal')).toBe('normal');
+  });
+});
+
+/** Types into Insert mode as a person would: the key goes to the editor, then the text lands. */
+function type(editor: Editor, text: string): void {
+  for (const char of text) {
+    if (!key(editor, char).defaultPrevented) {
+      editor.view.dispatch(editor.state.tr.insertText(char));
+    }
+  }
+}
+
+/** Opens the `:`, `/` or `?` command line, types `line` and presses Enter. */
+function commandLine(editor: Editor, opener: ':' | '/' | '?', line: string): void {
+  key(editor, opener);
+  keys(editor, line);
+  key(editor, 'Enter');
+}
+
+function status(editor: Editor) {
+  const value = vimStatus(editor.state);
+  if (value === null) throw new Error('Vim basics is off.');
+  return value;
+}
+
+describe('Vim text objects', () => {
+  it.each([
+    ['diw', 9, 'alpha  gamma', 7],
+    ['daw', 9, 'alpha gamma', 7],
+    ['daw', 14, 'alpha beta', 10],
+    ['diw', 6, 'alphabeta gamma', 6],
+  ] as const)('%s at %i leaves "%s"', (sequence, at, text, cursor) => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(at);
+
+    keys(editor, sequence);
+
+    expect(blocks(editor)[0]).toBe(text);
+    expect(editor.state.selection.from).toBe(cursor);
+    expect(vimMode(editor.state)).toBe('normal');
+  });
+
+  it('changes a word with ciw and leaves Insert at its place', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(2);
+
+    keys(editor, 'ciw');
+
+    expect(blocks(editor)[0]).toBe(' beta gamma');
+    expect(vimMode(editor.state)).toBe('insert');
+    expect(editor.state.selection.from).toBe(1);
+  });
+
+  it.each([
+    ['di"', 8, 'say "" now'],
+    ['da"', 8, 'say now'],
+    ['ci"', 1, 'say "" now'],
+  ] as const)('%s at %i in a quoted string leaves "%s"', (sequence, at, text) => {
+    const editor = open('<p>say "hello there" now</p>');
+    editor.commands.setTextSelection(at);
+
+    keys(editor, sequence);
+
+    expect(blocks(editor)[0]).toBe(text);
+  });
+
+  it.each([
+    ['di(', 3, 'f() end'],
+    ['dib', 3, 'f() end'],
+    ['di(', 7, 'f(a, (), c) end'],
+    ['da)', 12, 'f end'],
+    ['di(', 15, 'f(a, (b), c) end'],
+  ] as const)('%s at %i matches nested brackets and leaves "%s"', (sequence, at, text) => {
+    const editor = open('<p>f(a, (b), c) end</p>');
+    editor.commands.setTextSelection(at);
+
+    keys(editor, sequence);
+
+    expect(blocks(editor)[0]).toBe(text);
+  });
+
+  it('takes paragraphs of non-empty blocks with ip and ap', () => {
+    const inner = open('<p>one</p><p>two</p><p></p><p>three</p>');
+    inner.commands.setTextSelection(7);
+    keys(inner, 'dip');
+    expect(blocks(inner)).toEqual(['', 'three']);
+
+    const around = open('<p>one</p><p>two</p><p></p><p>three</p>');
+    around.commands.setTextSelection(7);
+    keys(around, 'dap');
+    expect(blocks(around)).toEqual(['three']);
+  });
+
+  it('selects a text object in Visual mode', () => {
+    const word = open(THREE_LINES);
+    word.commands.setTextSelection(9);
+    keys(word, 'viw');
+    expect(vimMode(word.state)).toBe('visual');
+    expect(word.state.doc.textBetween(word.state.selection.from, word.state.selection.to)).toBe(
+      'beta',
+    );
+    key(word, 'd');
+    expect(blocks(word)[0]).toBe('alpha  gamma');
+
+    const paragraph = open('<p>one</p><p>two</p><p></p><p>three</p>');
+    paragraph.commands.setTextSelection(2);
+    keys(paragraph, 'vip');
+    expect(vimMode(paragraph.state)).toBe('visual-line');
+  });
+});
+
+describe('Vim finds and paragraph motions', () => {
+  it('finds a character with f, t, F and T, and repeats with ; and ,', () => {
+    const editor = open('<p>a,b,c,d</p>');
+    editor.commands.setTextSelection(1);
+
+    keys(editor, 'f,');
+    expect(editor.state.selection.from).toBe(2);
+    key(editor, ';');
+    expect(editor.state.selection.from).toBe(4);
+    key(editor, ',');
+    expect(editor.state.selection.from).toBe(2);
+    keys(editor, 't,');
+    expect(editor.state.selection.from).toBe(3);
+    // A repeated t moves past the character it already stands before.
+    key(editor, ';');
+    expect(editor.state.selection.from).toBe(5);
+    keys(editor, '$F,');
+    expect(editor.state.selection.from).toBe(6);
+    keys(editor, 'T,');
+    expect(editor.state.selection.from).toBe(5);
+    keys(editor, 'fz');
+    expect(editor.state.selection.from).toBe(5);
+  });
+
+  it.each([
+    ['df,', 1, 'b,c,d'],
+    ['dt,', 1, ',b,c,d'],
+    ['d2f,', 1, 'c,d'],
+    ['dF,', 5, 'a,bc,d'],
+  ] as const)('%s at %i leaves "%s"', (sequence, at, text) => {
+    const editor = open('<p>a,b,c,d</p>');
+    editor.commands.setTextSelection(at);
+
+    keys(editor, sequence);
+
+    expect(blocks(editor)[0]).toBe(text);
+  });
+
+  it('moves between empty blocks with } and {, stopping at the document edges', () => {
+    const editor = open('<p>one</p><p>two</p><p></p><p>three</p><p>four</p>');
+    editor.commands.setTextSelection(1);
+
+    key(editor, '}');
+    expect(editor.state.selection.from).toBe(11);
+    key(editor, '}');
+    expect(editor.state.selection.from).toBe(23);
+    key(editor, '{');
+    expect(editor.state.selection.from).toBe(11);
+    key(editor, '{');
+    expect(editor.state.selection.from).toBe(1);
+  });
+
+  it('deletes whole lines with d} from a line start, and to the paragraph end from inside one', () => {
+    const lines = open('<p>one</p><p>two</p><p></p><p>three</p><p>four</p>');
+    lines.commands.setTextSelection(1);
+    keys(lines, 'd}');
+    expect(blocks(lines)).toEqual(['', 'three', 'four']);
+
+    const rest = open('<p>one</p><p>two</p><p></p><p>three</p><p>four</p>');
+    rest.commands.setTextSelection(2);
+    keys(rest, 'd}');
+    expect(blocks(rest)).toEqual(['o', '', 'three', 'four']);
+  });
+});
+
+describe('Vim single-key edits', () => {
+  it('replaces characters with r, refusing a count longer than the block', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+
+    keys(editor, 'rx');
+    expect(blocks(editor)[0]).toBe('xlpha beta gamma');
+    expect(editor.state.selection.from).toBe(1);
+    keys(editor, '3rz');
+    expect(blocks(editor)[0]).toBe('zzzha beta gamma');
+    expect(editor.state.selection.from).toBe(3);
+    keys(editor, '99rq');
+    expect(blocks(editor)[0]).toBe('zzzha beta gamma');
+  });
+
+  it('toggles case with ~ and moves on, keeping formatting', () => {
+    const editor = open('<p><strong>ab</strong>cd</p>');
+    editor.commands.setTextSelection(1);
+
+    keys(editor, '3~');
+
+    expect(blocks(editor)[0]).toBe('ABCd');
+    expect(editor.state.selection.from).toBe(4);
+    expect(editor.state.doc.firstChild?.firstChild?.marks.map((mark) => mark.type.name)).toEqual([
+      'bold',
+    ]);
+  });
+
+  it('joins lines with J and a count, with one space at the join', () => {
+    const one = open(THREE_LINES);
+    one.commands.setTextSelection(3);
+    key(one, 'J');
+    expect(blocks(one)).toEqual(['alpha beta gamma second line', 'third']);
+    expect(one.state.selection.from).toBe(17);
+
+    const all = open(THREE_LINES);
+    all.commands.setTextSelection(3);
+    keys(all, '3J');
+    expect(blocks(all)).toEqual(['alpha beta gamma second line third']);
+
+    const last = open(THREE_LINES);
+    last.commands.setTextSelection(33);
+    key(last, 'J');
+    expect(blocks(last)).toEqual(['alpha beta gamma', 'second line', 'third']);
+  });
+
+  it('substitutes with s and S, and yanks a line with Y', () => {
+    const character = open(THREE_LINES);
+    character.commands.setTextSelection(1);
+    key(character, 's');
+    expect(blocks(character)[0]).toBe('lpha beta gamma');
+    expect(vimMode(character.state)).toBe('insert');
+
+    const line = open(THREE_LINES);
+    line.commands.setTextSelection(3);
+    key(line, 'S');
+    expect(blocks(line)).toEqual(['', 'second line', 'third']);
+    expect(vimMode(line.state)).toBe('insert');
+
+    const yank = open(THREE_LINES);
+    yank.commands.setTextSelection(3);
+    keys(yank, 'Yp');
+    expect(blocks(yank)).toEqual(['alpha beta gamma', 'alpha beta gamma', 'second line', 'third']);
+  });
+
+  it('indents and outdents list items with >> and <<, never out of the list', () => {
+    const editor = open('<ul><li><p>One</p></li><li><p>Two</p></li></ul>');
+    let two = 0;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.isTextblock && node.textContent === 'Two') two = pos + 1;
+    });
+    editor.commands.setTextSelection(two);
+    const depth = editor.state.selection.$head.depth;
+
+    keys(editor, '>>');
+    expect(editor.state.selection.$head.depth).toBe(depth + 2);
+    expect(editor.state.selection.$head.parent.textContent).toBe('Two');
+    keys(editor, '<<');
+    expect(editor.state.selection.$head.depth).toBe(depth);
+    keys(editor, '<<');
+    expect(editor.state.selection.$head.depth).toBe(depth);
+
+    const paragraph = open(THREE_LINES);
+    keys(paragraph, '>>');
+    expect(status(paragraph).message).toBe('Only list items indent');
+  });
+});
+
+describe('Vim search', () => {
+  it('searches forward with / and back with ?, repeating with n and N', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+
+    key(editor, '/');
+    keys(editor, 'a');
+    expect(status(editor).keys).toBe('/a');
+    key(editor, 'Enter');
+    expect(editor.state.selection.from).toBe(5);
+    key(editor, 'n');
+    expect(editor.state.selection.from).toBe(10);
+    key(editor, 'N');
+    expect(editor.state.selection.from).toBe(5);
+
+    editor.commands.setTextSelection(19);
+    commandLine(editor, '?', 'alpha');
+    expect(editor.state.selection.from).toBe(1);
+  });
+
+  it('wraps around the document, says so, and reports a missing match', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(13);
+
+    commandLine(editor, '/', 'alpha');
+    expect(editor.state.selection.from).toBe(1);
+    expect(status(editor).message).toBe('Search hit the bottom, continuing at the top');
+
+    commandLine(editor, '/', 'zzz');
+    expect(editor.state.selection.from).toBe(1);
+    expect(status(editor).message).toBe('Pattern not found: zzz');
+  });
+
+  it('ignores case unless the pattern has a capital', () => {
+    const editor = open('<p>Alpha alpha</p>');
+    editor.commands.setTextSelection(3);
+
+    commandLine(editor, '/', 'ALPHA');
+    expect(status(editor).message).toBe('Pattern not found: ALPHA');
+    commandLine(editor, '/', 'alpha');
+    expect(editor.state.selection.from).toBe(7);
+  });
+
+  it('takes a search as an operator motion', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+
+    key(editor, 'd');
+    commandLine(editor, '/', 'gam');
+
+    expect(blocks(editor)[0]).toBe('gamma');
+  });
+
+  it('edits the command line with Backspace and abandons it with Escape', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+
+    keys(editor, '/x');
+    key(editor, 'Backspace');
+    expect(status(editor).keys).toBe('/');
+    key(editor, 'Backspace');
+    expect(status(editor).keys).toBe('');
+    keys(editor, '/beta');
+    key(editor, 'Escape');
+    expect(status(editor).keys).toBe('');
+    expect(editor.state.selection.from).toBe(1);
+  });
+});
+
+describe('Vim marks', () => {
+  it("jumps to a mark exactly with ` and to its line with ', and back with ``", () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(23);
+
+    keys(editor, 'magg');
+    expect(editor.state.selection.from).toBe(1);
+    keys(editor, '`a');
+    expect(editor.state.selection.from).toBe(23);
+    keys(editor, "'a");
+    expect(editor.state.selection.from).toBe(19);
+    keys(editor, '``');
+    expect(editor.state.selection.from).toBe(23);
+    keys(editor, "'z");
+    expect(status(editor).message).toBe('Mark not set');
+  });
+
+  it('uses a mark as an operator motion', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(23);
+
+    keys(editor, 'ma');
+    editor.commands.setTextSelection(1);
+    keys(editor, 'd`a');
+
+    expect(blocks(editor)).toEqual(['nd line', 'third']);
+  });
+
+  it('keeps a mark on its text through a collaborative undo', async () => {
+    const editor = await openCollaborative(THREE_LINES);
+    editor.commands.setTextSelection(34);
+
+    keys(editor, 'maggdd');
+    expect(blocks(editor)).toEqual(['second line', 'third']);
+    key(editor, 'u');
+    expect(blocks(editor)).toEqual(['alpha beta gamma', 'second line', 'third']);
+    keys(editor, 'gg`a');
+
+    expect(editor.state.selection.$head.parent.textContent).toBe('third');
+    expect(editor.state.selection.$head.parentOffset).toBe(2);
+  });
+});
+
+describe('Vim registers', () => {
+  it('yanks into a named register and pastes from it', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+
+    keys(editor, '"ayyjyy"ap');
+
+    expect(blocks(editor)).toEqual([
+      'alpha beta gamma',
+      'second line',
+      'alpha beta gamma',
+      'third',
+    ]);
+  });
+
+  it('keeps the unnamed register through the black hole, and the last yank in "0', () => {
+    const blackHole = open(THREE_LINES);
+    blackHole.commands.setTextSelection(1);
+    keys(blackHole, 'yyj"_ddp');
+    expect(blocks(blackHole)).toEqual(['alpha beta gamma', 'third', 'alpha beta gamma']);
+
+    const yanked = open(THREE_LINES);
+    yanked.commands.setTextSelection(1);
+    keys(yanked, 'yyjdd"0p');
+    expect(blocks(yanked)).toEqual(['alpha beta gamma', 'third', 'alpha beta gamma']);
+  });
+
+  it('yanks to and pastes from the system clipboard with "+', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    const readText = vi.fn(() => Promise.resolve('XY'));
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText, readText },
+      configurable: true,
+    });
+    try {
+      const editor = open(THREE_LINES);
+      editor.commands.setTextSelection(1);
+
+      keys(editor, '"+yiw');
+      expect(writeText).toHaveBeenCalledWith('alpha');
+      keys(editor, '"+P');
+      await vi.waitFor(() => {
+        expect(blocks(editor)[0]).toBe('XYalpha beta gamma');
+      });
+    } finally {
+      if (original === undefined) Reflect.deleteProperty(navigator, 'clipboard');
+      else Object.defineProperty(navigator, 'clipboard', original);
+    }
+  });
+});
+
+describe('Vim repeat', () => {
+  it('repeats a delete with .', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+
+    keys(editor, 'dw.');
+
+    expect(blocks(editor)[0]).toBe('gamma');
+  });
+
+  it('repeats a change with the text typed in its Insert', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+
+    keys(editor, 'ciw');
+    type(editor, 'one');
+    key(editor, 'Escape');
+    keys(editor, 'w.');
+
+    expect(blocks(editor)[0]).toBe('one one gamma');
+    expect(vimMode(editor.state)).toBe('normal');
+  });
+
+  it('replaces the original count with a new one', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+
+    keys(editor, 'x3.');
+
+    expect(blocks(editor)[0]).toBe('a beta gamma');
+  });
+
+  it('repeats an append and an opened line', () => {
+    const append = open(THREE_LINES);
+    append.commands.setTextSelection(1);
+    key(append, 'A');
+    type(append, '!');
+    key(append, 'Escape');
+    keys(append, 'j.');
+    expect(blocks(append)).toEqual(['alpha beta gamma!', 'second line!', 'third']);
+
+    const opened = open(THREE_LINES);
+    opened.commands.setTextSelection(1);
+    key(opened, 'o');
+    type(opened, 'new');
+    key(opened, 'Escape');
+    keys(opened, 'j.');
+    expect(blocks(opened)).toEqual(['alpha beta gamma', 'new', 'second line', 'new', 'third']);
+  });
+});
+
+describe('Vim macros', () => {
+  function recordSemicolons(editor: Editor): void {
+    editor.commands.setTextSelection(1);
+    keys(editor, 'qa');
+    expect(status(editor).recording).toBe('a');
+    key(editor, 'A');
+    type(editor, ';');
+    key(editor, 'Escape');
+    keys(editor, 'jq');
+    expect(status(editor).recording).toBeNull();
+  }
+
+  it('records keys with q and replays them with @ and @@', () => {
+    const editor = open(THREE_LINES);
+    recordSemicolons(editor);
+    expect(blocks(editor)[0]).toBe('alpha beta gamma;');
+
+    keys(editor, '@a');
+    expect(blocks(editor)[1]).toBe('second line;');
+    keys(editor, '@@');
+    expect(blocks(editor)).toEqual(['alpha beta gamma;', 'second line;', 'third;']);
+  });
+
+  it('ends a counted replay at the first key that fails', () => {
+    const editor = open(THREE_LINES);
+    recordSemicolons(editor);
+
+    keys(editor, '10@a');
+
+    expect(blocks(editor)).toEqual(['alpha beta gamma;', 'second line;', 'third;']);
+  });
+
+  it('stops a macro that runs itself', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+    keys(editor, 'qbx@bq');
+
+    keys(editor, '@b');
+
+    expect(blocks(editor)[0]).toMatch(/^.{0,14}$/);
+  });
+});
+
+describe('Vim : commands', () => {
+  it('goes to a line by number', () => {
+    const editor = open(THREE_LINES);
+    commandLine(editor, ':', '2');
+    expect(editor.state.selection.from).toBe(19);
+  });
+
+  it('substitutes on the line, over the document, and over the Visual lines', () => {
+    const line = open(THREE_LINES);
+    line.commands.setTextSelection(1);
+    commandLine(line, ':', 's/a/A/');
+    expect(blocks(line)[0]).toBe('Alpha beta gamma');
+
+    const all = open(THREE_LINES);
+    commandLine(all, ':', '%s/e/E/g');
+    expect(blocks(all)).toEqual(['alpha bEta gamma', 'sEcond linE', 'third']);
+    expect(status(all).message).toBe('3 substitutions on 2 lines');
+
+    const visual = open(THREE_LINES);
+    visual.commands.setTextSelection(1);
+    keys(visual, 'Vj:');
+    expect(status(visual).keys).toBe(":'<,'>");
+    keys(visual, 's/^/> /');
+    key(visual, 'Enter');
+    expect(blocks(visual)).toEqual(['> alpha beta gamma', '> second line', 'third']);
+  });
+
+  it('expands & and groups in the replacement', () => {
+    const editor = open(THREE_LINES);
+    editor.commands.setTextSelection(1);
+    commandLine(editor, ':', 's/(al)pha/\\1-&/');
+    expect(blocks(editor)[0]).toBe('al-alpha beta gamma');
+  });
+
+  it('answers :w and names a command it does not know', () => {
+    const editor = open(THREE_LINES);
+    const before = editor.getJSON();
+
+    commandLine(editor, ':', 'w');
+    expect(status(editor).message).toBe('Notes save as you type');
+    commandLine(editor, ':', 'foo');
+    expect(status(editor).message).toBe('Not an editor command: foo');
+    expect(editor.getJSON()).toEqual(before);
   });
 });
