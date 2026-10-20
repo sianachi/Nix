@@ -5,10 +5,10 @@
 # reusable script rather than a copy-pasted export-and-run line. EF Core
 # migrations no-op on an up-to-date schema, so this is safe to re-run.
 #
-# Usage: scripts/dev-migrate.sh
+# Usage: scripts/dev-migrate.sh   (NIX_PG_DB=<name> targets another database; default nix)
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
-NIX_MIGRATOR_CONNECTION_STRING="Host=localhost;Port=5433;Database=nix;Username=nix_migrator;Password=nix-dev-migrator" \
+NIX_MIGRATOR_CONNECTION_STRING="Host=localhost;Port=5433;Database=${NIX_PG_DB:-nix};Username=nix_migrator;Password=nix-dev-migrator" \
   dotnet run --project "$repo_root/backend/src/Nix.Migrator"
