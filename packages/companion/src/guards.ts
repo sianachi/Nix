@@ -46,3 +46,9 @@ export function structureFingerprint(
   };
   return JSON.stringify(stable({ schema, views }));
 }
+
+/** Item kinds whose body is prose these tools can read and edit: notes, and artifacts, which
+ * keep their program in a note-shaped body. */
+export function hasProseBody(type: string): boolean {
+  return type === 'note' || type === 'artifact';
+}
