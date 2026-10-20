@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,9 @@ import type {
   View,
 } from '../../../views/core/container-model';
 import { ChecklistView, resolveDoneProperty } from '../../../views/checklist/checklist-view';
+import { ItemSelectionContext } from '../../../views/core/item-selection-context';
+import { useItemSelection } from '../../../views/core/use-item-selection';
+import { capabilitiesOf } from '../../../views/core/view-capabilities';
 
 function item(
   id: string,
@@ -60,11 +63,15 @@ interface HarnessOptions {
   readonly refuseCreate?: string;
   readonly onCreate?: (title: string) => void;
   readonly lines?: readonly Item[];
+  readonly onOpen?: (itemId: string) => void;
+  readonly selecting?: boolean;
 }
 
 /** A checklist over an in-memory container whose writes land optimistically, like `useContainer`. */
 function Harness(options: HarnessOptions): ReactNode {
   const [children, setChildren] = useState<readonly Item[]>(options.lines ?? LINES);
+  const selection = useItemSelection();
+  const [shown, setShown] = useState<readonly string[]>([]);
   const container = aContainer({
     schema: options.schema ?? schemaOf(DONE, WHERE),
     children,
@@ -88,12 +95,26 @@ function Harness(options: HarnessOptions): ReactNode {
       return null;
     },
   });
-  return (
+  const checklist = (
     <ChecklistView
       container={container}
       view={aView({ kind: 'checklist', columns: ['aisle'], ...options.view })}
-      onOpen={vi.fn()}
+      onOpen={options.onOpen ?? vi.fn()}
     />
+  );
+  if (!options.selecting) return checklist;
+  return (
+    <ItemSelectionContext
+      value={{
+        selected: selection.selected,
+        toggle: selection.toggle,
+        capabilities: capabilitiesOf('checklist'),
+        shown,
+        show: setShown,
+      }}
+    >
+      {checklist}
+    </ItemSelectionContext>
   );
 }
 
@@ -227,5 +248,77 @@ describe('ChecklistView', () => {
       expect(screen.queryByRole('checkbox', { name: 'Bread' })).not.toBeInTheDocument();
     });
     expect(screen.getByRole('checkbox', { name: 'Eggs' })).toHaveFocus();
+  });
+
+  it('ticks a line when its title text is clicked', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness />);
+
+    await user.click(screen.getByText('Bread'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Bread' })).toBeChecked();
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('2 of 3 done');
+  });
+
+  it('opens a line from its open button without ticking it', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    renderAt(<Harness onOpen={onOpen} />);
+
+    await user.click(screen.getByRole('button', { name: 'Open Bread' }));
+
+    expect(onOpen).toHaveBeenCalledWith('bread');
+    expect(screen.getByRole('checkbox', { name: 'Bread' })).not.toBeChecked();
+  });
+
+  it('shows no selection boxes until something is selected', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness selecting />);
+
+    expect(screen.queryByRole('checkbox', { name: 'Select Milk' })).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Open Milk' }), {
+      clientX: 10,
+      clientY: 10,
+    });
+    await user.click(screen.getByRole('menuitem', { name: 'Select' }));
+
+    expect(await screen.findByRole('checkbox', { name: 'Select Milk' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select Bread' })).toBeInTheDocument();
+  });
+
+  it('shows the Add button only while the field has text', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness />);
+
+    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Add a line' }), 'Jam');
+    expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
+  });
+
+  it('opens the menu on a long press without also ticking the line', () => {
+    vi.useFakeTimers();
+    try {
+      renderAt(<Harness />);
+      const title = screen.getByText('Bread');
+
+      fireEvent.pointerDown(title, {
+        pointerType: 'touch',
+        isPrimary: true,
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+      });
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(screen.getByRole('menuitem', { name: 'Mark as done' })).toBeInTheDocument();
+
+      fireEvent.click(title);
+      expect(screen.getByRole('checkbox', { name: 'Bread' })).not.toBeChecked();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

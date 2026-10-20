@@ -1,4 +1,5 @@
-import { Button, Checkbox, ContextMenu, Input, Text, cn, focusRing } from '@nix/ui';
+import { Button, Checkbox, ContextMenu, Icon, Input, Text, cn, focusRing } from '@nix/ui';
+import { ArrowUpRight, Plus } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { useItemOpenProps } from '../core/item-open-click';
@@ -18,8 +19,8 @@ import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
 
 /**
- * The checklist (plan 3.4): one line per child - a box, the title, and one optional property -
- * with the count done at the top and a field at the bottom for adding the next line.
+ * The checklist (plan 3.4): one line per child - a box and the title, either of which ticks it, then one optional property and a trailing button that opens the item -
+ * with the count done at the top and a field as the last line for adding the next.
  *
  * **The box is a property write, nothing else.** Ticking a line writes the checkbox the view
  * names, or - named nothing - a checkbox keyed `done`, or the schema's task completion. So a line
@@ -177,52 +178,52 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
 
       {items.length === 0 ? (
         <Text variant="bodySmall" tone="muted">
-          Nothing on this checklist yet. Add the first line below; each one is an item inside this
-          one.
+          Nothing on this checklist yet.
         </Text>
       ) : (
-        <ChecklistProgress done={doneCount} total={items.length} />
+        <div className="flex items-center justify-between gap-2">
+          <Text variant="bodySmall" tone="muted" as="p" role="status" aria-live="polite">
+            {`${String(doneCount)} of ${String(items.length)} done`}
+          </Text>
+          <Button
+            variant="ghost"
+            aria-pressed={hideDone}
+            onClick={() => {
+              setHideDone((current) => !current);
+            }}
+          >
+            Hide done
+          </Button>
+        </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2" hidden={items.length === 0}>
-        <Button
-          variant="ghost"
-          aria-pressed={hideDone}
-          onClick={() => {
-            setHideDone((current) => !current);
-          }}
-        >
-          Hide done
-        </Button>
-      </div>
-
-      {items.length === 0 ? null : shown.length === 0 ? (
+      {items.length > 0 && shown.length === 0 ? (
         <Text variant="bodySmall" tone="muted">
-          Every line is done. Turn off &quot;Hide done&quot; to see them.
+          All done.
         </Text>
-      ) : (
-        <ul aria-label={`${view.name} lines`} className="flex flex-col divide-y divide-divider">
-          {shown.map((item) => (
-            <ChecklistLine
-              key={item.id}
-              item={item}
-              done={isDone(item)}
-              boxRef={(element) => {
-                if (element === null) boxRefs.current.delete(item.id);
-                else boxRefs.current.set(item.id, element);
-              }}
-              secondary={secondary}
-              refusal={refusals.get(item.id) ?? null}
-              onTick={(checked) => {
-                tick(item, checked);
-              }}
-              onOpen={onOpen}
-            />
-          ))}
-        </ul>
-      )}
+      ) : null}
 
-      <AddLine onCreate={container.create} />
+      {/* Drawn even when empty, so the add field keeps its place in the tree across the first add. */}
+      <ul aria-label={`${view.name} lines`} className="flex flex-col divide-y divide-divider">
+        {shown.map((item) => (
+          <ChecklistLine
+            key={item.id}
+            item={item}
+            done={isDone(item)}
+            boxRef={(element) => {
+              if (element === null) boxRefs.current.delete(item.id);
+              else boxRefs.current.set(item.id, element);
+            }}
+            secondary={secondary}
+            refusal={refusals.get(item.id) ?? null}
+            onTick={(checked) => {
+              tick(item, checked);
+            }}
+            onOpen={onOpen}
+          />
+        ))}
+        <AddLine onCreate={container.create} />
+      </ul>
     </div>
   );
 }
@@ -251,33 +252,6 @@ function withoutKey(map: ReadonlyMap<string, string>, key: string): ReadonlyMap<
   return next;
 }
 
-/**
- * "7 of 12 done", with a bar. The sentence is the fact and the bar is decoration beside it, so the
- * bar is hidden from assistive technology rather than announced as a second progress value.
- */
-function ChecklistProgress({
-  done,
-  total,
-}: {
-  readonly done: number;
-  readonly total: number;
-}): ReactNode {
-  const share = total === 0 ? 0 : Math.round((done / total) * 100);
-  return (
-    <div className="flex flex-col gap-1">
-      <Text variant="bodySmall" as="p" role="status" aria-live="polite">
-        {`${String(done)} of ${String(total)} done`}
-      </Text>
-      <div aria-hidden="true" className="h-1 w-full overflow-hidden rounded-full bg-divider">
-        <div
-          className="h-full bg-accent-fill"
-          style={{ width: `${String(share)}%` }} // design-token-exempt: the share done is computed from the items at runtime and is not a design value
-        />
-      </div>
-    </div>
-  );
-}
-
 interface ChecklistLineProps {
   readonly item: Item;
   readonly done: boolean;
@@ -292,7 +266,9 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
   const { item, done, boxRef, secondary, refusal, onTick, onOpen } = props;
   const itemActions = useItemContextActions(onOpen);
   const openProps = useItemOpenProps(onOpen);
-  const isSelected = useOptionalItemSelection()?.selected.has(item.id) === true;
+  const selection = useOptionalItemSelection();
+  const isSelected = selection?.selected.has(item.id) === true;
+  const selecting = selection !== null && selection.selected.size > 0;
   const title = item.title.length > 0 ? item.title : 'Untitled';
   const detail = secondary === null ? '' : readPropertyText(item, secondary.key);
 
@@ -312,52 +288,62 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
       }
     >
       {(contextTarget) => (
-        <li
-          {...contextTarget}
-          className={cn('group flex flex-col gap-1 py-1', isSelected && 'bg-accent/10')}
-        >
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <SelectCheckbox item={item} />
-            {/* Named by the line's title: the box is what a person reaches for, and "Buy milk,
-                checkbox, not checked" is the sentence a screen reader should say about it. */}
-            <Checkbox
-              ref={boxRef}
-              aria-label={title}
-              checked={done}
-              onChange={(event) => {
-                onTick(event.target.checked);
-              }}
-            />
-            <button
-              type="button"
-              aria-label={`Open ${title}`}
-              {...openProps(item.id)}
-              className={cn(
-                'min-w-0 flex-1 text-left pointer-coarse:min-h-(--control-lg)',
-                focusRing,
-              )}
-            >
-              <Text
-                as="span"
-                variant="body"
-                tone={done ? 'muted' : 'default'}
-                className={done ? 'line-through' : ''}
+        <li {...contextTarget} className={cn('group flex flex-col', isSelected && 'bg-accent/10')}>
+          <div className="flex min-w-0 items-center gap-2">
+            {selecting ? <SelectCheckbox item={item} /> : null}
+            {/* Named by the line's title: "Buy milk, checkbox, not checked" is the sentence a screen
+                reader should say. The text beside it ticks too, with a click handler and not a
+                <label>: the context menu skips a press that starts on a label, so a label would
+                lose long-press on the largest target in the row. The box stays the keyboard path. */}
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <Checkbox
+                ref={boxRef}
+                aria-label={title}
+                checked={done}
+                onChange={(event) => {
+                  onTick(event.target.checked);
+                }}
+              />
+              {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- Justification: a pointer shortcut for the checkbox beside it, which stays the keyboard and screen-reader control. */}
+              <span
+                className="flex min-w-0 flex-1 cursor-default items-center py-0.5 any-pointer-coarse:min-h-(--control-lg)"
+                onClick={() => {
+                  onTick(!done);
+                }}
               >
-                {title}
-              </Text>
-            </button>
+                <Text
+                  as="span"
+                  variant="body"
+                  tone={done ? 'muted' : 'default'}
+                  className={cn('min-w-0 break-words', done && 'line-through')}
+                >
+                  {title}
+                </Text>
+              </span>
+            </div>
             {detail.length === 0 || secondary === null ? null : (
               <Text
                 as="span"
                 variant="caption"
                 tone="muted"
-                lines={2}
-                className="min-w-0 basis-full whitespace-pre-line sm:basis-auto sm:max-w-1/2"
+                lines={1}
+                className="min-w-0 max-w-1/3 truncate"
               >
                 <span className="sr-only">{secondary.label}: </span>
                 {detail}
               </Text>
             )}
+            <button
+              type="button"
+              aria-label={`Open ${title}`}
+              {...openProps(item.id)}
+              className={cn(
+                'inline-flex size-(--control-sm) shrink-0 items-center justify-center rounded-sm text-muted opacity-0 group-hover:opacity-100 focus-visible:opacity-100 any-pointer-coarse:size-(--control-lg) any-pointer-coarse:opacity-100',
+                focusRing,
+              )}
+            >
+              <Icon icon={ArrowUpRight} size="sm" />
+            </button>
           </div>
           {refusal === null ? null : (
             <Text as="p" variant="caption" tone="accent" role="alert">
@@ -402,27 +388,38 @@ function AddLine({
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <Input
-          ref={fieldRef}
-          aria-label="Add a line"
-          placeholder="Add a line"
-          value={title}
-          {...(refusal === null ? {} : { 'aria-describedby': refusalId })}
-          onChange={(event) => {
-            setTitle(event.target.value);
-          }}
-        />
-        <Button type="submit" variant="secondary">
-          Add
-        </Button>
-      </div>
-      {refusal === null ? null : (
-        <Text id={refusalId} as="p" variant="caption" tone="accent" role="alert">
-          {refusal}
-        </Text>
-      )}
-    </form>
+    <li>
+      <form onSubmit={submit} className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="inline-flex size-(--control-sm) shrink-0 items-center justify-center text-muted any-pointer-coarse:size-(--control-lg)"
+          >
+            <Icon icon={Plus} size="sm" />
+          </span>
+          <Input
+            ref={fieldRef}
+            aria-label="Add a line"
+            placeholder="Add a line"
+            enterKeyHint="enter"
+            value={title}
+            {...(refusal === null ? {} : { 'aria-describedby': refusalId })}
+            onChange={(event) => {
+              setTitle(event.target.value);
+            }}
+          />
+          {title.trim().length > 0 ? (
+            <Button type="submit" variant="ghost">
+              Add
+            </Button>
+          ) : null}
+        </div>
+        {refusal === null ? null : (
+          <Text id={refusalId} as="p" variant="caption" tone="accent" role="alert">
+            {refusal}
+          </Text>
+        )}
+      </form>
+    </li>
   );
 }
