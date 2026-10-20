@@ -5,6 +5,7 @@ import { useState, type ReactElement, type ReactNode } from 'react';
 
 import { DailyCaptureDialog } from '../daily-notes/daily-capture-dialog';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../components/states/status-panels';
+import { localTimeZone } from '../lib/date-format';
 import { useItemDialog } from '../items/item-dialog-context';
 import { paneScroller } from '../layout/regions';
 import { taskKey, useMyDay, type MyDayState } from '../my-day/use-my-day';
@@ -51,6 +52,15 @@ function coverageText(
     })
     .join(' ');
 }
+
+/** The server picks the day from the saved zone (UTC until one is saved); say so if the device disagrees. */
+function zoneDiffers(zone: string): boolean {
+  const own = localTimeZone();
+  return own !== zone && !(own === 'UTC' && zone === 'Etc/UTC');
+}
+
+/** Every leading control (checkbox or spacer) takes this box so titles share one left edge. */
+const leadingCell = 'size-(--control-sm) any-pointer-coarse:size-(--control-lg) shrink-0';
 
 function MyDayFrame({
   children,
@@ -115,6 +125,13 @@ export function MyDayPage(): ReactElement {
         <>
           <Text tone="muted">
             {day.taskDay} · {day.taskTimezone}
+            {zoneDiffers(day.taskTimezone) ? (
+              <>
+                {' '}
+                (this device is in {localTimeZone()}; change your time zone in Settings, then
+                Notifications)
+              </>
+            ) : null}
           </Text>
           {state.staleReason === null ? null : <PartialNotice pending={state.staleReason} />}
           <TasksSection day={day} state={state} open={open} />
@@ -222,6 +239,7 @@ function TaskItem({
 
 function HabitsSection({ day, state, open }: SectionProps): ReactElement {
   const { rows, coverage } = day.habits;
+  const showParent = new Set(rows.map((row) => row.containerTitle)).size > 1;
   const partial = coverage.kind === 'partial';
   return (
     <section aria-labelledby="my-day-habits" className="flex flex-col gap-2">
@@ -236,6 +254,7 @@ function HabitsSection({ day, state, open }: SectionProps): ReactElement {
             key={`${row.itemId}:${row.occurrence.date}`}
             row={row}
             taskDay={day.taskDay}
+            showParent={showParent}
             state={state}
             open={open}
           />
@@ -248,11 +267,13 @@ function HabitsSection({ day, state, open }: SectionProps): ReactElement {
 function HabitItem({
   row,
   taskDay,
+  showParent,
   state,
   open,
 }: {
   readonly row: MyDayHabitRow;
   readonly taskDay: string;
+  readonly showParent: boolean;
   readonly state: MyDayState;
   readonly open: (itemId: string) => void;
 }): ReactElement {
@@ -281,54 +302,55 @@ function HabitItem({
   const amountValid = quantity.trim() !== '' && Number.isFinite(amount) && amount >= 0;
 
   return (
-    <li className="flex flex-col gap-1">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        {counted ? null : (
-          <Checkbox
-            aria-label={`${title} done`}
-            checked={occurrence.completed}
-            disabled={pending}
-            onChange={(event) => {
-              act(
-                event.target.checked
-                  ? state.checkIn(row, { completed: true, quantity: null })
-                  : state.undoCheckIn(row),
-              );
-            }}
-          />
-        )}
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
-          <OpenButton itemId={row.itemId} title={title} open={open} />
-          <Source containerTitle={row.containerTitle} />
-          {occurrence.date === taskDay ? null : (
-            <Text as="span" variant="note" tone="muted">
-              {occurrence.date} in {row.timezone}
-            </Text>
-          )}
-        </div>
-        <Button
-          variant="icon"
-          aria-label={`Edit ${title}`}
-          disabled={pending}
-          onClick={() => {
-            setPending(true);
-            setRefusal(null);
-            void state
-              .readHabit(row)
-              .then((result) => {
-                if (typeof result === 'string') setRefusal(result);
-                else setEditing(result);
-              })
-              .finally(() => {
-                setPending(false);
-              });
-          }}
-        >
-          <Icon icon={Pencil} size="sm" />
-        </Button>
-      </div>
+    <li className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2">
       {counted ? (
-        <div className="flex items-center gap-2">
+        <span aria-hidden className={leadingCell} />
+      ) : (
+        <Checkbox
+          aria-label={`${title} done`}
+          checked={occurrence.completed}
+          disabled={pending}
+          onChange={(event) => {
+            act(
+              event.target.checked
+                ? state.checkIn(row, { completed: true, quantity: null })
+                : state.undoCheckIn(row),
+            );
+          }}
+        />
+      )}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+        <OpenButton itemId={row.itemId} title={title} open={open} />
+        {showParent ? <Source containerTitle={row.containerTitle} /> : null}
+        {occurrence.date === taskDay ? null : (
+          <Text as="span" variant="note" tone="muted">
+            {occurrence.date} in {row.timezone}
+          </Text>
+        )}
+      </div>
+      <button
+        type="button"
+        aria-label={`Edit ${title}`}
+        disabled={pending}
+        className={`inline-flex ${leadingCell} items-center justify-center text-muted hover:text-foreground disabled:opacity-45 ${focusRing}`}
+        onClick={() => {
+          setPending(true);
+          setRefusal(null);
+          void state
+            .readHabit(row)
+            .then((result) => {
+              if (typeof result === 'string') setRefusal(result);
+              else setEditing(result);
+            })
+            .finally(() => {
+              setPending(false);
+            });
+        }}
+      >
+        <Icon icon={Pencil} size="sm" />
+      </button>
+      {counted ? (
+        <div className="col-start-2 col-end-4 flex items-center gap-2">
           <Input
             type="number"
             min={0}
@@ -366,7 +388,7 @@ function HabitItem({
         </div>
       ) : null}
       {refusal === null ? null : (
-        <Text role="alert" variant="note" tone="accent">
+        <Text role="alert" variant="note" tone="accent" className="col-start-2 col-end-4">
           {refusal}
         </Text>
       )}

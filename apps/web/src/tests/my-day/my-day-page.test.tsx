@@ -23,6 +23,11 @@ vi.mock('../../my-day/use-my-day', async (importOriginal) => ({
 vi.mock('../../workspaces/workspace-context', () => ({
   useWorkspace: () => ({ workspaceId: WORKSPACE, workspace: { canUseDailyNotes } }),
 }));
+let deviceZone = 'UTC';
+vi.mock('../../lib/date-format', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  localTimeZone: () => deviceZone,
+}));
 vi.mock('../../tabs/use-open-item', () => ({
   useOpenItem: () => ({ openPreview, openPinned: vi.fn() }),
 }));
@@ -116,6 +121,7 @@ function ready(value: MyDay, extra: Partial<MyDayState> = {}): void {
 beforeEach(() => {
   vi.clearAllMocks();
   canUseDailyNotes = true;
+  deviceZone = 'UTC';
   completeTask.mockResolvedValue(null);
   checkIn.mockResolvedValue(null);
   undoCheckIn.mockResolvedValue(null);
@@ -171,6 +177,47 @@ describe('editing a habit from its row', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be read');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('the day and zone header', () => {
+  it('says so when the device zone differs from the zone the server used', () => {
+    deviceZone = 'Europe/London';
+    ready(day());
+    render(<MyDayPage />);
+    expect(screen.getByText(/2026-10-16 · UTC/)).toHaveTextContent(
+      'this device is in Europe/London',
+    );
+  });
+
+  it('stays quiet when they agree', () => {
+    ready(day());
+    render(<MyDayPage />);
+    expect(screen.queryByText(/this device is in/)).not.toBeInTheDocument();
+  });
+});
+
+describe('habit rows', () => {
+  const same = { date: '2026-10-16' };
+  const named = (title: string, parent: string | null): MyDayHabitRow => ({
+    ...habit(same),
+    itemId: `${title.padEnd(8, '0')}-0000-4000-8000-000000000000`,
+    title,
+    containerTitle: parent,
+    timezone: 'UTC',
+  });
+
+  it('names a parent only when habits come from more than one, and repeats no zone', () => {
+    ready(day({ rows: [] }, [named('Walk', 'Health'), named('Read', 'Study')]));
+    const { unmount } = render(<MyDayPage />);
+    expect(screen.getByText('in Health')).toBeInTheDocument();
+    expect(screen.getByText('in Study')).toBeInTheDocument();
+    expect(screen.queryByText(/ in UTC/)).not.toBeInTheDocument();
+    unmount();
+
+    ready(day({ rows: [] }, [named('Walk', 'Health'), named('Read', 'Health')]));
+    render(<MyDayPage />);
+    expect(screen.queryByText('in Health')).not.toBeInTheDocument();
   });
 });
 
