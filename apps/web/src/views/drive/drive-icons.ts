@@ -1,4 +1,4 @@
-import { File, FileText, Folder, PenTool, Sheet, type LucideIcon } from 'lucide-react';
+import { Blocks, File, FileText, Folder, PenTool, Sheet, type LucideIcon } from 'lucide-react';
 
 import type { Item } from '../core/container-model';
 
@@ -21,6 +21,8 @@ export function driveKindIcon(item: Item): LucideIcon {
       return Sheet;
     case 'canvas':
       return PenTool;
+    case 'artifact':
+      return Blocks;
     case 'note':
       return FileText;
     default:
@@ -45,6 +47,8 @@ export function driveBodyKindLabel(type: string): string {
       return 'Canvas';
     case 'spreadsheet':
       return 'Spreadsheet';
+    case 'artifact':
+      return 'Artifact';
     case 'file':
       return 'File';
     default:

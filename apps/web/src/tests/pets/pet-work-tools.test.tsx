@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { petConnectionSchema, type NixClient } from '@nix/api-client';
@@ -14,16 +14,30 @@ import { markdownToDocument } from '@nix/markdown';
 import * as actionReceipts from '../../pets/action-receipts';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn(), invalidate: vi.fn() }));
-vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
+vi.mock('../../api/api-client-provider', () => ({
+  useApiClient: () => client,
+  useOptionalApiClient: () => client,
+}));
 // The executor's own behaviour is covered by packages/companion/src/run.test.ts; here it
 // runs for real against the mocked Nix client above, wrapped in a spy so a test can assert
 // the card forwards this request's toolId and claimId into the run options.
 const runWorkspaceToolSpy = vi.hoisted(() => vi.fn());
+// The real executor, restored before every test: `vi.clearAllMocks` keeps an implementation a
+// test replaced (`mockResolvedValue`), and that canned result would otherwise answer later tests.
+const realRun: { current: typeof Companion.runWorkspaceTool } = vi.hoisted(() => ({
+  current: () => {
+    throw new Error('The real executor has not loaded yet.');
+  },
+}));
+function useRealRun() {
+  runWorkspaceToolSpy.mockImplementation((...args: Parameters<typeof Companion.runWorkspaceTool>) =>
+    realRun.current(...args),
+  );
+}
 vi.mock('@nix/companion', async () => {
   const actual = await vi.importActual<typeof Companion>('@nix/companion');
-  runWorkspaceToolSpy.mockImplementation((...args: Parameters<typeof actual.runWorkspaceTool>) =>
-    actual.runWorkspaceTool(...args),
-  );
+  realRun.current = actual.runWorkspaceTool;
+  useRealRun();
   return { ...actual, runWorkspaceTool: runWorkspaceToolSpy };
 });
 const runtime = petConnectionSchema.parse({
@@ -75,6 +89,7 @@ function requestOperations(): string[] {
 describe('companion work approvals', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useRealRun();
     sessionStorage.clear();
   });
   it('passes the complete approved source fingerprint for template saving', async () => {
@@ -2307,6 +2322,68 @@ describe('companion work approvals', () => {
         expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
       });
       expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+    });
+  });
+  describe('editing a request before approving', () => {
+    function claimEachCall() {
+      client.execute.mockImplementation(
+        (endpoint: { body: { operation: string; requestId: string } }) =>
+          Promise.resolve({
+            ...runtime,
+            tools: (runtime.tools ?? []).map((tool) => ({
+              ...tool,
+              status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+              claimId: endpoint.body.requestId,
+            })),
+          }),
+      );
+    }
+
+    it('runs the owner’s edit, previewed again, and tells the pet what changed', async () => {
+      claimEachCall();
+      runWorkspaceToolSpy.mockResolvedValueOnce({
+        text: 'created',
+        readOnly: false,
+        touchedParents: [],
+      });
+      show();
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit before approving' }));
+      const title = await screen.findByLabelText(/^Title/);
+      expect(title).toHaveValue('Plan');
+      fireEvent.change(title, { target: { value: 'Launch plan' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Use these values' }));
+      expect(await screen.findByText(/You edited this request/)).toBeInTheDocument();
+      await approveRequest();
+      await waitFor(() => {
+        expect(runWorkspaceToolSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(JSON.parse(runWorkspaceToolSpy.mock.calls[0]?.[2] as string)).toMatchObject({
+        operation: 'create_note',
+        title: 'Launch plan',
+      });
+      await waitFor(() => {
+        expect(client.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            body: expect.objectContaining({
+              operation: 'tool_result',
+              toolResult:
+                'The owner edited this request before approving; it ran with: Title "Launch plan".\ncreated',
+            }) as unknown,
+          }),
+          expect.anything(),
+        );
+      });
+    });
+
+    it('keeps an edit that breaks a rule from replacing the request', async () => {
+      claimEachCall();
+      show();
+      await userEvent.click(await screen.findByRole('button', { name: 'Edit before approving' }));
+      fireEvent.change(await screen.findByLabelText(/^Title/), { target: { value: '' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Use these values' }));
+      expect(await screen.findByText('This field is required')).toBeInTheDocument();
+      expect(screen.queryByText(/You edited this request/)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Approve request' })).toBeDisabled();
     });
   });
 });

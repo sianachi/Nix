@@ -20,7 +20,7 @@ import { applyTemplate } from './templates/apply.js';
 import { listTemplates } from './templates/list.js';
 import { readTemplate } from './templates/read.js';
 import { bodyEditOf, loadPreviewContext } from './context.js';
-import { checkItem, type StructureFingerprint } from './guards.js';
+import { checkItem, hasProseBody, type StructureFingerprint } from './guards.js';
 import { readStructure } from './structure/read-structure.js';
 import { readView } from './structure/read-view.js';
 import { boundedStructureRead } from './structure/read-output.js';
@@ -526,7 +526,8 @@ export async function runWorkspaceTool(
         }
         case 'read_note':
         case 'append_note':
-          if (item.type !== 'note') throw new Error('This operation supports note bodies only.');
+          if (!hasProseBody(item.type))
+            throw new Error('This operation supports note bodies only.');
           result =
             args.operation === 'read_note'
               ? await bodies.read(item.id, signal)
@@ -535,7 +536,7 @@ export async function runWorkspaceTool(
           break;
         case 'replace_section':
         case 'replace_passage': {
-          if (item.type !== 'note')
+          if (!hasProseBody(item.type))
             throw new WorkspaceToolRefusal(
               'Only a note body can be edited. No change was made.',
               'Only a note’s text can be edited this way, so nothing was edited.',

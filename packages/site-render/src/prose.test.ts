@@ -87,6 +87,29 @@ describe('renderProse', () => {
     expect(loss.map((entry) => entry.kind)).toContain('image-not-embedded');
   });
 
+  it('publishes a notice instead of a generated-UI program', () => {
+    const { html, loss } = render({
+      type: 'codeBlock',
+      attrs: { language: 'openui-lang' },
+      content: [text('root = Stack([secret])')],
+    });
+    expect(html).toContain('An interactive component is not published.');
+    expect(html).not.toContain('root = Stack');
+    expect(loss.map((entry) => entry.kind)).toEqual(['body-not-rendered']);
+    const patch = render({
+      type: 'codeBlock',
+      attrs: { language: 'openui-lang patch' },
+      content: [text('title = Text("x")')],
+    });
+    expect(patch.html).toContain('An interactive component is not published.');
+    const values = render({
+      type: 'codeBlock',
+      attrs: { language: 'openui-state' },
+      content: [text('{"$secret":"kept"}')],
+    });
+    expect(values.html).not.toContain('kept');
+  });
+
   it('renders a fence named after an Object property as escaped text', () => {
     for (const language of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
       const { html } = render({

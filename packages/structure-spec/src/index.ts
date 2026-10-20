@@ -67,6 +67,7 @@ export {
   VIEW_KIND_RULES,
   WORKSPACE_OPERATIONS,
 } from './catalog/index.js';
+export { flattenToolExample as flattenToolCall } from './catalog/tool-examples.js';
 export type {
   Catalog,
   CatalogLimits,

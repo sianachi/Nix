@@ -124,11 +124,13 @@ export interface FlatWorkspaceToolArgs {
  * `templateId` maps to `itemId`; `heading` and `find` map to `query` and `replace` to `markdown`
  * (the body edits); `properties` marshals to `propertiesJson`; `spec` and `blueprint` both
  * marshal to `specJson`; the scalar `SPEC_FIELD_PARAMETERS` gather into one `specJson` object;
- * every other flat field defaults to `""`. Used only by
- * `tools.test.ts`'s and `@nix/companion`'s round-trip tests (and by `scripts/build-catalog.ts`,
- * which writes its output next to `TOOL_EXAMPLES` in the generated `tool-examples.json` so the Go
- * worker's own flattening test reads the identical expectation) - never by runtime code, since the
- * worker keeps doing this translation itself.
+ * every other flat field defaults to `""`. Used by
+ * `tools.test.ts`'s and `@nix/companion`'s round-trip tests, by `scripts/build-catalog.ts` (which
+ * writes its output next to `TOOL_EXAMPLES` in the generated `tool-examples.json` so the Go
+ * worker's own flattening test reads the identical expectation), and at runtime as
+ * `flattenToolCall` for a generated component's `Mutation("<operation>", {...})`, which takes the
+ * same typed parameters as the pet's `nix_<operation>` tool. Pet tool calls are still flattened by
+ * the worker itself.
  */
 export function flattenToolExample(
   operation: WorkspaceOperation,
