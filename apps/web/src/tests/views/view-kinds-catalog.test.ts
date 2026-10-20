@@ -5,7 +5,8 @@ import { VIEW_KINDS } from '../../views/core/view-kinds';
 
 /**
  * The pet's capability catalog offers every view kind except `drive` and `finance` (studio-only
- * surfaces the pet may never build - `packages/structure-spec/src/catalog/tables.ts`). This test
+ * surfaces the pet may never build) and `custom` (a program the owner writes; pet authoring is a
+ * follow-up - `packages/structure-spec/src/catalog/tables.ts`). This test
  * ties the catalog's view kinds back to the web wizard's own `VIEW_KINDS`, so a kind added to one
  * and forgotten in the other fails a test instead of drifting: the pet either offers a kind the
  * app cannot render, or never learns about one the app just grew.
@@ -17,7 +18,7 @@ describe('the capability catalog agrees with VIEW_KINDS', () => {
 
     const webKinds = new Set(
       VIEW_KINDS.map((descriptor) => descriptor.kind).filter(
-        (kind) => kind !== 'drive' && kind !== 'finance',
+        (kind) => kind !== 'drive' && kind !== 'finance' && kind !== 'custom',
       ),
     );
 

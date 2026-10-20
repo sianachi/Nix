@@ -130,6 +130,7 @@ export const viewConfigurationSchema = z.object({
   layout: nullableText,
   doneProperty: nullableText,
   rowBy: nullableText,
+  program: nullableText,
   chart: z
     .object({
       kind: nullableText,

@@ -21,6 +21,7 @@ import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
 
 import { escapeHtml } from './escape.js';
+import { openuiLang } from './openui-lang.js';
 
 /**
  * Build-time code highlighting.
@@ -45,6 +46,7 @@ const LANGUAGES = {
   javascript,
   json,
   markdown,
+  'openui-lang': openuiLang,
   python,
   rust,
   shell,

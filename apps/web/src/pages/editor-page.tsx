@@ -887,8 +887,7 @@ export function OpenItem({
     </div>
   );
 
-  // The prose editor, for notes and every kind this build has not heard of, and for an
-  // artifact's source.
+  // The prose editor, for notes and every kind this build has not heard of.
   const proseEditor = (
     <NoteEditor
       itemId={itemId}
@@ -1044,7 +1043,7 @@ export function OpenItem({
                 itemControls={editorHostsControls ? mobileItemControls : undefined}
               />
             ) : bodyKind === 'artifact' ? (
-              // An artifact's body is prose holding one program: drawn live, edited as a note.
+              // An artifact's body holds one program: drawn live, with its own program editor.
               <Suspense
                 fallback={
                   <span role="status" className="sr-only">
@@ -1052,7 +1051,7 @@ export function OpenItem({
                   </span>
                 }
               >
-                <ArtifactView itemId={itemId} source={proseEditor} />
+                <ArtifactView itemId={itemId} editable />
               </Suspense>
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule

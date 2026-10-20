@@ -112,6 +112,31 @@ describe('an artifact', () => {
     );
   });
 
+  it('edits only the program passage from Edit source, leaving the values block alone', async () => {
+    bodies.read.mockResolvedValue({
+      markdown: `Intro\n\n${fenced(counter)}\n${fencedState('{"$count":3}')}`,
+    });
+    bodies.planEdit.mockResolvedValue({ fingerprint: 'body-2' });
+    bodies.applyEdit.mockResolvedValue({});
+    render(
+      <MemoryRouter>
+        <ArtifactView itemId={artifactId} editable />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit source' }));
+    const next = 'root = Stack([t])\nt = Text("Edited")';
+    fireEvent.change(screen.getByLabelText('Program'), { target: { value: next } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save source' }));
+    await waitFor(() => {
+      expect(bodies.applyEdit).toHaveBeenCalledTimes(1);
+    });
+    const edit = { kind: 'passage', find: `${counter}\n`, replace: `${next}\n` };
+    expect(bodies.planEdit).toHaveBeenCalledWith(artifactId, edit, expect.anything());
+    expect(bodies.applyEdit).toHaveBeenCalledWith(artifactId, edit, 'body-2', expect.anything());
+    expect(edit.find).not.toContain('openui-state');
+    expect(bodies.append).not.toHaveBeenCalled();
+  });
+
   it('keeps working for a viewer who cannot save, and says so', async () => {
     bodies.append.mockRejectedValue(new Error('forbidden'));
     open();

@@ -120,6 +120,7 @@ public static class ViewDefinitionsJson
     private const string OpenKey = "open";
     private const string DonePropertyKey = "doneProperty";
     private const string RowByKey = "rowBy";
+    private const string ProgramKey = "program";
     private const string MeasureKey = "measure";
     private const string MeasurePropertyKey = "measureProperty";
     private const string ModeKey = "mode";
@@ -308,6 +309,11 @@ public static class ViewDefinitionsJson
             if (view.RowBy is not null)
             {
                 entry[RowByKey] = view.RowBy;
+            }
+
+            if (view.Program is not null)
+            {
+                entry[ProgramKey] = view.Program;
             }
 
             if (view.SortBy is not null)
@@ -499,7 +505,8 @@ public static class ViewDefinitionsJson
             ReadString(view[DonePropertyKey]),
             ReadString(view[RowByKey]),
             ChartOptionsJson.Read(view[ChartOptionsJson.Key]),
-            ReadOpen(view[OpenKey])));
+            ReadOpen(view[OpenKey]),
+            ReadString(view[ProgramKey])));
     }
 
     /// <summary>

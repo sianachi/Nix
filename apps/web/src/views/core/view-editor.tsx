@@ -1,8 +1,11 @@
 import { Button, Field, Icon, Select, Text } from '@nix/ui';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
+import { STARTER_PROGRAM } from '../../openui/starter-program';
+import { useOptionalWorkspace } from '../../workspaces/workspace-context';
+import { uniqueIdentifier } from '../wizard/creation-studio-model';
 import { STRUCTURED_RECIPES } from '../wizard/structured-recipes';
 import type { View } from './container-model';
 import { EditorShell } from './editor-shell';
@@ -10,6 +13,33 @@ import type { ContainerData } from './use-container';
 import { viewConfigureHref } from './view-configure-route';
 import { OpensAsSection } from './opens-as-section';
 import { findViewKind } from './view-kinds';
+
+// The program editor carries the OpenUI renderer, so it loads only when one is opened.
+const ProgramEditor = lazy(() =>
+  import('../../openui/program-editor').then((module) => ({ default: module.ProgramEditor })),
+);
+
+/** A custom view with the starter program, which lists the collection's children. */
+function newCustomView(taken: ReadonlySet<string>): View {
+  return {
+    id: uniqueIdentifier('custom', taken),
+    name: 'Custom',
+    kind: 'custom',
+    columns: [],
+    groupBy: null,
+    groupOrder: [],
+    dateProperty: null,
+    sortBy: null,
+    sortDescending: false,
+    mode: null,
+    coverProperty: null,
+    endDateProperty: null,
+    cardSize: null,
+    layout: null,
+    filters: [],
+    program: STARTER_PROGRAM,
+  };
+}
 
 /**
  * Adding and configuring the ways a folder can be looked at.
@@ -44,6 +74,8 @@ export function ViewEditor({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [programOf, setProgramOf] = useState<string | null>(null);
+  const workspaceId = useOptionalWorkspace()?.workspaceId ?? '';
   const navigate = useNavigate();
 
   const [openedWith, setOpenedWith] = useState(open);
@@ -157,6 +189,17 @@ export function ViewEditor({
                 Configure
               </Button>
 
+              {view.kind === 'custom' ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setProgramOf(programOf === view.id ? null : view.id);
+                  }}
+                >
+                  {programOf === view.id ? 'Close program' : 'Edit program'}
+                </Button>
+              ) : null}
+
               <Button
                 variant="icon"
                 aria-label={`Move ${view.name} earlier`}
@@ -201,6 +244,23 @@ export function ViewEditor({
                 <Icon icon={Trash2} size="sm" />
               </Button>
             </div>
+            {view.kind === 'custom' && programOf === view.id ? (
+              <Suspense fallback={<Text role="status">Loading the editor…</Text>}>
+                <ProgramEditor
+                  value={view.program ?? ''}
+                  workspaceId={workspaceId}
+                  label={`Program for ${view.name}`}
+                  containerId={container.itemId}
+                  onChange={(program) => {
+                    setDraft((current) =>
+                      current.map((candidate) =>
+                        candidate.id === view.id ? { ...candidate, program } : candidate,
+                      ),
+                    );
+                  }}
+                />
+              </Suspense>
+            ) : null}
           </div>
         ))}
 
@@ -221,6 +281,13 @@ export function ViewEditor({
                 value=""
                 disabled={container.itemId === null}
                 onChange={(event) => {
+                  if (event.target.value === 'custom') {
+                    const view = newCustomView(new Set(draft.map((candidate) => candidate.id)));
+                    setDraft([...draft, view]);
+                    setProgramOf(view.id);
+                    setAdding(false);
+                    return;
+                  }
                   const recipe = STRUCTURED_RECIPES.find(
                     (entry) => entry.id === event.target.value,
                   );
@@ -230,6 +297,7 @@ export function ViewEditor({
                 }}
               >
                 <option value="">Choose a view type</option>
+                <option value="custom">Custom (a program)</option>
                 {STRUCTURED_RECIPES.filter(
                   (recipe, index, all) =>
                     all.findIndex((candidate) => candidate.viewKind === recipe.viewKind) === index,

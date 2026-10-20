@@ -50,6 +50,8 @@ export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
   form: NONE,
   interactive_form: NONE,
   finance: NONE,
+  // A program draws its own parts; the view offers no row actions around them.
+  custom: NONE,
 };
 
 export const DRAG_EFFECT_COPY: Readonly<Record<DragEffect, string>> = {

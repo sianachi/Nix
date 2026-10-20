@@ -3,8 +3,9 @@ import { Button, Skeleton, Text } from '@nix/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
-import { fencedState, programIn, stateIn, storableState } from './fence';
+import { fenced, fencedState, programIn, stateIn, storableState } from './fence';
 import OpenUiBlock from './openui-block';
+import { ProgramEditor } from './program-editor';
 
 type Saved = ReturnType<typeof stateIn>;
 
@@ -22,20 +23,22 @@ type Loaded =
 /**
  * An artifact item drawn live: the first `openui-lang` program in its body, scoped to the
  * artifact's own workspace, starting from the values saved beside it in the same body (an
- * `openui-state` block), so everyone who opens it sees the same values and a lock covers them. "Edit source" shows the body in the normal note editor (`source`), which is how
- * the program itself is changed, by hand or by the pet's body-edit tools.
+ * `openui-state` block), so everyone who opens it sees the same values and a lock covers them.
+ * "Edit source" (`editable`) opens the program editor, which replaces only the program's passage
+ * of the body; the values block is never touched. The pet changes it with its body-edit tools.
  */
 export default function ArtifactView({
   itemId,
-  source,
+  editable = false,
 }: {
   readonly itemId: string;
-  /** The note editor over the same body, shown while editing the source. */
-  readonly source?: ReactNode;
+  /** Offers "Edit source", which saves through the same body-edit path as the saved values. */
+  readonly editable?: boolean;
 }): ReactNode {
   const client = useApiClient();
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' });
   const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
   // Changed values, kept here until the viewer chooses to share them (security fix M1).
   const [unsaved, setUnsaved] = useState<string | null>(null);
@@ -106,26 +109,49 @@ export default function ArtifactView({
     }
   }
 
-  const toggle = source ? (
+  async function saveProgram(program: string) {
+    if (loaded.status !== 'ready') return;
+    setSaving(true);
+    try {
+      const { createCompanionBodies } = await import('@nix/companion');
+      const bodies = createCompanionBodies(client);
+      const signal = new AbortController().signal;
+      if (loaded.program === null) await bodies.append(itemId, fenced(program), signal);
+      else {
+        // The program is the whole text of its own code block, so a passage edit replaces exactly
+        // it; the values block and everything else in the body stay as they are.
+        const edit = {
+          kind: 'passage' as const,
+          find: loaded.program,
+          replace: `${program.trimEnd()}\n`,
+        };
+        const plan = await bodies.planEdit(itemId, edit, signal);
+        await bodies.applyEdit(itemId, edit, plan.fingerprint, signal);
+      }
+      setNotice('');
+      setEditing(false);
+    } catch {
+      setNotice("This program can't be saved here: you can use this artifact but not edit it.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const toggle = editable ? (
     <div>
       <Button
         variant="ghost"
         onClick={() => {
+          if (!editing && loaded.status === 'ready') setDraft(loaded.program ?? '');
+          setNotice('');
           setEditing(!editing);
         }}
       >
-        {editing ? 'Done editing' : 'Edit source'}
+        {editing ? 'Cancel' : 'Edit source'}
       </Button>
     </div>
   ) : null;
 
-  if (editing)
-    return (
-      <div className="flex min-h-0 flex-1 flex-col gap-2">
-        {toggle}
-        {source}
-      </div>
-    );
   if (loaded.status === 'loading')
     return (
       <div className="p-4">
@@ -140,6 +166,34 @@ export default function ArtifactView({
       <Text role="alert" className="p-4">
         This artifact could not be loaded.
       </Text>
+    );
+  if (editing)
+    return (
+      <div className="flex min-w-0 flex-col gap-2 p-4">
+        <ProgramEditor
+          value={draft}
+          onChange={setDraft}
+          workspaceId={loaded.item.workspaceId}
+          label="Program"
+        />
+        {notice ? (
+          <Text variant="note" role="alert">
+            {notice}
+          </Text>
+        ) : null}
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            disabled={saving || draft.trim() === ''}
+            onClick={() => {
+              void saveProgram(draft);
+            }}
+          >
+            Save source
+          </Button>
+          {toggle}
+        </div>
+      </div>
     );
   return (
     <div className="flex min-w-0 flex-col gap-2 p-4">

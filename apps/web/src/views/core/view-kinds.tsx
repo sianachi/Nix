@@ -1,6 +1,7 @@
 import {
   ChartColumnBig,
   ClipboardList,
+  Code2,
   ListChecks,
   Grid2x2,
   ListTree,
@@ -17,7 +18,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 
 import { Text } from '@nix/ui';
 import { useWorkspace } from '../../workspaces/workspace-context';
@@ -54,6 +55,9 @@ import { TimelineView } from '../timeline/timeline-view';
 import { HabitTrackerView } from '../habit-tracker/habit-tracker-view';
 import { FinanceView } from '../finance/finance-view';
 import type { ContainerData } from './use-container';
+
+// The OpenUI renderer is its own chunk, loaded only when a custom view is opened.
+const CustomView = lazy(() => import('../../openui/custom-view'));
 
 /**
  * Every kind of view this build can draw, and everything it knows about each one.
@@ -697,6 +701,20 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     icon: ListTree,
     render: (props) => (
       <OutlineView key={`${props.container.itemId ?? 'root'}:${props.view.id}`} {...props} />
+    ),
+    configures: [],
+    chooses: [],
+  },
+  {
+    // A program stored in the view and drawn by the browser (ADR-0066). Its own editing lives in
+    // the view editor, and exports and published sites fall back to a list: they never run it.
+    kind: 'custom',
+    label: 'Custom',
+    icon: Code2,
+    render: (props) => (
+      <Suspense fallback={<Text role="status">Loading the view…</Text>}>
+        <CustomView key={`${props.container.itemId ?? 'root'}:${props.view.id}`} {...props} />
+      </Suspense>
     ),
     configures: [],
     chooses: [],

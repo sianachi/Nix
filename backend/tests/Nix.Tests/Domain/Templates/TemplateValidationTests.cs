@@ -147,6 +147,18 @@ public sealed class TemplateValidationTests
     }
 
     [Fact]
+    public void A_custom_view_needs_nothing_from_the_schema_and_keeps_its_program_in_the_stored_json()
+    {
+        var custom = new ViewDefinition("a", "Mine", ViewKind.Custom, [], null, [], null, null, false, Filters: [], Program: "root = Stack([])");
+
+        Assert.Null(new TemplateDefinitionValidator().ValidateViewDependencies(
+            PropertySchema.Empty,
+            new StoredViews([custom], null)));
+        var copied = ViewDefinitionsJson.Read(ViewDefinitionsJson.Write([custom])).Views;
+        Assert.Equal("root = Stack([])", Assert.Single(copied).Program);
+    }
+
+    [Fact]
     public void A_board_by_a_checkbox_and_a_matrix_with_free_text_rows_fail_strict_validation()
     {
         var schema = new PropertySchema

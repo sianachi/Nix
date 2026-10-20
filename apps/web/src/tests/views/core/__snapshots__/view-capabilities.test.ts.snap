@@ -19,5 +19,6 @@ exports[`view capabilities > matches the documented capability matrix 1`] = `
   "| form | no | no | no | no | none |",
   "| interactive_form | no | no | no | no | none |",
   "| finance | no | no | no | no | none |",
+  "| custom | no | no | no | no | none |",
 ]
 `;

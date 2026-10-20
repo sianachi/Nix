@@ -41,4 +41,27 @@ describe('toViewRequest', () => {
     void _chart;
     expect(toViewRequest(unconfigured).chart).toBeNull();
   });
+
+  it('keeps a custom view program when the pet rewrites the view set', () => {
+    const view: StructureView = {
+      id: 'mine',
+      name: 'Mine',
+      kind: 'custom',
+      columns: [],
+      groupBy: null,
+      groupOrder: [],
+      dateProperty: null,
+      sortBy: null,
+      sortDescending: false,
+      mode: null,
+      coverProperty: null,
+      endDateProperty: null,
+      cardSize: null,
+      layout: null,
+      filters: [],
+      program: 'root = Stack([])',
+    };
+
+    expect(toViewRequest(view).program).toBe('root = Stack([])');
+  });
 });

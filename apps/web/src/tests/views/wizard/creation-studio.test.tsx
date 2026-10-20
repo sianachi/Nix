@@ -255,6 +255,7 @@ describe('the guided creation studio', () => {
       aggregates: [],
       doneProperty: null,
       rowBy: null,
+      program: null,
       chart: null,
       open: null,
     };

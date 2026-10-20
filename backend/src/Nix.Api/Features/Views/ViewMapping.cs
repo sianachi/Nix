@@ -49,7 +49,8 @@ internal static class ViewMapping
             view.DoneProperty,
             view.RowBy,
             ToContract(view.Chart),
-            view.Open);
+            view.Open,
+            view.Program);
     }
 
     /// <summary>
@@ -136,7 +137,8 @@ internal static class ViewMapping
                     view.DoneProperty,
                     view.RowBy,
                     ToDomain(view.Chart),
-                    view.Open)));
+                    view.Open,
+                    view.Program)));
         }
 
         views = mapped.ToImmutable();

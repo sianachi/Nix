@@ -214,6 +214,19 @@ public sealed class ViewDefinitionsJsonTests
     }
 
     [Fact]
+    public void A_custom_view_stores_its_program_and_reads_it_back()
+    {
+        var custom = new ViewDefinition(
+            "v1", "Mine", ViewKind.Custom, [], null, [], null, null, false, Program: "root = Text(\"hi\")");
+
+        var json = ViewDefinitionsJson.Write([custom])!;
+
+        Assert.Equal("root = Text(\"hi\")", Assert.Single(ReadViews(json)).Program);
+        Assert.Contains("\"kind\":\"custom\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("program", ViewDefinitionsJson.Write([custom with { Program = null }])!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_timeline_that_names_no_end_date_property_is_read_and_kept()
     {
         // Every item on it is a milestone, which is a shape the view draws rather than a

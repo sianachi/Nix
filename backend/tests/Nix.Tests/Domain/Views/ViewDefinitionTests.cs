@@ -46,6 +46,7 @@ public sealed class ViewDefinitionTests
     [InlineData(ViewKind.Matrix, "matrix")]
     [InlineData(ViewKind.Outline, "outline")]
     [InlineData(ViewKind.Chat, "chat")]
+    [InlineData(ViewKind.Custom, "custom")]
     public void A_kind_is_stored_under_the_name_the_contract_publishes(ViewKind kind, string name)
     {
         Assert.Equal(name, ViewKinds.ToText(kind));
@@ -235,6 +236,21 @@ public sealed class ViewDefinitionTests
             "'Matrix': a matrix needs a property for its columns.",
             ViewDefinitionRules.Refuse([Matrix(columns: null, rows: "important")], null));
         Assert.Null(ViewDefinitionRules.Refuse([Matrix(columns: "urgency", rows: "important")], null));
+    }
+
+    [Fact]
+    public void A_custom_view_needs_nothing_from_the_schema_and_its_program_has_a_byte_cap()
+    {
+        var custom = new ViewDefinition("v1", "Mine", ViewKind.Custom, [], null, [], null, null, false, Program: "root = Text(\"hi\")");
+
+        Assert.True(custom.CanRender(PropertySchema.Empty));
+        Assert.Null(ViewDefinitionRules.Refuse([custom], null));
+        // 'é' is two bytes, so this is over the cap in bytes while under it in characters.
+        var tooBig = custom with { Program = new string('é', ViewDefinitionRules.ProgramLimit / 2 + 1) };
+        Assert.Equal(
+            "'Mine': a custom view's program can be at most 32 KB.",
+            ViewDefinitionRules.Refuse([tooBig], null));
+        Assert.Null(ViewDefinitionRules.Refuse([custom with { Program = new string('é', ViewDefinitionRules.ProgramLimit / 2) }], null));
     }
 
     [Fact]

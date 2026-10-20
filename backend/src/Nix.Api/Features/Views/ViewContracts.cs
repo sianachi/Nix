@@ -67,6 +67,7 @@ namespace Nix.Features.Views;
 /// <see cref="Nix.Domain.Properties.PropertyTypes.CanSectionBy"/> admits. Its columns are
 /// <c>groupBy</c>, the board's own field.
 /// </param>
+/// <param name="Program">Custom views: the openui-lang program the browser draws.</param>
 /// <param name="Filters">
 /// The conditions a view's items must meet, AND-combined. Empty means no conditions - for a query
 /// view, everything the reader can see, newest first. A query view compiles them across the
@@ -108,7 +109,8 @@ internal sealed record ViewResponse(
     string? DoneProperty = null,
     string? RowBy = null,
     ChartOptionsContract? Chart = null,
-    string? Open = null);
+    string? Open = null,
+    string? Program = null);
 
 /// <summary>One key a view orders by; the first is mirrored into <c>sortBy</c>.</summary>
 /// <param name="Property">The property key, or <c>title</c>.</param>
@@ -283,6 +285,7 @@ internal sealed record SetViewsRequest(
 /// </param>
 /// <param name="DoneProperty">Checklist views: the checkbox each line ticks, or null for the default.</param>
 /// <param name="RowBy">Matrix views: the property whose values become rows.</param>
+/// <param name="Program">Custom views: the openui-lang program, at most 32 KB.</param>
 internal sealed record ViewRequest(
     string Id,
     string Name,
@@ -312,7 +315,8 @@ internal sealed record ViewRequest(
     string? DoneProperty = null,
     string? RowBy = null,
     ChartOptionsContract? Chart = null,
-    string? Open = null);
+    string? Open = null,
+    string? Program = null);
 
 /// <summary>A configured embedded habit chart.</summary>
 internal sealed record HabitWidgetContract(string Id, string Kind, Guid HabitId, DateOnly From, DateOnly To);

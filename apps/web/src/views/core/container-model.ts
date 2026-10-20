@@ -330,6 +330,8 @@ export const ViewSchema = z.object({
    * `groupBy`, the board's own field, so a board switched to a matrix keeps them.
    */
   rowBy: z.string().nullable().default(null),
+  /** For a custom view: the openui-lang program its browser draws, at most 32 KB. */
+  program: z.string().nullable().default(null),
   /** For a chart: its type, time axis, series and window. Null draws a bar chart of categories. */
   chart: ChartOptionsSchema.nullable().default(null),
 
@@ -367,6 +369,7 @@ export type View = Omit<
   | 'aggregates'
   | 'doneProperty'
   | 'rowBy'
+  | 'program'
   | 'chart'
   | 'open'
 > &
@@ -385,6 +388,7 @@ export type View = Omit<
       | 'aggregates'
       | 'doneProperty'
       | 'rowBy'
+      | 'program'
       | 'chart'
       | 'open'
     >
@@ -409,6 +413,7 @@ export function toViewRequest(view: View): ParsedView {
     aggregates: [...(view.aggregates ?? [])],
     doneProperty: view.doneProperty ?? null,
     rowBy: view.rowBy ?? null,
+    program: view.program ?? null,
     chart: view.chart ?? null,
     open: view.open ?? null,
   };

@@ -161,6 +161,14 @@ public enum ViewKind
 
     /// <summary>Ordered message children rendered as a conversation.</summary>
     Chat = 16,
+
+    /// <summary>A program the viewer's browser draws over the container's children.</summary>
+    /// <remarks>
+    /// No requirement: the program names whatever it reads. The program is
+    /// <see cref="ViewDefinition.Program"/>, stored in the view and never executed by Core, by an
+    /// export or by a published site.
+    /// </remarks>
+    Custom = 17,
 }
 
 /// <summary>
@@ -280,6 +288,9 @@ public static class ViewKinds
 
         // Titles and structure only, so like a list it needs nothing from the schema.
         new ViewKindDescriptor(ViewKind.Outline, "outline", Requirement: null),
+
+        // No requirement, like a list: the program decides what it reads.
+        new ViewKindDescriptor(ViewKind.Custom, "custom", Requirement: null),
 
         // The board's field for its columns, so a board switched to a matrix keeps them, but the
         // wider section predicate: a matrix cell draws a checkbox's two values honestly. Its rows
@@ -650,7 +661,12 @@ public sealed record ViewDefinition(
     // item activated from this view opens - `page`, `dialog`, `beside`, `tab` or `none`. Null means the client's
     // own context-aware default, which is what every view stored before the field existed did; the
     // set is closed and policed on write, see ViewOpenModes.
-    string? Open = null)
+    string? Open = null,
+
+    // Last and defaulted, like every field added since the record was cut. For a custom view: the
+    // openui-lang source its browser draws, at most ViewDefinitionRules.ProgramLimit bytes. On
+    // every other kind it is stored and ignored (ADR-0020).
+    string? Program = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

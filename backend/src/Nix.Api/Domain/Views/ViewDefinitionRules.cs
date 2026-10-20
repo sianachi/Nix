@@ -20,6 +20,9 @@ public static class ViewDefinitionRules
     /// <summary>The most column summaries one view may carry.</summary>
     public const int MaximumAggregates = 32;
 
+    /// <summary>The most UTF-8 bytes a custom view's program may hold.</summary>
+    public const int ProgramLimit = 32 * 1024;
+
     /// <summary>The longest property key or group value an arrangement field may name.</summary>
     public const int MaximumKeyLength = 128;
 
@@ -72,6 +75,12 @@ public static class ViewDefinitionRules
             {
                 // The second axis the descriptor's one-field requirement cannot name.
                 return $"'{view.Name}': a matrix needs a property for its rows.";
+            }
+
+            if (view.Program is { } program
+                && System.Text.Encoding.UTF8.GetByteCount(program) > ProgramLimit)
+            {
+                return $"'{view.Name}': a custom view's program can be at most {ProgramLimit / 1024} KB.";
             }
 
             if (view.Measure is { } measure && !ChartMeasures.IsValid(measure))
