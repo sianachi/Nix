@@ -45,6 +45,20 @@ follows semantic versioning (`0.x` pre-1.0).
   (Ctrl+X R S/I/Space/J); and keyboard macros (Ctrl+X ( ) E, F3 and F4).
 - Vim's `{` now stops on an empty block straight before the cursor.
 
+### Fixed
+
+**Multi-line values in views**
+
+- Copying spreadsheet or sheet cells that hold line breaks, tabs or quotes no longer spills into the
+  rows below on paste: such values are quoted, as Excel and Google Sheets do.
+- A one-line text property that holds line breaks (from the API, an import or the pet) is edited
+  as several lines, so the first edit no longer joins them.
+- Spreadsheet cells edit long text in a box that grows, with Alt+Enter or Shift+Enter for a new
+  line, and show the first line with "…" and the whole text on hover.
+- Long text in a list or calendar cell rests as one clean line; matrix, checklist and query rows
+  keep line breaks and stop at two or three lines.
+- Board and gallery cards no longer read each value twice to a screen reader.
+
 ## 0.3.0 - 2026-10-16
 
 Work recorded on 2026-10-15 and 2026-10-16. The `v0.3` branch is merged into `main`.
