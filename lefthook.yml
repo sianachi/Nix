@@ -1,0 +1,37 @@
+# Git hooks, installed by `pnpm install` (lefthook's postinstall; skipped when CI is set).
+# Skip once with `LEFTHOOK=0 git commit ...`.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: prettier
+      run: pnpm exec prettier --write --ignore-unknown {staged_files}
+      stage_fixed: true
+    - name: gofmt
+      glob: '*.go'
+      run: gofmt -w {staged_files}
+      stage_fixed: true
+    # Whitespace only, so it needs no build; CI's full `dotnet format --verify-no-changes` covers style and analyzers.
+    - name: dotnet format
+      glob: '*.cs'
+      run: dotnet format whitespace --folder --include {staged_files}
+      stage_fixed: true
+
+# apps/web, collab and sites import packages/*/dist, so a pull or branch switch that changes packages/
+# leaves them running stale code until the packages are rebuilt.
+post-checkout:
+  jobs:
+    - name: rebuild packages
+      # {3} is 1 for a branch checkout, 0 for a file checkout.
+      run: '[ {3} = 1 ] && scripts/rebuild-stale-packages.sh {1} {2} || true'
+
+post-merge:
+  jobs:
+    - name: rebuild packages
+      run: scripts/rebuild-stale-packages.sh ORIG_HEAD HEAD
+
+post-rewrite:
+  jobs:
+    - name: rebuild packages
+      # {1} is "rebase" or "amend"; an amend does not change what is checked out.
+      run: '[ {1} = rebase ] && scripts/rebuild-stale-packages.sh ORIG_HEAD HEAD || true'
