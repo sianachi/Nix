@@ -932,7 +932,7 @@ function HabitRow({
   );
 }
 
-function HabitSetup({
+export function HabitSetup({
   onCreate,
   initial,
   initialTitle,

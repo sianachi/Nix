@@ -1,6 +1,6 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { MyDay, MyDayHabitRow, MyDayTaskRow } from '@nix/api-client';
+import type { HabitTracker, MyDay, MyDayHabitRow, MyDayTaskRow } from '@nix/api-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MyDayState } from '../../my-day/use-my-day';
@@ -10,6 +10,8 @@ const WORKSPACE = 'a1111111-1111-4111-8111-111111111111';
 const completeTask = vi.fn<MyDayState['completeTask']>();
 const checkIn = vi.fn<MyDayState['checkIn']>();
 const undoCheckIn = vi.fn<MyDayState['undoCheckIn']>();
+const readHabit = vi.fn<MyDayState['readHabit']>();
+const saveHabit = vi.fn<MyDayState['saveHabit']>();
 const openPreview = vi.fn();
 let state: MyDayState;
 let canUseDailyNotes = true;
@@ -28,6 +30,16 @@ vi.mock('../../items/item-dialog-context', () => ({ useItemDialog: () => null })
 vi.mock('../../daily-notes/daily-capture-dialog', () => ({
   DailyCaptureDialog: ({ open }: { open: boolean }) => (open ? <p>capture dialog</p> : null),
 }));
+
+const tracker = {
+  frequency: 'daily',
+  weekdays: [],
+  timezone: 'UTC',
+  startDate: '2026-10-01',
+  target: 20,
+  unit: 'minutes',
+  reminderTime: null,
+} as unknown as HabitTracker;
 
 const complete = { kind: 'complete' as const, reasons: [] };
 
@@ -95,6 +107,8 @@ function ready(value: MyDay, extra: Partial<MyDayState> = {}): void {
     completeTask,
     checkIn,
     undoCheckIn,
+    readHabit,
+    saveHabit,
     ...extra,
   };
 }
@@ -105,6 +119,59 @@ beforeEach(() => {
   completeTask.mockResolvedValue(null);
   checkIn.mockResolvedValue(null);
   undoCheckIn.mockResolvedValue(null);
+  readHabit.mockResolvedValue(tracker);
+  saveHabit.mockResolvedValue(null);
+});
+
+describe('editing a habit from its row', () => {
+  it('opens the saved settings, saves the new name and closes', async () => {
+    ready(day({ rows: [] }, [habit()]));
+    render(<MyDayPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Stretch' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit habit' });
+    expect(readHabit).toHaveBeenCalledWith(expect.objectContaining({ title: 'Stretch' }));
+    const name = within(dialog).getByRole('textbox', { name: 'Habit name' });
+    expect(name).toHaveValue('Stretch');
+    expect(within(dialog).getByRole('spinbutton', { name: /target/i })).toHaveValue(20);
+
+    await userEvent.clear(name);
+    await userEvent.type(name, 'New name');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    expect(saveHabit).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Stretch' }),
+      'New name',
+      expect.objectContaining({ frequency: 'daily', target: 20 }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Edit habit' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('keeps the dialog open and says why when saving fails', async () => {
+    ready(day({ rows: [] }, [habit()]));
+    saveHabit.mockResolvedValue('No access.');
+    render(<MyDayPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Stretch' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit habit' });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+
+    expect(await within(dialog).findByText('No access.')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Edit habit' })).toBeInTheDocument();
+  });
+
+  it('says why when the settings cannot be read', async () => {
+    ready(day({ rows: [] }, [habit()]));
+    readHabit.mockResolvedValue('This habit’s settings could not be read.');
+    render(<MyDayPage />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Edit Stretch' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be read');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
 });
 
 describe('the My Day page', () => {
@@ -138,7 +205,6 @@ describe('the My Day page', () => {
     expect(screen.getByRole('heading', { name: 'Today' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Overdue' })).toBeInTheDocument();
     expect(screen.getAllByText('in Inbox')).toHaveLength(2);
-    expect(screen.getByText('Repeating tasks show today’s occurrence.')).toBeInTheDocument();
   });
 
   it('claims an empty day only when the read saw everything', () => {

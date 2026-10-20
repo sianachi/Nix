@@ -190,6 +190,53 @@ describe('a habit', () => {
   });
 });
 
+describe('editing a habit', () => {
+  const settings = {
+    frequency: 'daily',
+    weekdays: [],
+    timezone: 'UTC',
+    startDate: '2026-10-01',
+    target: 25,
+    unit: 'minutes',
+    reminderTime: null,
+  } as const;
+
+  it('saves settings, renames only when the title changed, then re-reads', async () => {
+    const { result } = await ready();
+    const reads = query.mock.calls.length;
+
+    await act(async () => {
+      expect(await result.current.saveHabit(habit, 'Stretch', settings)).toBeNull();
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      method: 'PUT',
+      path: `/api/v1/items/${HABIT}/habit`,
+      body: { target: 25 },
+    });
+    expect(query.mock.calls.length).toBe(reads + 1);
+
+    await act(async () => {
+      await result.current.saveHabit(habit, 'Mobility', settings);
+    });
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(execute.mock.calls[2]?.[0]).toMatchObject({
+      path: `/api/v1/items/${HABIT}`,
+      body: { title: 'Mobility' },
+    });
+  });
+
+  it('reads settings for the habit’s own day', async () => {
+    const { result } = await ready();
+
+    await act(async () => {
+      await result.current.readHabit(habit);
+    });
+
+    expect(JSON.stringify(query.mock.calls.at(-1)?.[0])).toContain('2026-10-17');
+  });
+});
+
 describe('reading', () => {
   it('keeps the last good day and says it is stale when a refresh fails', async () => {
     const { result } = await ready();

@@ -1,5 +1,6 @@
-import type { MyDayHabitRow, MyDayTaskRow } from '@nix/api-client';
-import { Button, Checkbox, Input, Text, focusRing } from '@nix/ui';
+import type { HabitTracker, MyDayHabitRow, MyDayTaskRow } from '@nix/api-client';
+import { Button, Checkbox, Dialog, Icon, Input, Text, focusRing } from '@nix/ui';
+import { Pencil } from 'lucide-react';
 import { useState, type ReactElement, type ReactNode } from 'react';
 
 import { DailyCaptureDialog } from '../daily-notes/daily-capture-dialog';
@@ -8,6 +9,7 @@ import { useItemDialog } from '../items/item-dialog-context';
 import { paneScroller } from '../layout/regions';
 import { taskKey, useMyDay, type MyDayState } from '../my-day/use-my-day';
 import { useOpenItem } from '../tabs/use-open-item';
+import { HabitSetup } from '../views/habit-tracker/habit-tracker-view';
 import { useWorkspace } from '../workspaces/workspace-context';
 
 /**
@@ -145,9 +147,6 @@ function TasksSection({ day, state, open }: SectionProps): ReactElement {
       <Text variant="h5" as="h2" id="my-day-tasks">
         Tasks
       </Text>
-      <Text variant="note" tone="muted">
-        Repeating tasks show today’s occurrence.
-      </Text>
       {partial ? <PartialNotice pending={coverageText(coverage.reasons)} /> : null}
       {rows.length === 0 && !partial ? <Text tone="muted">Nothing due.</Text> : null}
       {TASK_GROUPS.map(({ section, label }) => {
@@ -202,13 +201,15 @@ function TaskItem({
               });
           }}
         />
-        <OpenButton itemId={row.itemId} title={title} open={open} />
-        <Source containerTitle={row.containerTitle} />
-        {row.dueDay === null ? null : (
-          <Text as="span" variant="note" tone="muted">
-            due {row.dueDay}
-          </Text>
-        )}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
+          <OpenButton itemId={row.itemId} title={title} open={open} />
+          <Source containerTitle={row.containerTitle} />
+          {row.dueDay === null ? null : (
+            <Text as="span" variant="note" tone="muted">
+              due {row.dueDay}
+            </Text>
+          )}
+        </div>
       </div>
       {refusal === null ? null : (
         <Text role="alert" variant="note" tone="accent">
@@ -259,6 +260,7 @@ function HabitItem({
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(String(occurrence.quantity ?? ''));
+  const [editing, setEditing] = useState<HabitTracker | null>(null);
   const title = row.title === '' ? 'Untitled' : row.title;
   const recorded = occurrence.completed || occurrence.quantity !== null;
   const counted = occurrence.target > 1;
@@ -295,55 +297,102 @@ function HabitItem({
             }}
           />
         )}
-        <OpenButton itemId={row.itemId} title={title} open={open} />
-        <Source containerTitle={row.containerTitle} />
-        {occurrence.date === taskDay ? null : (
-          <Text as="span" variant="note" tone="muted">
-            {occurrence.date} in {row.timezone}
-          </Text>
-        )}
-        {counted ? (
-          <>
-            <Input
-              type="number"
-              min={0}
-              aria-label={`${title}, ${occurrence.unit} today`}
-              value={quantity}
-              disabled={pending}
-              onChange={(event) => {
-                setQuantity(event.target.value);
-              }}
-            />
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
+          <OpenButton itemId={row.itemId} title={title} open={open} />
+          <Source containerTitle={row.containerTitle} />
+          {occurrence.date === taskDay ? null : (
             <Text as="span" variant="note" tone="muted">
-              of {occurrence.target} {occurrence.unit}
+              {occurrence.date} in {row.timezone}
             </Text>
+          )}
+        </div>
+        <Button
+          variant="icon"
+          aria-label={`Edit ${title}`}
+          disabled={pending}
+          onClick={() => {
+            setPending(true);
+            setRefusal(null);
+            void state
+              .readHabit(row)
+              .then((result) => {
+                if (typeof result === 'string') setRefusal(result);
+                else setEditing(result);
+              })
+              .finally(() => {
+                setPending(false);
+              });
+          }}
+        >
+          <Icon icon={Pencil} size="sm" />
+        </Button>
+      </div>
+      {counted ? (
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={0}
+            className="w-24"
+            aria-label={`${title}, ${occurrence.unit} today`}
+            value={quantity}
+            disabled={pending}
+            onChange={(event) => {
+              setQuantity(event.target.value);
+            }}
+          />
+          <Text as="span" variant="note" tone="muted">
+            of {occurrence.target} {occurrence.unit}
+          </Text>
+          <Button
+            variant="secondary"
+            disabled={pending || !amountValid}
+            onClick={() => {
+              act(state.checkIn(row, { completed: false, quantity: amount }));
+            }}
+          >
+            Save
+          </Button>
+          {recorded ? (
             <Button
-              variant="secondary"
-              disabled={pending || !amountValid}
+              variant="ghost"
+              disabled={pending}
               onClick={() => {
-                act(state.checkIn(row, { completed: false, quantity: amount }));
+                act(state.undoCheckIn(row));
               }}
             >
-              Save
+              Undo
             </Button>
-            {recorded ? (
-              <Button
-                variant="ghost"
-                disabled={pending}
-                onClick={() => {
-                  act(state.undoCheckIn(row));
-                }}
-              >
-                Undo
-              </Button>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+      ) : null}
       {refusal === null ? null : (
         <Text role="alert" variant="note" tone="accent">
           {refusal}
         </Text>
+      )}
+      {editing === null ? null : (
+        <Dialog
+          open
+          title="Edit habit"
+          onClose={() => {
+            setEditing(null);
+          }}
+        >
+          <HabitSetup
+            key={row.itemId}
+            initial={editing}
+            initialTitle={row.title}
+            submitLabel="Save changes"
+            onCancel={() => {
+              setEditing(null);
+            }}
+            onCreate={async (nextTitle, settings) => {
+              const result = await state.saveHabit(row, nextTitle, settings);
+              if (result === null) setEditing(null);
+              return result;
+            }}
+          />
+        </Dialog>
       )}
     </li>
   );
@@ -362,7 +411,7 @@ function OpenButton({
     <button
       type="button"
       aria-label={`Open ${title}`}
-      className={`min-w-0 truncate text-left ${focusRing}`}
+      className={`min-w-0 truncate text-left any-pointer-coarse:min-h-(--control-lg) ${focusRing}`}
       onClick={() => {
         open(itemId);
       }}

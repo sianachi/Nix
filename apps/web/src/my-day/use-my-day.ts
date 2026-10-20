@@ -2,12 +2,15 @@ import {
   habits as coreHabits,
   isCanceledError,
   isNixApiError,
+  items as coreItems,
   myDay as coreMyDay,
   recurrence as coreRecurrence,
   structure as coreStructure,
+  type HabitTracker,
   type MyDay,
   type MyDayHabitRow,
   type MyDayTaskRow,
+  type SetHabitInput,
 } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -37,6 +40,16 @@ export interface MyDayState {
     input: { readonly completed: boolean; readonly quantity: number | null },
   ) => Promise<string | null>;
   readonly undoCheckIn: (row: MyDayHabitRow) => Promise<string | null>;
+
+  /** The habit's saved settings for its edit form, or why they could not be read. */
+  readonly readHabit: (row: MyDayHabitRow) => Promise<HabitTracker | string>;
+
+  /** Saves the edit form: settings, then the title when it changed. Re-reads on success. */
+  readonly saveHabit: (
+    row: MyDayHabitRow,
+    title: string,
+    settings: SetHabitInput,
+  ) => Promise<string | null>;
 }
 
 /** Row identity: the original item, plus the day for one occurrence of a repeating task. */
@@ -218,6 +231,31 @@ export function useMyDay(): MyDayState {
     [client, run],
   );
 
+  const readHabit = useCallback(
+    async (row: MyDayHabitRow): Promise<HabitTracker | string> => {
+      const { date } = row.occurrence;
+      try {
+        return await client.query(coreHabits.readHabit(row.itemId, date, date), {
+          forceRefresh: true,
+        });
+      } catch (reason) {
+        return writeReason(reason, 'This habit’s settings could not be read.');
+      }
+    },
+    [client],
+  );
+
+  const saveHabit = useCallback(
+    (row: MyDayHabitRow, title: string, settings: SetHabitInput): Promise<string | null> =>
+      run(async (signal) => {
+        await client.execute(coreHabits.setHabit(row.itemId, settings), { signal });
+        if (title !== row.title) {
+          await client.execute(coreItems.renameItem(workspaceId, row.itemId, title), { signal });
+        }
+      }, 'The habit could not be saved.'),
+    [client, run, workspaceId],
+  );
+
   // Scope change: drop the previous workspace's content before anything else renders it.
   useEffect(() => {
     let active = true;
@@ -275,5 +313,16 @@ export function useMyDay(): MyDayState {
     };
   }, [day, load]);
 
-  return { status, day, error, staleReason, reload, completeTask, checkIn, undoCheckIn };
+  return {
+    status,
+    day,
+    error,
+    staleReason,
+    reload,
+    completeTask,
+    checkIn,
+    undoCheckIn,
+    readHabit,
+    saveHabit,
+  };
 }
