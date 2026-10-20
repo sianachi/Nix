@@ -183,28 +183,14 @@ it('does not show another account’s offline error status', () => {
   expect(screen.queryByText('Private note download failed.')).not.toBeInTheDocument();
 });
 
-it('collapses routine sync details and allows reopening them', async () => {
-  if (state.snapshot === undefined) throw new Error('Offline fixture missing.');
-  state.snapshot = { ...state.snapshot, pending: 2 };
-  renderAt(<OfflineStatus />, '/');
-  const user = userEvent.setup();
-  expect(screen.getByRole('status')).toHaveTextContent('2 pending changes saved on this device.');
-  await user.click(screen.getByRole('button', { name: 'Collapse offline sync status' }));
-  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+it('keeps the full footer, with Sync now, on the saved notes page', () => {
+  renderAt(<OfflineStatus detailed />, '/');
+  expect(screen.getByRole('button', { name: 'Sync now' })).toBeVisible();
   expect(screen.queryByRole('link', { name: 'Notes on this device' })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Show offline sync status' })).toHaveAttribute(
-    'aria-expanded',
-    'false',
-  );
-  await user.click(screen.getByRole('button', { name: 'Show offline sync status' }));
-  expect(screen.getByRole('status')).toHaveTextContent('2 pending changes');
 });
 
-it('keeps new storage errors visible while sync details are collapsed', async () => {
+it('shows new storage errors as an alert', () => {
   renderAt(<OfflineStatus />, '/');
-  await userEvent
-    .setup()
-    .click(screen.getByRole('button', { name: 'Collapse offline sync status' }));
   act(() => {
     if (state.snapshot === undefined) throw new Error('Offline fixture missing.');
     state.snapshot = {
@@ -216,7 +202,6 @@ it('keeps new storage errors visible while sync details are collapsed', async ()
   });
 
   expect(screen.getByRole('alert')).toHaveTextContent('Device storage is full.');
-  expect(screen.queryByRole('status')).not.toBeInTheDocument();
 });
 
 describe('notes saved on this device', () => {

@@ -1,5 +1,5 @@
 import { Icon, Text, chromeSurface, cn, focusRing } from '@nix/ui';
-import { Bell, CalendarDays, FolderTree, Plus, Search } from 'lucide-react';
+import { Bell, CalendarDays, FolderTree, PawPrint, Plus, Search } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
 
@@ -8,7 +8,7 @@ export function MobileNavigation({
   treeOpen,
   creating,
   unreadNotifications,
-  petAttention,
+  pet,
   onTree,
   onSearch,
   onCreate,
@@ -18,8 +18,9 @@ export function MobileNavigation({
   readonly treeOpen: boolean;
   readonly creating: boolean;
   readonly unreadNotifications: number;
-  /** What the pet is waiting on, in words, while its only way in is the drawer this opens. */
-  readonly petAttention: string | null;
+  /** The pet page entry, or null while this width offers none. `attention` is what it is waiting
+   * on, in words. */
+  readonly pet: { readonly label: string; readonly attention: string | null } | null;
   readonly onTree: () => void;
   readonly onSearch: () => void;
   readonly onCreate: () => void;
@@ -33,19 +34,8 @@ export function MobileNavigation({
       className={`flex shrink-0 items-center gap-1 border-t border-divider bg-background px-2 pb-[env(safe-area-inset-bottom)] ${chromeSurface}`}
     >
       <button type="button" className={control} aria-expanded={treeOpen} onClick={onTree}>
-        <span className="relative">
-          <Icon icon={FolderTree} size="sm" />
-          {petAttention !== null ? (
-            <span
-              aria-hidden="true"
-              className="absolute -right-1 -top-1 size-2 rounded-full bg-accent-fill"
-            />
-          ) : null}
-        </span>
-        <Text variant="caption">
-          Workspace
-          {petAttention !== null ? <span className="sr-only">, pet {petAttention}</span> : null}
-        </Text>
+        <Icon icon={FolderTree} size="sm" />
+        <Text variant="caption">Workspace</Text>
       </button>
       <button type="button" className={control} onClick={onSearch}>
         <Icon icon={Search} size="sm" />
@@ -75,6 +65,30 @@ export function MobileNavigation({
           ) : null}
         </Text>
       </button>
+      {pet ? (
+        // Icon only: a sixth labelled item would not keep a readable label at 390px. The name is
+        // the accessible name, so the pet is still announced by name.
+        <NavLink
+          to={`/w/${workspaceId}/pet`}
+          className={({ isActive }) =>
+            `${control} flex-none w-(--control-lg) ${isActive ? 'bg-surface text-foreground' : ''}`
+          }
+        >
+          <span className="relative">
+            <Icon icon={PawPrint} size="sm" />
+            {pet.attention !== null ? (
+              <span
+                aria-hidden="true"
+                className="absolute -right-1 -top-1 size-2 rounded-full bg-accent-fill"
+              />
+            ) : null}
+          </span>
+          <span className="sr-only">
+            {pet.label}
+            {pet.attention !== null ? `, ${pet.attention}` : ''}
+          </span>
+        </NavLink>
+      ) : null}
       <button
         type="button"
         className={cn(

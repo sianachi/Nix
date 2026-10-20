@@ -15,7 +15,7 @@ it('offers reachable workspace, search, calendar, inbox and note creation contro
         treeOpen={false}
         creating={false}
         unreadNotifications={0}
-        petAttention={null}
+        pet={null}
         onTree={tree}
         onSearch={search}
         onCreate={create}
@@ -46,7 +46,7 @@ it('announces the unread count as part of the inbox control name', () => {
         treeOpen={false}
         creating={false}
         unreadNotifications={3}
-        petAttention={null}
+        pet={null}
         onTree={() => undefined}
         onSearch={() => undefined}
         onCreate={() => undefined}
@@ -57,7 +57,7 @@ it('announces the unread count as part of the inbox control name', () => {
   expect(screen.getByRole('button', { name: 'Inbox, 3 unread' })).toBeVisible();
 });
 
-it('marks the workspace control while the pet is waiting and its only way in is that drawer', () => {
+it('offers the pet as its own entry, named, with what it is waiting on', () => {
   render(
     <MemoryRouter>
       <MobileNavigation
@@ -65,7 +65,7 @@ it('marks the workspace control while the pet is waiting and its only way in is 
         treeOpen={false}
         creating={false}
         unreadNotifications={0}
-        petAttention="needs approval"
+        pet={{ label: 'Cat', attention: 'needs approval' }}
         onTree={vi.fn()}
         onSearch={vi.fn()}
         onCreate={vi.fn()}
@@ -73,5 +73,29 @@ it('marks the workspace control while the pet is waiting and its only way in is 
       />
     </MemoryRouter>,
   );
-  expect(screen.getByRole('button', { name: 'Workspace, pet needs approval' })).toBeVisible();
+  expect(screen.getByRole('link', { name: 'Cat, needs approval' })).toHaveAttribute(
+    'href',
+    '/w/workspace/pet',
+  );
+  expect(screen.getByRole('button', { name: 'Workspace' })).toBeVisible();
+});
+
+it('has no pet entry while the pet page is not offered', () => {
+  render(
+    <MemoryRouter>
+      <MobileNavigation
+        workspaceId="workspace"
+        treeOpen={false}
+        creating={false}
+        unreadNotifications={0}
+        pet={null}
+        onTree={vi.fn()}
+        onSearch={vi.fn()}
+        onCreate={vi.fn()}
+        onOpenInbox={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole('link', { name: /Cat/ })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('link')).toHaveLength(1);
 });

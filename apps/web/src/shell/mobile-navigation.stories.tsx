@@ -7,7 +7,13 @@ export default { title: 'Nix/Shell/Mobile navigation', parameters: { layout: 'fu
 
 const noop = (): void => undefined;
 
-function Example({ creating = false }: { readonly creating?: boolean }): ReactNode {
+function Example({
+  creating = false,
+  withPet = true,
+}: {
+  readonly creating?: boolean;
+  readonly withPet?: boolean;
+}): ReactNode {
   return (
     <MemoryRouter>
       <MobileNavigation
@@ -15,7 +21,7 @@ function Example({ creating = false }: { readonly creating?: boolean }): ReactNo
         treeOpen={false}
         creating={creating}
         unreadNotifications={2}
-        petAttention="waiting for approval"
+        pet={withPet ? { label: 'Cat', attention: 'needs approval' } : null}
         onTree={noop}
         onSearch={noop}
         onCreate={noop}
@@ -27,3 +33,4 @@ function Example({ creating = false }: { readonly creating?: boolean }): ReactNo
 
 export const Navigation = { render: (): ReactNode => <Example /> };
 export const Creating = { render: (): ReactNode => <Example creating /> };
+export const WithoutPet = { render: (): ReactNode => <Example withPet={false} /> };

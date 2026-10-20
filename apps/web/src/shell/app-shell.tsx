@@ -5,7 +5,8 @@ import { describeBulkDelete, executeBulkDelete } from '../items/bulk-delete';
 import { ItemCommandsProvider } from '../items/item-commands-context';
 import { ItemDialogProvider } from '../items/item-dialog-provider';
 import { MobileNavigation } from './mobile-navigation';
-import { petAttentionText, usePetAttention } from '../pets/pet-attention';
+import { petAttentionText } from '../pets/pet-attention';
+import { usePetNavEntry } from '../pets/use-pet-nav-entry';
 import { PwaControls } from '../pwa/pwa-controls';
 import { OfflineStatus } from '../offline/offline-status';
 import { useRememberLocation } from '../pwa/use-remember-location';
@@ -160,7 +161,7 @@ export function AppShell(): ReactNode {
   const sidebar = useSidebar(narrow);
   const [searchOpen, setSearchOpen] = useState(false);
   const location = useLocation();
-  // The companion page owns a phone screen: the sync footer and install nudge would otherwise
+  // The companion page owns a phone screen: the sync footer would otherwise
   // squeeze the message list to a sliver. Offline and update notices still show; they are state.
   const chatOwnsScreen = narrow && /^\/w\/[^/]+\/pet\/?$/.test(location.pathname);
   const visibleHeight = useVisualViewportHeight(chatOwnsScreen && keyboardVisible);
@@ -185,7 +186,7 @@ export function AppShell(): ReactNode {
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const notificationsInbox = useNotificationsInbox();
-  const petAttention = usePetAttention();
+  const petEntry = usePetNavEntry();
   useBackDismiss(
     narrow && (sidebar.visible || searchOpen || workspaceImportOpen || inboxOpen),
     () => {
@@ -732,14 +733,19 @@ export function AppShell(): ReactNode {
             keyboard is up, when the room is better spent on the text being typed. */}
         {keyboardVisible || zen ? null : <MiniPlayer onOpen={openPinned} />}
         {zen || chatOwnsScreen ? null : <OfflineStatus />}
-        {zen ? null : <PwaControls compact={keyboardVisible || chatOwnsScreen} />}
+        {zen ? null : <PwaControls />}
         {navRendered ? (
           <MobileNavigation
             workspaceId={workspaceId}
             treeOpen={sidebar.visible}
             creating={tree.isCreating}
             unreadNotifications={notificationsInbox.unread}
-            petAttention={petAttention === null ? null : petAttentionText(petAttention)}
+            pet={
+              petEntry && {
+                label: petEntry.label,
+                attention: petEntry.attention && petAttentionText(petEntry.attention),
+              }
+            }
             onTree={sidebar.toggle}
             onSearch={() => {
               setSearchOpen(true);

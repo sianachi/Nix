@@ -16,11 +16,15 @@ describe('chat placement preference', () => {
   });
 
   it.each([
-    ['floating', true],
-    ['page-on-phones', true],
-    ['both', true],
-    ['page', false],
-  ] as const)('%s floats=%s', (surface, floats) => {
-    expect(launcherFloats(surface)).toBe(floats);
+    ['floating', false, true],
+    ['floating', true, true],
+    ['page-on-phones', false, true],
+    ['page-on-phones', true, false],
+    ['both', false, true],
+    ['both', true, true],
+    ['page', false, false],
+    ['page', true, false],
+  ] as const)('%s with narrow=%s floats=%s', (surface, narrow, floats) => {
+    expect(launcherFloats(surface, narrow)).toBe(floats);
   });
 });

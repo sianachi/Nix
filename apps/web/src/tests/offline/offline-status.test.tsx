@@ -7,6 +7,7 @@ import { clearBodyCache, openBodyCache } from '../../editor/body-cache';
 import { useOfflinePreference } from '../../offline/offline-preference';
 import { useGeneralPreferences } from '../../settings/preferences/general-preferences';
 import { OfflineStatus } from '../../offline/offline-status';
+import * as offline from '../../offline/offline-store';
 import { rememberOfflineAccount } from '../../offline/offline-store';
 import { signedIn } from '../render-with-router';
 
@@ -52,10 +53,52 @@ function renderFooter() {
   );
 }
 
-it('shows the sync footer while notes are kept on this device', () => {
+function snapshot(change: Partial<offline.OfflineSnapshot>): void {
+  vi.spyOn(offline, 'getOfflineSnapshot').mockReturnValue({
+    account: { subject: 'test-subject', name: 'Test Person', email: 'test@example.test' },
+    notes: [],
+    workspaces: [],
+    status: 'ready',
+    completed: 0,
+    total: 0,
+    pending: 0,
+    error: null,
+    lastSyncedAt: null,
+    ...change,
+  });
+}
+
+it('keeps routine sync out of the layout', () => {
+  snapshot({ status: 'syncing' });
   renderFooter();
-  expect(screen.getByRole('complementary', { name: 'Offline notes status' })).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Notes on this device' })).toBeVisible();
+  expect(screen.getByRole('complementary', { name: 'Offline notes status' })).toHaveClass(
+    'sr-only',
+  );
+  expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('');
+});
+
+it('announces pending changes politely without taking a row', () => {
+  snapshot({ pending: 2 });
+  renderFooter();
+  expect(screen.getByRole('status')).toHaveTextContent('2 pending changes saved on this device.');
+  expect(screen.getByRole('complementary')).toHaveClass('sr-only');
+});
+
+it('shows a one-line row with Sync now after an error', () => {
+  snapshot({ status: 'error', error: 'Sync failed.' });
+  renderFooter();
+  expect(screen.getByRole('complementary')).not.toHaveClass('sr-only');
+  expect(screen.getByRole('alert')).toHaveTextContent('Sync failed.');
+  expect(screen.getByRole('button', { name: 'Sync now' })).toBeVisible();
+});
+
+it('shows download progress while downloading', () => {
+  snapshot({ status: 'downloading', completed: 3, total: 18 });
+  renderFooter();
+  expect(screen.getByRole('complementary')).not.toHaveClass('sr-only');
+  expect(screen.getByRole('status')).toHaveTextContent('Downloading notes: 3 of 18.');
 });
 
 it('renders nothing at all, spacing included, once device sync is turned off', () => {

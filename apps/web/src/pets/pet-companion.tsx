@@ -144,10 +144,11 @@ function Companion({
     returnFocus.current = true;
   });
   const keyboardVisible = useMobileKeyboard(narrow);
-  // With the page chosen everywhere there is no floating pet. The component stays mounted, so a
-  // turn still gets its auto-run reads while the owner is elsewhere in the workspace, but it draws
-  // nothing; a panel already open when the preference changes stays until it is closed.
-  const floats = launcherFloats(surface) || open;
+  // Where the chat opens as a page (always, or on a phone) there is no floating pet. The component
+  // stays mounted, so a turn still gets its auto-run reads while the owner is elsewhere in the
+  // workspace, but it draws nothing; a panel already open when the preference changes stays until
+  // it is closed.
+  const floats = launcherFloats(surface, narrow) || open;
   const launcherHidden = open || !floats || (narrow && keyboardVisible);
   useEffect(() => {
     if (!designEntry) return;

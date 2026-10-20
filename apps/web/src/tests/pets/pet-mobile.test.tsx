@@ -93,8 +93,25 @@ describe('companion on a phone', () => {
     expect(await screen.findByRole('img', { name: 'Cat' })).toHaveClass('size-24');
   });
 
-  it('follows the phone page preference from the launcher into the connected conversation', async () => {
-    const user = userEvent.setup();
+  it('draws no launcher on a phone when the chat opens as a page', async () => {
+    stubViewport(320);
+    vi.stubGlobal('innerWidth', 320);
+    localStorage.setItem('nix.pet.surface', 'page-on-phones');
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(client.query).toHaveBeenCalled();
+    });
+    // Stays mounted for auto-run reads but is display:none, so it is not a tab stop.
+    expect(screen.getByRole('complementary', { hidden: true, name: 'Cat companion' })).toHaveClass(
+      'hidden',
+    );
+  });
+
+  it('shows the connected conversation on the pet page under the phone page preference', async () => {
     const workspaceId = '33333333-3333-4333-8333-333333333333';
     stubViewport(320);
     vi.stubGlobal('innerWidth', 320);
@@ -123,7 +140,7 @@ describe('companion on a phone', () => {
     }
 
     render(
-      <MemoryRouter initialEntries={[`/w/${workspaceId}`]}>
+      <MemoryRouter initialEntries={[`/w/${workspaceId}/pet`]}>
         <Routes>
           <Route path="/w/:workspaceId" element={<WorkspaceRoute />}>
             <Route index element={<div>Workspace</div>} />
@@ -133,8 +150,6 @@ describe('companion on a phone', () => {
       </MemoryRouter>,
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Open Cat' }));
-    expect(await screen.findByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
     expect(await screen.findByText(/Choose one priority for each day/)).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Message Cat' })).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Message Cat' })).not.toHaveFocus();

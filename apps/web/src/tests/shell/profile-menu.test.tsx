@@ -10,6 +10,8 @@ import * as bodies from '../../editor/body-cache';
 import * as collaboration from '../../editor/collab-sync';
 import * as drafts from '../../editor/draft-journal';
 import * as offline from '../../offline/offline-store';
+import * as runtime from '../../offline/offline-runtime';
+import { useOfflinePreference } from '../../offline/offline-preference';
 
 const WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
 const profile = { subject: 'menu-person', name: 'Ada Person', email: 'ada@example.test' };
@@ -58,6 +60,8 @@ async function openMenu(): Promise<void> {
 }
 
 beforeEach(() => {
+  useOfflinePreference.setState({ enabled: true, saved: true });
+  vi.spyOn(runtime, 'requestOfflineSync').mockReturnValue(undefined);
   auth.accountUrl = null;
   auth.signOut.mockReset().mockResolvedValue(undefined);
   useSessionStore.setState({ status: 'authenticated', profile, error: null });
@@ -80,6 +84,51 @@ beforeEach(() => {
 });
 
 describe('ProfileMenu', () => {
+  it('offers the sync status, saved notes and a manual sync', async () => {
+    await openMenu();
+    expect(screen.getByText('All unlocked notes are available offline.')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Notes on this device' })).toHaveAttribute(
+      'href',
+      '/offline',
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Sync notes' }));
+    expect(runtime.requestOfflineSync).toHaveBeenCalledOnce();
+  });
+
+  it('disables Sync notes while syncing', async () => {
+    vi.mocked(offline.getOfflineSnapshot).mockReturnValue({
+      ...offline.getOfflineSnapshot(),
+      status: 'syncing',
+    });
+    await openMenu();
+    expect(screen.getByRole('button', { name: 'Syncing notes…' })).toBeDisabled();
+  });
+
+  it('offers Install Nix, with the steps when the browser gives no prompt', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    await openMenu();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Install Nix' }));
+    expect(await screen.findByRole('dialog', { name: 'Install Nix' })).toBeVisible();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not offer Install Nix once running as an installed app', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(display-mode: standalone)',
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    await openMenu();
+    expect(screen.queryByRole('button', { name: 'Install Nix' })).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it('lets the keyboard reach and change appearance without dismissing the menu', async () => {
     const user = userEvent.setup();
     await openMenu();

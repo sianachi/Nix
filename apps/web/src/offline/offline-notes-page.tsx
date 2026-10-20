@@ -390,7 +390,7 @@ export function OfflineNotesPage(): ReactNode {
           {error ?? pendingSignOut.error}
         </Text>
       ) : null}
-      <OfflineStatus showOpen={false} />
+      <OfflineStatus detailed />
       <Dialog
         open={creating}
         title="New note"
