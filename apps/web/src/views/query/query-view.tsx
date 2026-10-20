@@ -351,7 +351,8 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                               variant="note"
                               tone="muted"
                               as="span"
-                              className="min-w-0 max-w-full wrap-anywhere"
+                              lines={2}
+                              className="min-w-0 max-w-full whitespace-pre-line wrap-anywhere"
                             >
                               {text}
                             </Text>

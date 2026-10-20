@@ -819,9 +819,6 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
                     property={field}
                     onWrite={(value) => onWrite(item.id, field.key, value)}
                   />
-                  <Text variant="caption" as="span" className="sr-only">
-                    {readPropertyText(item, field.key)}
-                  </Text>
                 </div>
               ))}
             </div>

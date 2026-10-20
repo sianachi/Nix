@@ -173,7 +173,13 @@ function SourcedValue(props: PropertyInputProps): ReactNode {
 function PropertyControl(props: PropertyInputProps): ReactNode {
   switch (props.property.type) {
     case 'text':
-      return <TypedValue {...props} kind="text" />;
+      // A one-line field strips line breaks from its value, so a text the API, an import or the
+      // pet wrote over several lines is edited as several lines rather than flattened on first edit.
+      return /[\r\n]/.test(readPropertyText(props.item, props.property.key)) ? (
+        <LongTextValue {...props} />
+      ) : (
+        <TypedValue {...props} kind="text" />
+      );
 
     case 'long_text':
       return <LongTextValue {...props} />;
@@ -553,7 +559,15 @@ function LongTextValue(props: PropertyInputProps): ReactNode {
           rows={collapsed ? (density === 'card' ? 3 : 1) : undefined}
           wrap={collapsed && density === 'cell' ? 'off' : 'soft'}
           maxLength={8000}
-          className="max-h-64"
+          // At rest in a cell, the box is one line at the height of the one-line fields beside it,
+          // with no resize grip. A text area paints overflow into its own padding, so padding cannot
+          // hide the second line; a line as tall as the box (less its two 1px borders) centres the
+          // first line like an input does and puts the second out of sight.
+          className={
+            collapsed && density === 'cell'
+              ? 'h-(--control-md) min-h-0 resize-none overflow-hidden py-0 leading-[calc(var(--control-md)-2px)] any-pointer-coarse:h-(--control-lg) any-pointer-coarse:leading-[calc(var(--control-lg)-2px)]'
+              : 'max-h-64'
+          }
           tone={density === 'cell' ? 'plain' : 'default'}
           value={draft}
           required={property.required}

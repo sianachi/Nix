@@ -168,12 +168,11 @@ export function cellDisplay(item: Item, column: SpreadsheetColumn): string {
     }
   }
 
-  // One row tall, so the first line is what there is room for. The copy value stays the whole text.
-  if (column.type === 'long_text') {
-    return firstLine(cellText(item, column));
-  }
-
-  return cellText(item, column);
+  // One row tall, so the first line is what there is room for, with a mark that more follows. Any
+  // text can hold line breaks if the API or an import wrote them. The copy value stays the whole text.
+  const text = cellText(item, column);
+  const first = firstLine(text);
+  return first.length < text.length ? `${first} …` : text;
 }
 
 /** A coerced draft, or the sentence explaining why the text cannot become this column's value. */

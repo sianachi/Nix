@@ -471,7 +471,15 @@ function MatrixCard(props: MatrixCardProps): ReactNode {
             {fields.map((field) => {
               const text = readPropertyText(item, field.key);
               return text.length === 0 ? null : (
-                <Text key={field.key} as="span" variant="caption" tone="muted">
+                // Line breaks kept and three lines at most, so a long text cannot stretch the card.
+                <Text
+                  key={field.key}
+                  as="span"
+                  variant="caption"
+                  tone="muted"
+                  lines={3}
+                  className="whitespace-pre-line"
+                >
                   {`${field.label}: ${text}`}
                 </Text>
               );

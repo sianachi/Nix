@@ -245,6 +245,27 @@ describe('copy', () => {
 });
 
 describe('display', () => {
+  it('shows the first line of a multi-line text with a mark that more follows, copying it whole', () => {
+    const alpha = item('a', 'Alpha', {
+      notes: 'First\nSecond',
+      summary: 'One\nTwo',
+      short: 'Only',
+    });
+    const columns = resolveColumns(
+      aView(),
+      schemaOf(
+        property('notes', 'Notes', 'long_text'),
+        property('summary', 'Summary', 'text'),
+        property('short', 'Short', 'long_text'),
+      ),
+    );
+
+    expect(cellDisplay(alpha, columnFor(columns, 'notes'))).toBe('First …');
+    expect(cellDisplay(alpha, columnFor(columns, 'summary'))).toBe('One …');
+    expect(cellDisplay(alpha, columnFor(columns, 'short'))).toBe('Only');
+    expect(cellText(alpha, columnFor(columns, 'notes'))).toBe('First\nSecond');
+  });
+
   it('shows a timestamp as the reader’s own clock while copying the stored string', () => {
     const stored = '2026-03-17T09:00:00+00:00[Etc/UTC]';
     const alpha = item('a', 'Alpha', { when: stored });

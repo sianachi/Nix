@@ -11,7 +11,6 @@ import {
   UNSET_LABEL,
   UNSET_VALUE,
   readSelectValue,
-  readPropertyText,
   type Item,
   type PropertyDefinition,
   type PropertyValue,
@@ -588,9 +587,8 @@ function BoardCard(props: BoardCardProps): ReactNode {
   const current = readSelectValue(item, property.key);
   const titleRef = useRef<HTMLButtonElement>(null);
 
-  // The view's `columns` are the properties worth showing on a card face. An absent value renders
-  // as nothing rather than as an empty row: a card is a summary, and a column of blank labels
-  // tells nobody anything.
+  // The view's `columns` are the properties worth showing on a card face, each as its label and an
+  // editable value - an empty one included, so a value can be filled in from the card.
   const fields = cardProperties.flatMap((candidate) => {
     const definition = schema.find((entry) => entry.key === candidate);
     return definition === undefined ? [] : [definition];
@@ -675,9 +673,6 @@ function BoardCard(props: BoardCardProps): ReactNode {
                       property={field}
                       onWrite={(value) => onWrite(item.id, field.key, value)}
                     />
-                    <Text variant="caption" as="span" className="sr-only">
-                      {readPropertyText(item, field.key)}
-                    </Text>
                   </div>
                 ))}
               </div>

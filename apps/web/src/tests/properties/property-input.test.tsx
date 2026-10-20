@@ -1095,6 +1095,24 @@ describe('long text edits', () => {
     expect(field).toHaveValue('First');
     expect(onCommit).not.toHaveBeenCalled();
   });
+
+  it('edits a one-line text that holds line breaks as several lines, keeping them', async () => {
+    const onCommit = vi.fn();
+    const person = userEvent.setup();
+    render(
+      <PropertyInput
+        item={itemWith({ summary: 'First\nSecond' })}
+        property={propertyOf({ key: 'summary', label: 'Summary', type: 'text' })}
+        onCommit={onCommit}
+      />,
+    );
+    const field = screen.getByRole('textbox', { name: 'Summary' });
+    expect(field.tagName).toBe('TEXTAREA');
+    await person.click(field);
+    await person.type(field, '{End}!');
+    await person.tab();
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith('First\nSecond!');
+  });
 });
 
 it('keeps a scalar value visible after changing a text field to multi-select', () => {

@@ -351,7 +351,8 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
                 as="span"
                 variant="caption"
                 tone="muted"
-                className="min-w-0 basis-full sm:basis-auto sm:max-w-1/2"
+                lines={2}
+                className="min-w-0 basis-full whitespace-pre-line sm:basis-auto sm:max-w-1/2"
               >
                 <span className="sr-only">{secondary.label}: </span>
                 {detail}

@@ -443,6 +443,13 @@ export default defineConfig({
     setupFiles: ['./src/tests/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+    // Node 25 defines a global `localStorage` of its own, which has no methods without a storage
+    // file and hides jsdom's; tests calling `localStorage.clear()` then fail. Node 22 (CI) accepts
+    // the flag and already leaves it off.
+    poolOptions: {
+      forks: { execArgv: ['--no-experimental-webstorage'] },
+      threads: { execArgv: ['--no-experimental-webstorage'] },
+    },
     server: {
       deps: { inline: ['@excalidraw/excalidraw', 'roughjs'] },
     },

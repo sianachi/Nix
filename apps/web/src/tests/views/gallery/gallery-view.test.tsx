@@ -543,7 +543,7 @@ describe('the gallery view', () => {
     const retyped = card('Harbour at dawn');
 
     expect(within(retyped).queryByText(SHOT)).not.toBeInTheDocument();
-    expect(within(retyped).getByText('Ada')).toBeInTheDocument();
+    expect(within(retyped).getByDisplayValue('Ada')).toBeInTheDocument();
   });
 
   it('refuses to point a picture at a value that is not a fetchable address', () => {
@@ -684,7 +684,7 @@ describe('the gallery view', () => {
     const illustrated = card('Harbour at dawn');
 
     expect(within(illustrated).getByText('Owner')).toBeInTheDocument();
-    expect(within(illustrated).getByText('Ada')).toBeInTheDocument();
+    expect(within(illustrated).getByDisplayValue('Ada')).toBeInTheDocument();
     expect(within(illustrated).queryByText(SHOT)).not.toBeInTheDocument();
   });
 

@@ -442,7 +442,7 @@ describe('the board view', () => {
       }),
     );
 
-    expect(screen.getByText('Ada')).toBeVisible();
+    expect(screen.getByDisplayValue('Ada')).toBeVisible();
   });
 
   it('creates a card already in the column it was added to', async () => {

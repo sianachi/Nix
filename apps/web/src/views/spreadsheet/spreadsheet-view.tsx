@@ -1201,7 +1201,14 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                                   shown.length > 0 ? `, ${shown}` : ''
                                 }`
                           }
-                          title={shown.length > 0 ? shown : undefined}
+                          title={
+                            // A cell cut to its first line offers the whole text on hover.
+                            shown.endsWith(' …')
+                              ? cellText(item, column)
+                              : shown.length > 0
+                                ? shown
+                                : undefined
+                          }
                           onMouseDown={(event) => {
                             if (event.button !== 0) return;
                             // Mouse down rather than click so a shift-click extends the range from
@@ -1316,6 +1323,11 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                     }
                   }}
                   position={editorStyle}
+                  // Chosen from the stored value, so the editor never swaps element mid-edit.
+                  multiline={
+                    activeColumn.type === 'long_text' ||
+                    /[\r\n]/.test(cellText(activeItem, activeColumn))
+                  }
                 />
               ) : null}
             </div>
