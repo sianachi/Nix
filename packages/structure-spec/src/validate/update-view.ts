@@ -37,6 +37,7 @@ const perKind: Readonly<Record<string, readonly string[]>> = {
   matrix: ['columns', 'groupBy', 'groupOrder', 'rowBy'],
   outline: [],
   chat: [],
+  custom: ['program'],
   drive: ['layout'],
   finance: [],
 };

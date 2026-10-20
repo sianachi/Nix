@@ -153,6 +153,13 @@ export const VIEW_KIND_RULES = [
     optional: [],
     description: 'The subtree as a collapsible tree of titles, reshaped by keyboard.',
   },
+  {
+    kind: 'custom',
+    label: 'Custom',
+    requires: null,
+    optional: [{ field: 'program', shape: 'openui-lang, required' }],
+    description: 'A program drawn over the children; see Custom views. Only when no kind fits.',
+  },
 ] as const satisfies readonly ViewKindRule[];
 
 /** The recipe ids the pet may never use: a file drive and personal finances are studio-only. */
@@ -175,8 +182,8 @@ export const QUERY_OPERATORS = [
   { op: 'equals', grammar: 'a literal value, or "me" for the calling principal' },
   { op: 'not-equals', grammar: 'a literal value, or "me" for the calling principal' },
   { op: 'on', grammar: DAY_GRAMMAR },
-  { op: 'before', grammar: DAY_GRAMMAR },
-  { op: 'on-or-after', grammar: DAY_GRAMMAR },
+  { op: 'before', grammar: 'a day, as for on' },
+  { op: 'on-or-after', grammar: 'a day, as for on' },
   { op: 'within-next', grammar: 'a whole number of days' },
   { op: 'within-last', grammar: 'a whole number of days' },
   { op: 'contains', grammar: 'text to find, ignoring case; or one multi-select option exactly' },

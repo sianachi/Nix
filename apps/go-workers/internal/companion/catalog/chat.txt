@@ -26,6 +26,7 @@ Columns may include title; it is an item-title marker, never a form field.
 - Checklist (checklist): optional: doneProperty (checkbox). A box to tick per child, with progress; first property column appears beside title.
 - Matrix (matrix): needs a select or checkbox property; optional: rowBy (select or checkbox, required). Cards in a grid of cells, placed by two properties at once.
 - Outline (outline). The subtree as a collapsible tree of titles, reshaped by keyboard.
+- Custom (custom): optional: program (openui-lang, required). A program drawn over the children; see Custom views. Only when no kind fits.
 
 Section: Recipes
 board: Board - Arrange items in columns defined by a select field.
@@ -53,8 +54,8 @@ Section: Query operators
 - equals: a literal value, or "me" for the calling principal
 - not-equals: a literal value, or "me" for the calling principal
 - on: "today", "start-of-week", "start-of-month", "same-day-last-week", "same-day-last-month" or a yyyy-MM-dd date
-- before: "today", "start-of-week", "start-of-month", "same-day-last-week", "same-day-last-month" or a yyyy-MM-dd date
-- on-or-after: "today", "start-of-week", "start-of-month", "same-day-last-week", "same-day-last-month" or a yyyy-MM-dd date
+- before: a day, as for on
+- on-or-after: a day, as for on
 - within-next: a whole number of days
 - within-last: a whole number of days
 - contains: text to find, ignoring case; or one multi-select option exactly
@@ -119,6 +120,7 @@ Valid view settings by kind:
 - checklist: doneProperty
 - matrix: columnBy, rowBy
 - outline: no kind-specific settings
+- custom: program
 
 Section: Patterns
 Efficiency patterns

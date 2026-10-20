@@ -742,7 +742,7 @@
   },
   {
     "name": "nix_add_view",
-    "description": "Add fields and up to 4 views per call to an item's existing schema, within its 12-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view. choiceSource:{} learns this field from sibling entries; set itemId for another note and field for a child field or title. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
+    "description": "Add fields and up to 4 views per call to an item's existing schema, within its 12-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view. A custom view takes program, an openui-lang program (see Custom views). choiceSource:{} learns this field from sibling entries; set itemId for another note and field for a child field or title. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label. Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], \"Done\", \"Open\"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -861,7 +861,8 @@
                       "checklist",
                       "matrix",
                       "outline",
-                      "chat"
+                      "chat",
+                      "custom"
                     ]
                   },
                   "name": {
@@ -1134,6 +1135,9 @@
                     "type": "string"
                   },
                   "columnBy": {
+                    "type": "string"
+                  },
+                  "program": {
                     "type": "string"
                   },
                   "default": {
@@ -1723,7 +1727,7 @@
   },
   {
     "name": "nix_update_view",
-    "description": "Refine one existing view using exact field keys from nix_read_structure. Only patch named settings; unmentioned settings, fields, kind, default and companions stay intact. Shows before and after and always asks for approval. Use nix_edit_form for form pages; read structure and results back after success. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
+    "description": "Refine one existing view using exact field keys from nix_read_structure. Only patch named settings; unmentioned settings, fields, kind, default and companions stay intact. Shows before and after and always asks for approval. Use nix_edit_form for form pages; read structure and results back after success. On a custom view, patch.program replaces its whole program. For form and interactive_form views, mode:\"temporary\" keeps answers in memory and creates no entry; mode:\"saved\" creates entries. Put calculations in formula schema fields, not input blocks.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2045,6 +2049,9 @@
                       "type": "null"
                     }
                   ]
+                },
+                "program": {
+                  "type": "string"
                 }
               },
               "additionalProperties": false

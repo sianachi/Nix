@@ -185,8 +185,33 @@ function omitBlueprintInteractiveFormDetail(schema: unknown): unknown {
   return node;
 }
 
+/**
+ * Removes the `custom` view kind and its `program` wherever a view schema appears. The two
+ * create tools are at the Codex budget, so a custom view is advertised on `add_view` and
+ * `update_view` only; the specs still accept one.
+ */
+export function omitCustomViews(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map((entry) => omitCustomViews(entry));
+  if (schema === null || typeof schema !== 'object') return schema;
+  const node = schema as JsonObject;
+  const properties = node.properties as JsonObject | undefined;
+  const kind = properties?.kind as { enum?: unknown[] } | undefined;
+  if (properties && kind && Array.isArray(kind.enum) && kind.enum.includes('custom')) {
+    const rest: JsonObject = {
+      ...properties,
+      kind: { ...kind, enum: kind.enum.filter((k) => k !== 'custom') },
+    };
+    delete rest.program;
+    node.properties = rest;
+  }
+  for (const key of Object.keys(node)) node[key] = omitCustomViews(node[key]);
+  return node;
+}
+
 function blueprintProperty(): JsonObject {
-  return omitBlueprintInteractiveFormDetail(jsonSchemaOf(blueprintSchema)) as JsonObject;
+  return omitCustomViews(
+    omitBlueprintInteractiveFormDetail(jsonSchemaOf(blueprintSchema)),
+  ) as JsonObject;
 }
 
 function wrap(properties: JsonObject, required: readonly string[]): JsonObject {
@@ -352,13 +377,13 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     description: `Create a new item with a recipe, fields and up to ${String(LIMITS.viewsPerNode)} views per call, under parentId (omit for the workspace root). Items support at most ${String(LIMITS.viewsPerContainer)} views total. Shown for approval before it runs.${TASK_KEYS_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
     properties: {
       title: stringProperty(),
-      spec: jsonSchemaOf(structuredSpecSchema),
+      spec: omitCustomViews(jsonSchemaOf(structuredSpecSchema)),
       parentId: stringProperty(),
     },
     required: ['title', 'spec'],
   }),
   add_view: () => ({
-    description: `Add fields and up to ${String(LIMITS.viewsPerAddView)} views per call to an item's existing schema, within its ${String(LIMITS.viewsPerContainer)}-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view.${TASK_KEYS_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
+    description: `Add fields and up to ${String(LIMITS.viewsPerAddView)} views per call to an item's existing schema, within its ${String(LIMITS.viewsPerContainer)}-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view. A custom view takes program, an openui-lang program (see Custom views).${TASK_KEYS_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
     properties: {
       itemId: stringProperty(ITEM_ID_DESCRIPTION),
       spec: jsonSchemaOf(viewSetupSpecSchema),
@@ -367,7 +392,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
   }),
   update_view: () => ({
     description:
-      'Refine one existing view using exact field keys from nix_read_structure. Only patch named settings; unmentioned settings, fields, kind, default and companions stay intact. Shows before and after and always asks for approval. Use nix_edit_form for form pages; read structure and results back after success.' +
+      'Refine one existing view using exact field keys from nix_read_structure. Only patch named settings; unmentioned settings, fields, kind, default and companions stay intact. Shows before and after and always asks for approval. Use nix_edit_form for form pages; read structure and results back after success. On a custom view, patch.program replaces its whole program.' +
       FORM_MODE_DESCRIPTION,
     properties: {
       itemId: stringProperty(ITEM_ID_DESCRIPTION),

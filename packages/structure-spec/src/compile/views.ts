@@ -198,5 +198,6 @@ export function compileView(
     doneProperty:
       spec.doneProperty !== undefined ? resolveKey(spec.doneProperty, effective, addedKeys) : null,
     rowBy: spec.rowBy !== undefined ? resolveKey(spec.rowBy, effective, addedKeys) : null,
+    ...(spec.program !== undefined ? { program: spec.program } : {}),
   };
 }

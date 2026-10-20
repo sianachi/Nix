@@ -407,6 +407,18 @@
       "requires": null,
       "optional": [],
       "description": "The subtree as a collapsible tree of titles, reshaped by keyboard."
+    },
+    {
+      "kind": "custom",
+      "label": "Custom",
+      "requires": null,
+      "optional": [
+        {
+          "field": "program",
+          "shape": "openui-lang, required"
+        }
+      ],
+      "description": "A program drawn over the children; see Custom views. Only when no kind fits."
     }
   ],
   "queryOperators": [
@@ -424,11 +436,11 @@
     },
     {
       "op": "before",
-      "grammar": "\"today\", \"start-of-week\", \"start-of-month\", \"same-day-last-week\", \"same-day-last-month\" or a yyyy-MM-dd date"
+      "grammar": "a day, as for on"
     },
     {
       "op": "on-or-after",
-      "grammar": "\"today\", \"start-of-week\", \"start-of-month\", \"same-day-last-week\", \"same-day-last-month\" or a yyyy-MM-dd date"
+      "grammar": "a day, as for on"
     },
     {
       "op": "within-next",

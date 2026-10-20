@@ -8,6 +8,8 @@ import type { ValidationContext } from '../validate/report.js';
 import type { StructureProperty, StructureView } from '../types.js';
 import { describeSteps } from '../describe/steps.js';
 import { compileUpdateView } from './update-view.js';
+import { compileView } from './views.js';
+import { viewSpecSchema } from '../spec/view.js';
 
 const effective: StructureProperty[] = [
   { key: 'status', label: 'Status', type: 'select', options: ['New', 'Done'], required: false },
@@ -622,5 +624,73 @@ describe('update-view approval preview', () => {
       ]),
     );
     expect(preview.problems).toEqual([]);
+  });
+});
+
+describe('custom views', () => {
+  const program = 'root = Stack([heading])\nheading = Text("Items", "title")';
+  const custom = view({
+    id: 'custom',
+    name: 'Mine',
+    kind: 'custom',
+    groupBy: null,
+    filters: [],
+    program,
+  });
+
+  it('needs a program on a custom view and refuses one on any other kind', () => {
+    expect(viewSpecSchema.safeParse({ kind: 'custom', program }).success).toBe(true);
+    expect(viewSpecSchema.safeParse({ kind: 'custom' }).success).toBe(false);
+    expect(viewSpecSchema.safeParse({ kind: 'custom', program: '  ' }).success).toBe(false);
+    expect(viewSpecSchema.safeParse({ kind: 'list', program }).success).toBe(false);
+  });
+
+  it('compiles the program into the stored view and shows it on the approval card', () => {
+    const compiled = compileView({ kind: 'custom', program }, effective, new Set());
+    expect(compiled).toMatchObject({ id: 'custom', kind: 'custom', program });
+    expect(compileView({ kind: 'list' }, effective, new Set())).not.toHaveProperty('program');
+    const preview = describeSteps(
+      [
+        {
+          kind: 'appendViewSetup',
+          itemId: 'container',
+          properties: [],
+          views: [compiled],
+          makeDefault: false,
+        },
+      ],
+      {
+        destination: { title: 'Projects', path: ['Projects'] },
+        existing: { declared: [], effective, views: [] },
+        problems: [],
+        warnings: [],
+        truncate: false,
+      },
+    );
+    expect(JSON.stringify(preview.tree)).toContain(JSON.stringify(`Program:\n${program}`));
+  });
+
+  it('replaces the program of a custom view only', () => {
+    const next = `${program}\nnote = Text("More", "note")`;
+    const spec = { viewId: 'custom', patch: { program: next } };
+    expect(validateSpec('update_view', spec, validation([custom])).ok).toBe(true);
+    const { step, selected } = updated(spec, [custom]);
+    expect(selected.program).toBe(next);
+    const preview = describeSteps([step], {
+      destination: { title: 'Projects', path: ['Projects'] },
+      existing: { declared: [], effective, views: [custom] },
+      problems: [],
+      warnings: [],
+      truncate: false,
+    });
+    expect(preview.tree[0]?.children).toEqual([
+      expect.objectContaining({
+        label: 'Program',
+        detail: [`Before: ${program}`, `After: ${next}`],
+      }),
+    ]);
+    expect(
+      validateSpec('update_view', { viewId: 'list', patch: { program } }, validation([view()])).ok,
+    ).toBe(false);
   });
 });

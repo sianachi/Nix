@@ -53,6 +53,7 @@ const VIEW_KINDS = [
   'matrix',
   'outline',
   'chat',
+  'custom',
 ] as const;
 type ViewKind = (typeof VIEW_KINDS)[number];
 
@@ -80,6 +81,7 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   matrix: ['columns', 'rowBy', 'columnBy'],
   outline: [],
   chat: [],
+  custom: ['program'],
 };
 
 const ALL_KIND_GATED_FIELDS = [...new Set(Object.values(KIND_EXTRA_FIELDS).flat())] as const;
@@ -89,6 +91,14 @@ const ALL_KIND_GATED_FIELDS = [...new Set(Object.values(KIND_EXTRA_FIELDS).flat(
 export function isTitleColumnReference(kind: ViewKind, ref: string): boolean {
   return ref === 'title' && KIND_EXTRA_FIELDS[kind].includes('columns');
 }
+
+/** A custom view's openui-lang program. Core's `ViewDefinitionRules.ProgramLimit` counts UTF-8
+ * bytes and refuses a longer one on write; this bounds characters. */
+export const programSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(32 * 1024);
 
 const CALENDAR_MODES = new Set(['day', 'week', 'month']);
 const TIMELINE_MODES = new Set(['week', 'month', 'quarter']);
@@ -126,6 +136,7 @@ export const viewSpecSchema = z
     doneProperty: z.string().min(1).optional(),
     rowBy: z.string().min(1).optional(),
     columnBy: z.string().min(1).optional(),
+    program: programSchema.optional(),
     default: z.boolean().optional(),
     why: z.string().max(200).optional(),
   })
@@ -141,6 +152,14 @@ export const viewSpecSchema = z
           message: `${field} is not valid on a ${view.kind} view.`,
         });
       }
+    }
+
+    if (view.kind === 'custom' && view.program === undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['program'],
+        message: 'A custom view needs a program.',
+      });
     }
 
     if (view.mode !== undefined) {

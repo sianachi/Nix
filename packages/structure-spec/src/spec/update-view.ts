@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { queryOperatorSchema } from './view.js';
+import { programSchema, queryOperatorSchema } from './view.js';
 
 const key = z.string().min(1).max(128);
 const reference = key.nullable();
@@ -57,6 +57,7 @@ export const updateViewSpecSchema = z
         chart: chartPatch.nullable().optional(),
         doneProperty: reference.optional(),
         rowBy: reference.optional(),
+        program: programSchema.optional(),
       })
       .strict()
       .refine((patch) => Object.values(patch).some((value) => value !== undefined), {

@@ -17,7 +17,7 @@ import {
 } from '../spec/index.js';
 import { validateBlueprint } from '../blueprint/validate.js';
 import { validateSpec } from '../validate/spec.js';
-import { buildPetTools, normalizeForCodex } from './tools.js';
+import { buildPetTools, normalizeForCodex, omitCustomViews } from './tools.js';
 import { WORKSPACE_OPERATIONS, LIMITS } from './tables.js';
 import { flattenToolExample, TOOL_EXAMPLES } from './tool-examples.js';
 
@@ -149,9 +149,10 @@ describe('buildPetTools', () => {
     for (const [operation, property, schema] of bySpecSchema) {
       const tool = tools.get(`nix_${operation}`);
       expect(tool, `nix_${operation} is missing`).toBeDefined();
-      const expected = normalizeForCodex(
+      const full = normalizeForCodex(
         z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any', cycles: 'ref' }),
       );
+      const expected = operation === 'create_structured' ? omitCustomViews(full) : full;
       const inputSchema = tool?.inputSchema as { properties: Record<string, unknown> } | undefined;
       expect(inputSchema?.properties[property]).toEqual(expected);
     }
@@ -176,6 +177,18 @@ describe('buildPetTools', () => {
     const json = JSON.stringify(buildBlueprint?.inputSchema);
     expect(json).toContain('interactive_form');
     expect(json).not.toContain('"paragraph"');
+  });
+
+  it('advertises the custom view kind and its program on add_view and update_view only', () => {
+    const tools = new Map(buildPetTools().map((tool) => [tool.name, tool]));
+    const json = (name: string) => JSON.stringify(tools.get(name)?.inputSchema);
+    expect(json('nix_add_view')).toContain('"custom"');
+    expect(json('nix_add_view')).toContain('"program"');
+    expect(json('nix_update_view')).toContain('"program"');
+    for (const name of ['nix_create_structured', 'nix_build_blueprint']) {
+      expect(json(name)).not.toContain('"custom"');
+      expect(json(name)).not.toContain('"program"');
+    }
   });
 });
 

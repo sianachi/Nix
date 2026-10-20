@@ -22,6 +22,8 @@ follows semantic versioning (`0.x` pre-1.0).
   property values, task completion) can be edited before you approve; the pet is told what you
   changed.
 - Ask the pet to adjust a component it just made, and it changes only what you asked.
+- The pet can add a custom view to a collection and change its program; the approval card shows
+  the whole program before and after.
 - Published sites show a notice in place of an interactive component.
 
 **Pet attachments**

@@ -125,6 +125,8 @@ function describeView(
       detail.push(`Asks for ${formatList(labels)}`);
     }
   }
+  // The owner approves the program every viewer's browser will run, so it is shown whole.
+  if (view.program != null) detail.push(`Program:\n${view.program}`);
   return {
     label: `${viewKindLabel(view.kind)} view${view.id === defaultViewId ? ' (default)' : ''}`,
     detail,

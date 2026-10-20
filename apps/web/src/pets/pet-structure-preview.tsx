@@ -144,7 +144,7 @@ function PreviewTreeNode({
           key={`${detail}:${String(index)}`}
           variant="note"
           tone={detailTone(detail)}
-          className="block"
+          className="block whitespace-pre-wrap break-words"
         >
           {detail}
         </Text>

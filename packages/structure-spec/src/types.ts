@@ -172,6 +172,6 @@ export interface StructureView {
   doneProperty?: string | null;
   rowBy?: string | null;
   open?: string | null;
-  /** A custom view's openui-lang program. Carried through a pet rewrite of the view set, never authored by the pet. */
+  /** A custom view's openui-lang program, drawn in the viewer's browser. */
   program?: string | null;
 }

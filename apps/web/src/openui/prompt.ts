@@ -1,6 +1,7 @@
 import type { ToolSpec } from '@openuidev/react-lang';
 
 import { OPENUI_LANGUAGE } from './fence';
+import { STARTER_PROGRAM } from './starter-program';
 import { nixLibrary } from './library';
 import { MUTATION_TOOLS } from './tool-provider';
 
@@ -134,6 +135,18 @@ const EDITING = `## Changing a component
   \`\`\`
 - When currentItemId is an artifact (a saved component), its body is one ${OPENUI_LANGUAGE} block. Read it with nix_read_note and change it with nix_replace_passage, finding the exact statements to replace; the approval card shows the component before and after. Change only what was asked. Its body may also hold an openui-state block with the values people saved: leave that block alone.
 - Before a write tool call you may add one small read-only block that explains the change (a table or chart, no Mutation and no @Run). The approval card is what the owner approves; never claim the block is the change.`;
+/** Custom views: a program kept in a view rather than a reply (`custom-view.tsx` draws it). */
+const CUSTOM_VIEWS = `## Custom views
+
+A custom view stores one ${OPENUI_LANGUAGE} program that Nix draws over a collection for everyone who opens it. Add one with nix_add_view (kind "custom", the program in program) only when the owner asks for a custom view or no other view kind fits; the program goes in the view, not in a fenced block in your reply.
+- \`$container\` stands for the collection's id: read its children with \`Query("list_items", {parentId: $container}, {items: []})\`. Never type the id; the same program then works in any collection. Use \`$container\` only for that, never as a variable you declare or set.
+- Every component, function, Query tool and Mutation operation in these instructions works there. Reads run as the person viewing; every Mutation shows them an approval card. $variables hold each viewer's own values in their browser and never change the view.
+- To change a custom view, read its program from nix_read_structure, then send the whole new program as patch.program in nix_update_view. Change only what was asked.
+
+Start from this program and build on it:
+\`\`\`${OPENUI_LANGUAGE}
+${STARTER_PROGRAM}
+\`\`\``;
 // A form-style tool, a live query, and a stepped quiz: between them every pattern the owner's
 // requests need (bound inputs, expressions, Query, @Set state machines, conditional parts).
 const EXAMPLES = [
@@ -232,6 +245,6 @@ export function openUiPrompt(): string {
     .split(/\n(?=## )/)
     .filter((section) => !DROPPED.has(/^## (.+)/.exec(section)?.[1]?.trim() ?? ''));
   const signatures = sections.findIndex((section) => section.startsWith('## Built-in Functions'));
-  sections.splice(signatures, 0, ACTIONS, MUTATIONS, FORMS, EDITING);
+  sections.splice(signatures, 0, ACTIONS, MUTATIONS, FORMS, EDITING, CUSTOM_VIEWS);
   return sections.join('\n');
 }

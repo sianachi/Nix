@@ -23,6 +23,7 @@ const labels = {
   measureProperty: 'Total property',
   doneProperty: 'Completion field',
   rowBy: 'Matrix rows',
+  program: 'Program',
 } as const;
 const references = new Set<string>([
   'groupBy',
