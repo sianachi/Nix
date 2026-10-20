@@ -183,6 +183,29 @@ describe('companion on a phone', () => {
     expect(await screen.findByRole('heading', { name: 'Chat settings' })).toBeVisible();
   });
 
+  it('keeps the note chat header short on a phone so the messages stay visible', async () => {
+    stubViewport(390);
+    const note = '55555555-5555-4555-8555-555555555555';
+    client.query.mockResolvedValue({
+      ...connected,
+      id: note,
+      title: 'Brag sheet',
+      workspaceId: '33333333-3333-4333-8333-333333333333',
+      locked: false,
+      unlockedUntil: null,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/pet?root=${note}`]}>
+        <PetPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('combobox', { name: 'Note chat access' })).toHaveAttribute(
+      'title',
+      expect.stringContaining('Every change asks first'),
+    );
+    expect(screen.getByText(/Reads this note and its readable children/)).toHaveClass('hidden');
+  });
+
   it('waits for a composer tap before opening a touch tablet keyboard', async () => {
     stubViewport(800);
     const matchMedia = window.matchMedia.bind(window);

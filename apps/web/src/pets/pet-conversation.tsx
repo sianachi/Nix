@@ -910,6 +910,7 @@ export function Conversation({
                   value={noteScope.readOnly ? 'read' : 'edit'}
                   disabled={running || busy}
                   className="min-w-0 max-w-full"
+                  title="Reads this note and its readable children on demand. Every change asks first."
                   onChange={(event) => {
                     noteScope.onReadOnlyChange(event.currentTarget.value === 'read');
                   }}
@@ -917,7 +918,7 @@ export function Conversation({
                   <option value="read">Read only</option>
                   <option value="edit">Approved edits</option>
                 </Select>
-                <Text variant="note" tone="muted">
+                <Text variant="note" tone="muted" className="hidden @md:block">
                   Reads this note and its readable children on demand. Search and results can be
                   partial. Every change asks first.
                 </Text>
