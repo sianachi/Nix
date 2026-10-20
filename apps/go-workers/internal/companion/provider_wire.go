@@ -110,7 +110,14 @@ func (anthropicWire) stream(ctx context.Context, client *http.Client, base, apiK
 		case message.Role == "user" && len(message.ToolResults) > 0:
 			content := make([]map[string]any, 0, len(message.ToolResults))
 			for _, result := range message.ToolResults {
-				content = append(content, map[string]any{"type": "tool_result", "tool_use_id": result.CallID, "content": result.Text, "is_error": result.IsError})
+				var body any = result.Text
+				if media, data, ok := splitDataURL(result.Image); ok {
+					body = []map[string]any{
+						{"type": "text", "text": result.Text},
+						{"type": "image", "source": map[string]any{"type": "base64", "media_type": media, "data": data}},
+					}
+				}
+				content = append(content, map[string]any{"type": "tool_result", "tool_use_id": result.CallID, "content": body, "is_error": result.IsError})
 			}
 			messages = append(messages, map[string]any{"role": "user", "content": content})
 		case message.Role == "assistant":
@@ -338,8 +345,18 @@ func (openrouterWire) stream(ctx context.Context, client *http.Client, base, api
 	for _, message := range thread.Messages {
 		switch {
 		case message.Role == "user" && len(message.ToolResults) > 0:
+			var images []map[string]any
 			for _, result := range message.ToolResults {
 				messages = append(messages, map[string]any{"role": "tool", "tool_call_id": result.CallID, "content": result.Text})
+				if result.Image != "" {
+					images = append(images, map[string]any{"type": "image_url", "image_url": map[string]any{"url": result.Image}})
+				}
+			}
+			// Chat completions take no pictures in a tool message, so they follow as a user
+			// message once every tool call has its answer.
+			if len(images) > 0 {
+				content := append([]map[string]any{{"type": "text", "text": "The picture the tool result above returned."}}, images...)
+				messages = append(messages, map[string]any{"role": "user", "content": content})
 			}
 		case message.Role == "assistant":
 			entry := map[string]any{"role": "assistant", "content": message.Text}
@@ -486,4 +503,14 @@ func (b *boundedReader) Read(p []byte) (int, error) {
 	n, err := b.r.Read(p)
 	b.read += n
 	return n, err
+}
+
+// splitDataURL splits a "data:<media>;base64,<data>" URL; ok is false for anything else.
+func splitDataURL(url string) (media, data string, ok bool) {
+	rest, found := strings.CutPrefix(url, "data:")
+	if !found {
+		return "", "", false
+	}
+	media, data, found = strings.Cut(rest, ";base64,")
+	return media, data, found && media != "" && data != ""
 }

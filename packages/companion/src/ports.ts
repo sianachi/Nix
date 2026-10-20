@@ -67,6 +67,21 @@ export interface CompanionBodies {
   ): Promise<BodyEditResult>;
 }
 
+/** What reading one file item gave: its text, or for an image a `data:image/...;base64` URL the
+ * model sees as a picture. `truncated` says the text stopped short of the whole file. */
+export interface FileRead {
+  fileName: string;
+  mediaType: string;
+  text?: string;
+  image?: string;
+  truncated: boolean;
+}
+
+export interface CompanionFiles {
+  /** Throws `WorkspaceToolRefusal` for a file it cannot turn into text or a picture. */
+  read(itemId: string, signal: AbortSignal): Promise<FileRead>;
+}
+
 /** Everything the executor touches outside its own pure logic, gathered so a
  * caller supplies exactly one object and a test supplies exactly one fake. */
 export interface CompanionPorts {
@@ -75,6 +90,8 @@ export interface CompanionPorts {
   bodies: CompanionBodies;
   clock: CompanionClock;
   ids: CompanionIds;
+  /** Left out where nothing can decode files (the CLI); reading a file then refuses. */
+  files?: CompanionFiles;
 }
 
 export function defaultClock(): CompanionClock {

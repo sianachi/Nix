@@ -54,6 +54,8 @@ type ToolCall struct {
 	pendingSince time.Time
 	claimedAt    time.Time
 	waiters      []json.RawMessage
+	// image is the picture the result carried, kept in memory for replies only.
+	image string
 }
 
 type toolTransport interface {
@@ -389,7 +391,7 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 			// the model and the trace get the full sentence.
 			a.record(key, slog.LevelWarn, "tool.refused", []any{"tool", p.Tool, "stage", "arguments", "reason_code", argumentRefusalCode(reason)}, map[string]any{"arguments": traceRaw(p.Arguments), "reason": reason})
 			if peer, ok := a.transport.(toolTransport); ok {
-				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
+				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested.", ""))
 				return true
 			}
 			return false
@@ -403,21 +405,21 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		if reason := validateToolArguments(flatArguments); reason != "" {
 			a.record(key, slog.LevelWarn, "tool.refused", []any{"tool", p.Tool, "stage", "validation", "reason", reason}, map[string]any{"arguments": traceRaw(p.Arguments), "flat": traceRaw(flatArguments)})
 			if peer, ok := a.transport.(toolTransport); ok {
-				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
+				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested.", ""))
 				return true
 			}
 			return false
 		}
 		if reason := conversationToolRefusal(c, flatArguments); reason != "" {
 			if peer, ok := a.transport.(toolTransport); ok {
-				_ = peer.Reply(id, toolOutput(false, reason))
+				_ = peer.Reply(id, toolOutput(false, reason, ""))
 				return true
 			}
 			return false
 		}
 		if reason := noteScopeToolRefusal(c, string(flatArguments)); reason != "" {
 			if peer, ok := a.transport.(toolTransport); ok {
-				_ = peer.Reply(id, toolOutput(false, reason))
+				_ = peer.Reply(id, toolOutput(false, reason, ""))
 				return true
 			}
 			return false
@@ -452,7 +454,7 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 					return true
 				}
 				if peer, ok := a.transport.(toolTransport); ok {
-					_ = peer.Reply(id, toolOutput(t.Status == "completed", t.Result))
+					_ = peer.Reply(id, toolOutput(t.Status == "completed", t.Result, t.image))
 					return true
 				}
 				return false
@@ -465,7 +467,7 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		if len(c.Tools) >= maxToolCallsPerTurn {
 			a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", p.Tool, "reason", "20 tool calls per turn reached"}, nil)
 			if peer, ok := a.transport.(toolTransport); ok {
-				_ = peer.Reply(id, toolOutput(false, "This turn reached its limit of 20 tool calls. No action ran for this request. Stop calling tools in this turn, report what completed and what remains unverified, and continue the remaining work in a later user turn. Do not repeat completed or uncertain writes."))
+				_ = peer.Reply(id, toolOutput(false, "This turn reached its limit of 20 tool calls. No action ran for this request. Stop calling tools in this turn, report what completed and what remains unverified, and continue the remaining work in a later user turn. Do not repeat completed or uncertain writes.", ""))
 				return true
 			}
 			return false
@@ -535,8 +537,12 @@ func toolIdentity(raw string) (string, bool) {
 	return string(canonical), readOnly
 }
 
-func toolOutput(success bool, result string) any {
-	return map[string]any{"success": success, "contentItems": []any{map[string]string{"type": "inputText", "text": result}}}
+func toolOutput(success bool, result, image string) any {
+	items := []any{map[string]string{"type": "inputText", "text": result}}
+	if image != "" {
+		items = append(items, map[string]string{"type": "inputImage", "imageUrl": image})
+	}
+	return map[string]any{"success": success, "contentItems": items}
 }
 
 // modelParamForItemID names the typed parameter that carries itemId for operation. Every
@@ -817,6 +823,7 @@ func (a *account) resolveTool(key string, r Request) error {
 			return errors.New("tool transport unavailable")
 		}
 		t.Result = strings.TrimSpace(r.ToolResult)
+		t.image = r.ToolImage
 		if t.Result == "" {
 			t.Result = "No result supplied. Do not assume the operation succeeded."
 		}
@@ -843,7 +850,7 @@ func (a *account) resolveTool(key string, r Request) error {
 		}
 		var replyErr error
 		for _, id := range append([]json.RawMessage{t.rpcID}, t.waiters...) {
-			if err := peer.Reply(id, toolOutput(r.ToolSuccess, t.Result)); err != nil {
+			if err := peer.Reply(id, toolOutput(r.ToolSuccess, t.Result, t.image)); err != nil {
 				replyErr = err
 			}
 		}
@@ -869,7 +876,7 @@ func (a *account) cancelToolsLocked(key string) {
 			t.Result = "The turn ended before this request was confirmed. A claimed write may have completed; inspect Nix before retrying."
 			for _, id := range append([]json.RawMessage{t.rpcID}, t.waiters...) {
 				if ok && len(id) > 0 {
-					_ = peer.Reply(id, toolOutput(false, t.Result))
+					_ = peer.Reply(id, toolOutput(false, t.Result, ""))
 				}
 			}
 			t.waiters = nil

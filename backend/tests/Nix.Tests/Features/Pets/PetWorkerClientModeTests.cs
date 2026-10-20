@@ -718,6 +718,61 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     }
 
     [Fact]
+    public async Task A_tool_result_picture_is_forwarded_and_left_out_when_there_is_none()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http);
+
+        Assert.True((await gateway.ExecuteAsync(new("tool_result", WorkspaceGuid, PetGuid, Guid.NewGuid(),
+            ToolId: "read-1", ToolResult: "{}", ToolSuccess: true, ToolImage: "data:image/jpeg;base64,/9j/AA=="), Cancellation)).IsSuccess);
+        using (var body = JsonDocument.Parse(handler.Body))
+        {
+            Assert.Equal("data:image/jpeg;base64,/9j/AA==", body.RootElement.GetProperty("toolImage").GetString());
+        }
+
+        Assert.True((await gateway.ExecuteAsync(new("tool_result", WorkspaceGuid, PetGuid, Guid.NewGuid(),
+            ToolId: "read-1", ToolResult: "{}", ToolSuccess: true), Cancellation)).IsSuccess);
+        using (var body = JsonDocument.Parse(handler.Body))
+        {
+            Assert.False(body.RootElement.TryGetProperty("toolImage", out _));
+        }
+    }
+
+    [Theory]
+    [InlineData("send", "data:image/jpeg;base64,/9j/AA==")]
+    [InlineData("tool_result", "data:image/png;base64,iVBO")]
+    [InlineData("tool_result", "data:image/jpeg;base64,/9j/\nAA")]
+    [InlineData("tool_result", "https://example.com/a.jpg")]
+    [InlineData("tool_result", "data:image/jpeg;base64,")]
+    public async Task A_picture_that_is_not_a_jpeg_data_url_on_a_tool_result_never_reaches_the_worker(string operation, string image)
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http);
+
+        var result = await gateway.ExecuteAsync(new(operation, WorkspaceGuid, PetGuid, Guid.NewGuid(), operation == "send" ? "Hi" : "",
+            ToolId: "read-1", ToolResult: "{}", ToolSuccess: true, ToolImage: image), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task A_picture_longer_than_the_bound_never_reaches_the_worker()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = SendGateway(handler, http);
+
+        var result = await gateway.ExecuteAsync(new("tool_result", WorkspaceGuid, PetGuid, Guid.NewGuid(), ToolId: "read-1", ToolResult: "{}",
+            ToolImage: "data:image/jpeg;base64," + new string('A', PetWorkerClient.MaxToolImageLength)), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
     public async Task A_message_from_the_worker_carries_no_actions_member()
     {
         // An older worker still writes an actions array; Core's contract no longer has one, so

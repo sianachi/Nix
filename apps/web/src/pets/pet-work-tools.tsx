@@ -27,6 +27,7 @@ import { ApprovalSummary } from './approval/approval-summary';
 import { EditRequest, isEditable, type EditedRequest } from './approval/edit-request';
 import type { StructureFingerprint } from '@nix/companion';
 import { readReadWithoutAsking } from './device-preferences';
+import { createFileReader } from './pet-file-reader';
 
 interface ToolPreviewState {
   loading: boolean;
@@ -390,6 +391,7 @@ export function PetWorkTools({
       onChange(claimed);
       let toolResult = refusalResult ?? DECLINED_BY_USER;
       let toolSuccess = false;
+      let toolImage: string | undefined;
       let notRun: string | undefined;
       // A declined result (its problems) can quote a locked note just as a read can.
       let toolLockedContent = refusalQuotesLockedContent;
@@ -406,6 +408,7 @@ export function PetWorkTools({
               bodies: createCompanionBodies(client),
               clock: defaultClock(),
               ids: defaultIds(),
+              files: createFileReader(client),
             },
             workspaceId,
             edited?.arguments ?? tool.arguments,
@@ -421,6 +424,7 @@ export function PetWorkTools({
           );
           // An owner's edit is what ran, so the pet hears it before the result.
           toolResult = outcome.text;
+          toolImage = outcome.image;
           toolSuccess = true;
           toolLockedContent = outcome.lockedContent;
           if (args.operation === 'build_blueprint') {
@@ -453,6 +457,7 @@ export function PetWorkTools({
           toolResult,
           toolSuccess,
           toolLockedContent,
+          ...(toolImage === undefined ? {} : { toolImage }),
         }),
         { signal },
       );

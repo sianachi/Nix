@@ -4950,6 +4950,8 @@ export interface components {
       itemIds?: null | string[];
       /** Format: uuid */
       replaceFromMessageId?: null | string;
+      /** @default  */
+      toolImage: string;
     };
     PetSettings: {
       enabled: boolean;

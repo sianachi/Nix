@@ -324,7 +324,7 @@ func TestAnthropicToolCallRoundTripsThroughTheHandlerAndReply(t *testing.T) {
 	var handled []string
 	peer.SetRequestHandler(func(id json.RawMessage, method string, params json.RawMessage) bool {
 		handled = append(handled, method+" "+string(params))
-		go func() { _ = peer.Reply(id, toolOutput(true, "Note says hello")) }()
+		go func() { _ = peer.Reply(id, toolOutput(true, "Note says hello", "")) }()
 		return true
 	})
 	tools := []any{map[string]any{"name": "nix_read_note", "description": "read", "inputSchema": map[string]any{"type": "object"}}}
@@ -600,5 +600,77 @@ func TestInterruptWhileAToolWaitsAnswersEveryCall(t *testing.T) {
 	last := messages[len(messages)-1]
 	if len(last.ToolResults) != 2 || !last.ToolResults[0].IsError || last.ToolResults[1].CallID != "call-2" {
 		t.Fatalf("the stopped tool calls were left unanswered: %+v", last)
+	}
+}
+
+func TestAToolResultPictureReachesEachProviderInItsOwnShape(t *testing.T) {
+	const picture = "data:image/jpeg;base64,/9j/AAAA"
+	for _, tc := range []struct {
+		kind, firstReply, done string
+		want                   []string
+	}{
+		{
+			kind:       "anthropic",
+			firstReply: "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call-1\",\"name\":\"nix_read_note\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+			done:       "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+			want:       []string{`"type":"tool_result"`, `"type":"image"`, `"media_type":"image/jpeg"`, `"data":"/9j/AAAA"`},
+		},
+		{
+			kind:       "openrouter",
+			firstReply: "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"function\":{\"name\":\"nix_read_note\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n",
+			done:       "data: {\"choices\":[{\"delta\":{\"content\":\"Done\"}}]}\n\ndata: [DONE]\n\n",
+			want:       []string{`"role":"tool"`, `"type":"image_url"`, `"url":"` + picture + `"`},
+		},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				calls++
+				w.Header().Set("Content-Type", "text/event-stream")
+				if calls == 1 {
+					_, _ = fmt.Fprint(w, tc.firstReply)
+					return
+				}
+				for _, want := range tc.want {
+					if !strings.Contains(string(body), want) {
+						t.Errorf("second request lacks %s: %s", want, body)
+					}
+				}
+				_, _ = fmt.Fprint(w, tc.done)
+			}))
+			defer server.Close()
+			n := newNotifications()
+			transport := testTransport(t, tc.kind, server.URL, n.notify)
+			peer := transport.(toolTransport)
+			peer.SetRequestHandler(func(id json.RawMessage, _ string, _ json.RawMessage) bool {
+				go func() { _ = peer.Reply(id, toolOutput(true, `{"fileName":"shot.png"}`, picture)) }()
+				return true
+			})
+			tools := []any{map[string]any{"name": "nix_read_note", "description": "read", "inputSchema": map[string]any{"type": "object"}}}
+			startThreadAndTurn(t, transport, tools, "What is in the screenshot?")
+			n.wait(t)
+			if calls != 2 {
+				t.Fatalf("expected two provider requests, got %d", calls)
+			}
+		})
+	}
+}
+
+func TestToolImageIsAcceptedOnlyAsAJpegDataURLWithAToolResult(t *testing.T) {
+	for _, tc := range []struct {
+		operation, image string
+		ok               bool
+	}{
+		{"tool_result", "", true},
+		{"tool_result", "data:image/jpeg;base64,/9j/AA==", true},
+		{"send", "data:image/jpeg;base64,/9j/AA==", false},
+		{"tool_result", "data:image/png;base64,iVBO", false},
+		{"tool_result", "data:image/jpeg;base64,/9j/\nAA", false},
+		{"tool_result", "data:image/jpeg;base64," + strings.Repeat("A", maxToolImageLength), false},
+	} {
+		if got := validToolImage(Request{Operation: tc.operation, ToolImage: tc.image}); got != tc.ok {
+			t.Errorf("validToolImage(%s, %.40q) = %v, want %v", tc.operation, tc.image, got, tc.ok)
+		}
 	}
 }

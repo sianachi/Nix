@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createFakePorts } from './testing/fake-ports.js';
 import { runWorkspaceTool } from './run.js';
 import { structureFingerprint } from './guards.js';
@@ -103,6 +103,40 @@ describe('workspace-scoped companion tools', () => {
       expect(operation === 'read_note' ? bodies.read : bodies.append).toHaveBeenCalledOnce();
     },
   );
+  it('reads a file item through the files port and sends its picture beside the text', async () => {
+    const { ports, query, bodies, signal } = setup();
+    query.mockResolvedValue({ id: itemId, workspaceId: workspace, title: 'Shot', type: 'file' });
+    const read = vi.fn().mockResolvedValue({
+      fileName: 'shot.png',
+      mediaType: 'image/png',
+      image: 'data:image/jpeg;base64,/9j/AA==',
+      truncated: false,
+    });
+    const outcome = await runWorkspaceTool(
+      { ...ports, files: { read } },
+      workspace,
+      input('read_note', { itemId }),
+      signal,
+    );
+    expect(read).toHaveBeenCalledWith(itemId, signal);
+    expect(bodies.read).not.toHaveBeenCalled();
+    expect(outcome.image).toBe('data:image/jpeg;base64,/9j/AA==');
+    expect(JSON.parse(outcome.text)).toEqual({
+      id: itemId,
+      title: 'Shot',
+      type: 'file',
+      fileName: 'shot.png',
+      mediaType: 'image/png',
+      truncated: false,
+    });
+  });
+  it('refuses a file item where no files port can read it', async () => {
+    const { ports, query, signal } = setup();
+    query.mockResolvedValue({ id: itemId, workspaceId: workspace, title: 'Doc', type: 'file' });
+    await expect(
+      runWorkspaceTool(ports, workspace, input('read_note', { itemId }), signal),
+    ).rejects.toThrow(WorkspaceToolRefusal);
+  });
   it('bounds list results and tells the model when they are incomplete', async () => {
     const { ports, paginate, signal } = setup();
     paginate.mockImplementation(async function* () {

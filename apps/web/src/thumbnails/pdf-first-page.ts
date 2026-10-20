@@ -110,10 +110,82 @@ export async function renderPdfFirstPage(
     throw new RangeError('maxSide must be a positive number of pixels.');
   }
   const maxSide = Math.min(Math.floor(options.maxSide), PDF_THUMBNAIL_MAX_SIDE_LIMIT);
+  return withPdf(bytes, options.signal, async (pdf, stop) => {
+    const page = await pdf.getPage(1);
+    stop.throwIfAborted();
+    const natural = page.getViewport({ scale: 1 });
+    const longer = Math.max(natural.width, natural.height);
+    if (!(longer > 0)) throw new PdfThumbnailError('unreadable');
+    // The pixel count follows from the longer side: at most maxSide squared, and never more than
+    // the cap on either side.
+    const viewport = page.getViewport({ scale: maxSide / longer });
+    const width = Math.max(1, Math.min(maxSide, Math.round(viewport.width)));
+    const height = Math.max(1, Math.min(maxSide, Math.round(viewport.height)));
+
+    const surface = createSurface(width, height);
+    // JPEG has no alpha, and a page with no background of its own would come out black. White
+    // paper whatever the theme, so this is the CSS keyword and not a theme token.
+    surface.context.fillStyle = 'white';
+    surface.context.fillRect(0, 0, width, height);
+    const render: RenderTask = page.render({
+      canvas: null,
+      canvasContext: surface.context,
+      viewport,
+    });
+    stop.addEventListener(
+      'abort',
+      () => {
+        render.cancel();
+      },
+      { once: true },
+    );
+    await render.promise;
+    stop.throwIfAborted();
+
+    const blob = await surface.encode();
+    if (blob === null) throw new PdfThumbnailError('failed');
+    return blob;
+  });
+}
+
+/** The text of a PDF's pages, in order, cut at `maxChars`; `truncated` says whether anything
+ * was left out. Same engine, limits and teardown as the thumbnail. */
+export async function extractPdfText(
+  bytes: ArrayBuffer | Blob,
+  options: { readonly maxChars: number; readonly maxPages: number; readonly signal?: AbortSignal },
+): Promise<{ text: string; pages: number; truncated: boolean }> {
+  return withPdf(bytes, options.signal, async (pdf, stop) => {
+    let text = '';
+    const pages = Math.min(pdf.numPages, options.maxPages);
+    for (let number = 1; number <= pages && text.length < options.maxChars; number++) {
+      const page = await pdf.getPage(number);
+      stop.throwIfAborted();
+      const content = await page.getTextContent();
+      stop.throwIfAborted();
+      const line = content.items
+        .map((item) => ('str' in item ? item.str + (item.hasEOL ? '\n' : '') : ''))
+        .join('');
+      text += `${text ? '\n\n' : ''}${line.trim()}`;
+    }
+    return {
+      text: text.slice(0, options.maxChars),
+      pages: pdf.numPages,
+      truncated: text.length > options.maxChars || pdf.numPages > pages,
+    };
+  });
+}
+
+/** Opens `bytes` in a worker of its own, hands the document to `read`, and tears everything down
+ * on every exit. `read` must stop at `stop` aborting: the deadline or the caller's cancellation. */
+async function withPdf<T>(
+  bytes: ArrayBuffer | Blob,
+  signal: AbortSignal | undefined,
+  read: (pdf: PDFDocumentProxy, stop: AbortSignal) => Promise<T>,
+): Promise<T> {
   const byteLength = bytes instanceof Blob ? bytes.size : bytes.byteLength;
   if (byteLength > PDF_THUMBNAIL_MAX_BYTES) throw new PdfThumbnailError('too-large');
   if (byteLength === 0) throw new PdfThumbnailError('unreadable');
-  if (options.signal?.aborted === true) throw abortError();
+  if (signal?.aborted === true) throw abortError();
 
   // One signal for the caller's cancellation and our own deadline, so there is one place that
   // decides the work is over.
@@ -121,14 +193,13 @@ export async function renderPdfFirstPage(
   const onCallerAbort = () => {
     stop.abort(abortError());
   };
-  options.signal?.addEventListener('abort', onCallerAbort, { once: true });
+  signal?.addEventListener('abort', onCallerAbort, { once: true });
   const timer = setTimeout(() => {
     stop.abort(new PdfThumbnailError('timeout'));
   }, PDF_THUMBNAIL_TIMEOUT_MS);
 
   let worker: PDFWorker | undefined;
   let task: PDFDocumentLoadingTask | undefined;
-  let render: RenderTask | undefined;
 
   const abandoned = new Promise<never>((_, reject) => {
     stop.signal.addEventListener(
@@ -142,7 +213,7 @@ export async function renderPdfFirstPage(
   // `abandoned` is only ever raced; a rejection nobody is racing yet is not an unhandled one.
   abandoned.catch(() => undefined);
 
-  const draw = async (): Promise<Blob> => {
+  const open = async (): Promise<T> => {
     const { pdfjs, createWorker } = await loadEngine();
     stop.signal.throwIfAborted();
     // The data is copied into a view over its own buffer for the worker; for an ArrayBuffer the
@@ -183,33 +254,10 @@ export async function renderPdfFirstPage(
     });
     const pdf: PDFDocumentProxy = await task.promise;
     stop.signal.throwIfAborted();
-
-    const page = await pdf.getPage(1);
-    stop.signal.throwIfAborted();
-    const natural = page.getViewport({ scale: 1 });
-    const longer = Math.max(natural.width, natural.height);
-    if (!(longer > 0)) throw new PdfThumbnailError('unreadable');
-    // The pixel count follows from the longer side: at most maxSide squared, and never more than
-    // the cap on either side.
-    const viewport = page.getViewport({ scale: maxSide / longer });
-    const width = Math.max(1, Math.min(maxSide, Math.round(viewport.width)));
-    const height = Math.max(1, Math.min(maxSide, Math.round(viewport.height)));
-
-    const surface = createSurface(width, height);
-    // JPEG has no alpha, and a page with no background of its own would come out black. White
-    // paper whatever the theme, so this is the CSS keyword and not a theme token.
-    surface.context.fillStyle = 'white';
-    surface.context.fillRect(0, 0, width, height);
-    render = page.render({ canvas: null, canvasContext: surface.context, viewport });
-    await render.promise;
-    stop.signal.throwIfAborted();
-
-    const blob = await surface.encode();
-    if (blob === null) throw new PdfThumbnailError('failed');
-    return blob;
+    return read(pdf, stop.signal);
   };
 
-  const working = draw();
+  const working = open();
   // If the deadline wins the race, `working` is left to fail on its own once its resources are
   // destroyed below; that failure is expected and not worth an unhandled rejection.
   working.catch(() => undefined);
@@ -220,14 +268,14 @@ export async function renderPdfFirstPage(
     if (error instanceof PdfThumbnailError) throw error;
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     // Anything else came out of the parser or the renderer: a password, a damaged file, a feature
-    // it does not support. All of them mean this file has no thumbnail.
+    // it does not support. All of them mean this file cannot be read.
     throw new PdfThumbnailError('unreadable');
   } finally {
     clearTimeout(timer);
-    options.signal?.removeEventListener('abort', onCallerAbort);
+    signal?.removeEventListener('abort', onCallerAbort);
     // Every exit path, abort included. Destroying the worker terminates its thread outright, so
     // none of this waits on a parser that may be stuck.
-    render?.cancel();
+    stop.abort(abortError());
     void task?.destroy().catch(() => undefined);
     worker?.destroy();
   }

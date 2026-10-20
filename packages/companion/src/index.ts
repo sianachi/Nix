@@ -7,6 +7,8 @@ export {
   type BodyEditResult,
   type CompanionBodies,
   type CompanionClock,
+  type CompanionFiles,
+  type FileRead,
   type CompanionIds,
   type CompanionPorts,
 } from './ports.js';

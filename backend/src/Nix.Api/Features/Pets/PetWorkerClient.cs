@@ -119,6 +119,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             || request.Text is null || request.SharedText is null || request.Text.Length > 8000 || request.SharedText.Length > 16000
             || request.Model is null || request.Model.Length > 160 || request.ToolId is null || request.ToolId.Length > 200
             || request.ToolResult is null || request.ToolResult.Length > 32000
+            || request.ToolImage is null || request.ToolImage.Length > 0 && (request.Operation != "tool_result" || !IsValidToolImage(request.ToolImage))
             || request.Operation is "tool_claim" or "tool_result" && (request.RequestId is null || request.RequestId == Guid.Empty || request.ToolId.Length == 0)
             || request.Mode is null || request.Mode is not ("" or "chat" or "consult")
             || request.RootItemId == Guid.Empty
@@ -266,7 +267,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             request.Mode, after, request.Today, request.TimeZone, request.RootItemId is null ? request.WorkspaceMap : null, request.ToolLockedContent,
             request.RootItemId?.ToString(), request.ReadOnly, sharedItems.Count > 0 ? sharedItems : null,
             request.ReplaceFromMessageId?.ToString(), provider == PetProviders.ChatGpt ? null : provider, apiKey, conversationItemId?.ToString(),
-            sourceWorkspaceIds?.Select(id => id.ToString()).ToArray(), earlierMessages), PetJsonContext.Default.PetWorkerRequest);
+            sourceWorkspaceIds?.Select(id => id.ToString()).ToArray(), earlierMessages,
+            request.ToolImage.Length > 0 ? request.ToolImage : null), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
@@ -326,6 +328,23 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             return Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion is unreachable. Check the existing worker and try again."));
         }
     }
+
+    /// <summary>The longest picture a tool result may carry; the worker checks the same bound.</summary>
+    public const int MaxToolImageLength = 1_000_000;
+
+    /// <summary>A runtime request's body cap: a tool result with its picture and room for the rest.</summary>
+    public const long MaxRuntimeRequestBytes = 1_200_000;
+
+    /// <summary>A JPEG as a base64 data URL and nothing else: no other type, parameters or whitespace.</summary>
+    internal static bool IsValidToolImage(string image)
+    {
+        const string prefix = "data:image/jpeg;base64,";
+        return image.Length <= MaxToolImageLength && image.StartsWith(prefix, StringComparison.Ordinal) && image.Length > prefix.Length
+            && !image.AsSpan(prefix.Length).TrimEnd('=').ContainsAnyExcept(Base64Characters);
+    }
+
+    private static readonly System.Buffers.SearchValues<char> Base64Characters =
+        System.Buffers.SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
 
     /// <summary>The most items one send may attach.</summary>
     public const int MaxSharedItems = 5;

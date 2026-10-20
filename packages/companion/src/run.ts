@@ -71,6 +71,8 @@ export interface WorkspaceToolOutcome {
    * The web gate holds every later write in the same turn for the owner when it is true; writes
    * always report false. */
   lockedContent: boolean;
+  /** A file read's picture, as a `data:image/...;base64` URL, sent beside `text`. */
+  image?: string;
 }
 
 /** Execute only after the caller claims and approves this exact tool request. */
@@ -94,6 +96,7 @@ export async function runWorkspaceTool(
   // The items a read returned content from, checked for a covering lock once the read is done.
   let unboundedReadProvenance = false;
   let contentSources: (string | null | undefined)[] = [];
+  let image: string | undefined;
   const check = (id: string) =>
     options.scope
       ? checkNoteScopedItem(ports, workspaceId, id, signal, options.scope)
@@ -526,6 +529,17 @@ export async function runWorkspaceTool(
         }
         case 'read_note':
         case 'append_note':
+          if (args.operation === 'read_note' && item.type === 'file') {
+            if (!ports.files)
+              throw new WorkspaceToolRefusal(
+                'Files cannot be read here. Ask the owner to open it.',
+              );
+            const { image: picture, ...read } = await ports.files.read(item.id, signal);
+            result = { id: item.id, title: item.title, type: item.type, ...read };
+            image = picture;
+            contentSources = [item.id];
+            break;
+          }
           if (!hasProseBody(item.type))
             throw new Error('This operation supports note bodies only.');
           result =
@@ -602,6 +616,7 @@ export async function runWorkspaceTool(
       text.length <= 16000
         ? text
         : JSON.stringify({ truncated: true, preview: text.slice(0, 15000) }),
+    ...(image === undefined ? {} : { image }),
     readOnly,
     touchedParents: [
       'create_note',

@@ -74,13 +74,16 @@ public sealed record PetWorkspaceMapEntry(Guid Id, string Title, string Type, IR
 /// <c>Text</c> is the new title for <c>rename</c>. <c>HistoryId</c> names the archive for <c>read_history</c>,
 /// <c>delete_history</c> and <c>resume_history</c>, and for <c>rename</c> when it renames an archive rather
 /// than the live conversation.
+/// <c>ToolImage</c> (tool_result only) is a picture the result carries, a <c>data:image/jpeg;base64</c> URL of
+/// at most <see cref="PetWorkerClient.MaxToolImageLength"/> characters, read by the browser from a file the
+/// caller could open.
 /// </remarks>
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",
     string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null,
     string Mode = "", string Today = "", string TimeZone = "", IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap = null,
     bool ToolLockedContent = false, Guid? RootItemId = null, bool ReadOnly = false,
-    IReadOnlyList<Guid>? ItemIds = null, Guid? ReplaceFromMessageId = null);
+    IReadOnlyList<Guid>? ItemIds = null, Guid? ReplaceFromMessageId = null, string ToolImage = "");
 
 /// <summary>One item attached to a turn: its id and the title Core read for it.</summary>
 internal sealed record PetWorkerItem(string Id, string Title);
@@ -100,7 +103,8 @@ internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, str
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApiKey = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ConversationItemId = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? SourceWorkspaceIds = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<PetMessage>? EarlierMessages = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<PetMessage>? EarlierMessages = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ToolImage = null);
 
 /// <summary>One inline writing request from the editor: the person's selection and what to do with it.</summary>
 /// <param name="WorkspaceId">The workspace the item is in.</param>

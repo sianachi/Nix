@@ -28,9 +28,11 @@ internal static class PetEndpoints
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
             .ProducesProblem(StatusCodes.Status404NotFound);
         group.MapPost("/runtime", Runtime).WithName("PetRuntime")
+            .WithRequestBodyLimit(PetWorkerClient.MaxRuntimeRequestBytes)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
             .ProducesProblem(StatusCodes.Status409Conflict);
         group.MapPost("/runtime/note", RuntimeNote).WithName("PetNoteRuntime")
+            .WithRequestBodyLimit(PetWorkerClient.MaxRuntimeRequestBytes)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)

@@ -54,8 +54,12 @@ type Request struct {
 	ToolSuccess        bool      `json:"toolSuccess"`
 	// ToolLockedContent says the tool result being reported came from an item under a lock (the
 	// executor's lockedContent). It sets the conversation's LockedRead.
-	ToolLockedContent bool   `json:"toolLockedContent"`
-	HistoryID         string `json:"historyId"`
+	ToolLockedContent bool `json:"toolLockedContent"`
+	// ToolImage is a picture a tool_result carries (a file the browser read), as a JPEG data
+	// URL. It goes to the model beside ToolResult and is never logged or stored with the
+	// conversation; an API-key provider's thread history keeps it like the rest of the result.
+	ToolImage string `json:"toolImage"`
+	HistoryID string `json:"historyId"`
 	// InlineKind, ContextText and Language belong to the "inline" operation only (inline.go):
 	// the kind of writing task, the surrounding note text for context, and the translate target.
 	InlineKind  string `json:"inlineKind"`
@@ -85,6 +89,16 @@ type Request struct {
 type SharedItem struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
+}
+
+// maxToolImageLength bounds ToolImage; Core enforces the same bound on the way in.
+const maxToolImageLength = 1_000_000
+
+var toolImagePattern = regexp.MustCompile(`^data:image/jpeg;base64,[A-Za-z0-9+/]+={0,2}$`)
+
+// validToolImage: no picture, or a JPEG data URL with a tool result.
+func validToolImage(r Request) bool {
+	return r.ToolImage == "" || r.Operation == "tool_result" && len(r.ToolImage) <= maxToolImageLength && toolImagePattern.MatchString(r.ToolImage)
 }
 
 // maxSharedItems bounds Items; Core enforces the same bound on the way in.
@@ -367,7 +381,8 @@ func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	r.Body = http.MaxBytesReader(w, r.Body, 512<<10)
+	// Room for a tool result's picture (maxToolImageLength); every other field is bounded below.
+	r.Body = http.MaxBytesReader(w, r.Body, 1200<<10)
 	var request Request
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -445,7 +460,7 @@ func validRequest(r Request) bool {
 	case "status", "connect", "disconnect", "models":
 		return true
 	case "read", "watch", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history", "rename", "resume_history":
-		return validHistoryOp(r) && uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && (r.RootItemID == "" || uuid.MatchString(r.RootItemID)) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && utf16Len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
+		return validHistoryOp(r) && uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && (r.RootItemID == "" || uuid.MatchString(r.RootItemID)) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && utf16Len(r.ToolResult) <= 32000 && validToolImage(r) && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
 	default:
 		return false
 	}

@@ -65,6 +65,8 @@ type providerToolResult struct {
 	CallID  string `json:"callId"`
 	Text    string `json:"text"`
 	IsError bool   `json:"isError"`
+	// Image is a picture the result carried, a JPEG data URL; each wire encodes it its own way.
+	Image string `json:"image,omitempty"`
 }
 
 type httpThread struct {
@@ -78,6 +80,7 @@ type httpThread struct {
 
 type toolReply struct {
 	text    string
+	image   string
 	success bool
 }
 
@@ -137,13 +140,20 @@ func (t *httpTransport) Reply(id json.RawMessage, result any) error {
 	var out struct {
 		Success      bool `json:"success"`
 		ContentItems []struct {
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			ImageURL string `json:"imageUrl"`
 		} `json:"contentItems"`
 	}
 	_ = json.Unmarshal(encoded, &out)
-	text := ""
+	text, image := "", ""
 	if len(out.ContentItems) > 0 {
 		text = out.ContentItems[0].Text
+	}
+	for _, item := range out.ContentItems {
+		if item.Type == "inputImage" {
+			image = item.ImageURL
+		}
 	}
 	t.mu.Lock()
 	ch := t.replies[string(id)]
@@ -152,7 +162,7 @@ func (t *httpTransport) Reply(id json.RawMessage, result any) error {
 		return errors.New("no pending tool call for that id")
 	}
 	select {
-	case ch <- toolReply{text: text, success: out.Success}:
+	case ch <- toolReply{text: text, image: image, success: out.Success}:
 	default:
 	}
 	return nil
@@ -439,7 +449,7 @@ func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID 
 				finish("interrupted", nil)
 				return
 			}
-			results = append(results, providerToolResult{CallID: call.ID, Text: reply.text, IsError: !reply.success})
+			results = append(results, providerToolResult{CallID: call.ID, Text: reply.text, Image: reply.image, IsError: !reply.success})
 		}
 		t.mu.Lock()
 		thread.Messages = append(thread.Messages, providerMessage{Role: "user", ToolResults: results})

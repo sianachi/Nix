@@ -24,6 +24,11 @@ follows semantic versioning (`0.x` pre-1.0).
 - Ask the pet to adjust a component it just made, and it changes only what you asked.
 - Published sites show a notice in place of an interactive component.
 
+**Pet attachments**
+
+- The pet reads files you attach or link in a note: text, Markdown, CSV and JSON as text, PDFs
+  by their text (a scanned PDF by a picture of its first page), and images as pictures it can see.
+
 **Vim mode**
 
 - Text objects (`iw`, `aw`, quotes, brackets, `ip`, `ap`) with `d`, `c`, `y` and in Visual mode.

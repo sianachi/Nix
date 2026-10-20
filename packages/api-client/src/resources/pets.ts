@@ -124,6 +124,8 @@ export interface RuntimeInput {
   readonly toolId?: string;
   readonly toolResult?: string;
   readonly toolSuccess?: boolean;
+  /** With a tool result: a picture the result carries, as a `data:image/...;base64` URL. */
+  readonly toolImage?: string;
   /** With a tool result: the result came from an item under a lock (marks the conversation). */
   readonly toolLockedContent?: boolean;
   /** The archive a `read_history`, `delete_history`, `resume_history` or archived `rename` names. */
@@ -166,6 +168,7 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
       toolId: input.toolId ?? '',
       toolResult: input.toolResult ?? '',
       toolSuccess: input.toolSuccess ?? false,
+      toolImage: input.toolImage ?? '',
       toolLockedContent: input.toolLockedContent ?? false,
       mode: input.mode ?? '',
       today: input.today ?? '',

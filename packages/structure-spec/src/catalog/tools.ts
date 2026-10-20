@@ -245,7 +245,8 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     required: ['itemId'],
   }),
   read_note: () => ({
-    description: "Read a note's Markdown body. Read-only.",
+    description:
+      "Read a note's Markdown body, or a file item's content: text, CSV, JSON and PDF as text, images as a picture. Read-only.",
     properties: { itemId: stringProperty(ITEM_ID_DESCRIPTION) },
     required: ['itemId'],
   }),
