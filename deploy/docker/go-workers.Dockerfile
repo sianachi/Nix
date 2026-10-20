@@ -6,7 +6,7 @@ COPY apps/go-workers/go.mod ./
 COPY apps/go-workers ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/nix-worker ./cmd/nix-worker
 
-FROM node:22-bookworm-slim AS codex
+FROM node:26-bookworm-slim AS codex
 ARG CODEX_VERSION=0.153.4
 RUN npm install --global @openai/codex@${CODEX_VERSION}
 
