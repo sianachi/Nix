@@ -21,6 +21,8 @@ pnpm dev                           # infrastructure, database, identity, then ev
 
 Open <http://localhost:5173> and sign in as `dev@nix.localhost` with `NixDev-Password1!`. These are local development credentials only.
 
+`pnpm install` also installs the git hooks in `lefthook.yml`: staged files are formatted on commit, and the workspace packages are rebuilt after a pull or branch switch that changes `packages/`. Skip them once with `LEFTHOOK=0`.
+
 `pnpm dev` is safe to re-run. `bash scripts/dev.sh --help` shows how to start only some services. Ports can be overridden; see `.env.example`.
 
 ## Check your change
@@ -45,6 +47,8 @@ pnpm --filter @nix/web test
 dotnet test backend/tests/Nix.Tests/Nix.Tests.csproj
 go -C apps/go-workers test ./...
 ```
+
+If the dev database behaves differently from CI, `./scripts/dev-db-drift.sh` diffs its schema (owners and grants included) against a scratch database built from your checkout's migrations.
 
 The backend integration tests need Docker. If you cannot run a check, say so in the PR.
 
