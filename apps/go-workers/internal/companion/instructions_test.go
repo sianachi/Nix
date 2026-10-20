@@ -155,3 +155,24 @@ func TestInstructionsReadTheOpenNoteSearchAndCite(t *testing.T) {
 		}
 	}
 }
+
+func TestInstructionsPreferComponentsOverNewItems(t *testing.T) {
+	text := instructions()
+	for _, want := range []string{
+		"fenced code block tagged openui-lang",
+		"only when the owner asks to create, add, save, track, record or set up something",
+		"A component is never a reason to create items.",
+		"Every run shows the owner Nix's approval card first",
+		"openui-lang patch",
+		"Form(name, submitButton, [fields])",
+		"When currentItemId is an artifact",
+		"ItemList(items:",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("instructions omit %q", want)
+		}
+	}
+	if strings.Index(text, "## Interactive replies") < strings.Index(text, " Nix capabilities: ") {
+		t.Error("the interactive-reply catalog must follow the structure capabilities")
+	}
+}
