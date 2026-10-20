@@ -31,7 +31,7 @@ import {
 } from './list-columns';
 import { ListRows, type RowSelection } from './list-rows';
 import { ListSections } from './list-sections';
-import { MobileListRows, MobileSortBar } from './mobile-list-rows';
+import { MobileListRows } from './mobile-list-rows';
 import type { ContainerData } from '../core/use-container';
 import { drawable, useViewChrome, ViewSettingsLink } from '../core/view-chrome';
 import { viewConfigureHref } from '../core/view-configure-route';
@@ -283,7 +283,7 @@ export function ListView(props: ListViewProps): ReactNode {
       return next;
     });
   };
-  const rowsFor = (items: readonly Item[], caption: string, showSort: boolean): ReactNode =>
+  const rowsFor = (items: readonly Item[], caption: string): ReactNode =>
     narrow ? (
       <MobileListRows
         items={items}
@@ -293,7 +293,6 @@ export function ListView(props: ListViewProps): ReactNode {
         rowContextMenu={rowContextMenu}
         rowSelection={rowSelection}
         caption={caption}
-        showSort={showSort}
       />
     ) : (
       <ListRows
@@ -361,21 +360,14 @@ export function ListView(props: ListViewProps): ReactNode {
       {sectionNotice}
 
       {sections === null ? (
-        rowsFor(chrome.items, ITEMS_CAPTION, true)
+        rowsFor(chrome.items, ITEMS_CAPTION)
       ) : (
         <>
-          {narrow ? (
-            <MobileSortBar
-              columns={columns.filter((column) => column.key !== SELECT_COLUMN_KEY)}
-              sort={sort}
-              onSortChange={onSortChange}
-            />
-          ) : null}
           <ListSections
             sections={sections}
             collapsed={collapsed}
             onToggle={toggleSection}
-            renderRows={(section) => rowsFor(section.items, section.label, false)}
+            renderRows={(section) => rowsFor(section.items, section.label)}
           />
         </>
       )}

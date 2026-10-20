@@ -69,7 +69,9 @@ export function Container(): ReactElement {
 export const SavedFilters = {
   render: Container,
   play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
-    await userEvent.click(within(canvasElement).getByRole('button', { name: 'View filters (1)' }));
+    await userEvent.click(
+      within(canvasElement).getByRole('button', { name: 'View options, 1 saved filters' }),
+    );
   },
 };
 
@@ -89,7 +91,7 @@ export const Refused = {
   ),
   play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole('button', { name: 'View filters (1)' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'View options, 1 saved filters' }));
     await userEvent.click(canvas.getByRole('button', { name: 'Save view filters' }));
   },
 };
@@ -104,16 +106,10 @@ export const NarrowPane = {
   ),
   play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole('button', { name: 'View filters (1)' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'View options, 1 saved filters' }));
     const region = canvas.getByRole('region', { name: 'View tools pane' });
     if (region.scrollWidth > region.clientWidth)
       throw new Error('Search and filter controls must fit within a narrow pane.');
-    if (
-      canvas.getByRole('searchbox', { name: 'Search titles' }).clientWidth <
-      region.clientWidth * 0.8
-    ) {
-      throw new Error('Title search must retain a usable width beside active filter controls.');
-    }
   },
 };
 export const DarkNarrowPane = { ...NarrowPane, globals: { ground: 'dark' } };

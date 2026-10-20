@@ -1,7 +1,6 @@
 import {
   Button,
   ContextMenu,
-  Select,
   Text,
   cn,
   type ContextMenuTargetProps,
@@ -16,13 +15,10 @@ import type { ListRowsProps } from './list-rows';
 export function MobileListRows({
   items,
   columns: allColumns,
-  sort,
-  onSortChange,
   rowContextMenu,
   rowSelection,
   caption,
-  showSort,
-}: ListRowsProps & { readonly showSort: boolean }): ReactNode {
+}: ListRowsProps): ReactNode {
   const [limit, setLimit] = useState(40);
   // The selection gutter is not a field: it is drawn beside the row, and only while selecting.
   const columns = allColumns.filter((column) => column.key !== SELECT_COLUMN_KEY);
@@ -30,9 +26,6 @@ export function MobileListRows({
   const selecting = items.some(rowSelection.selected);
   return (
     <section aria-label={caption} className="flex min-w-0 flex-col gap-3">
-      {showSort ? (
-        <MobileSortBar columns={columns} sort={sort} onSortChange={onSortChange} />
-      ) : null}
       <ul className="divide-y divide-divider">
         {items.slice(0, limit).map((item) =>
           // A long press is the phone's right-click: the same actions the desktop rows offer, so a
@@ -78,59 +71,6 @@ export function MobileListRows({
         </Button>
       ) : null}
     </section>
-  );
-}
-
-/**
- * The phone's sort control: a select for the key and a button for the direction, because a phone
- * has no column headers to click. Drawn once above a grouped list rather than once per section -
- * the sort applies inside every section alike, and five copies of one control would be four
- * controls too many.
- */
-export function MobileSortBar({
-  columns,
-  sort,
-  onSortChange,
-}: Pick<ListRowsProps, 'columns' | 'sort' | 'onSortChange'>): ReactNode {
-  return (
-    <div role="group" aria-label="List sort" className="flex flex-wrap items-center gap-2">
-      <Text as="span" variant="caption">
-        Sort by
-      </Text>
-      <Select
-        aria-label="Sort by"
-        value={sort?.columnKey ?? ''}
-        className="w-auto min-w-0 flex-1"
-        onChange={(event) => {
-          onSortChange({
-            columnKey: event.target.value,
-            direction: sort?.direction ?? 'ascending',
-          });
-        }}
-      >
-        <option value="" disabled>
-          Item order
-        </option>
-        {columns.map((column) => (
-          <option key={column.key} value={column.key}>
-            {column.header}
-          </option>
-        ))}
-      </Select>
-      <Button
-        variant="ghost"
-        disabled={!sort}
-        onClick={() => {
-          if (sort)
-            onSortChange({
-              ...sort,
-              direction: sort.direction === 'ascending' ? 'descending' : 'ascending',
-            });
-        }}
-      >
-        {sort?.direction === 'descending' ? 'Descending' : 'Ascending'}
-      </Button>
-    </div>
   );
 }
 

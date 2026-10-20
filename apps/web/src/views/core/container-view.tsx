@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Text } from '@nix/ui';
-import { useNarrowViewport, useRoomForAnotherPane } from '../../layout/viewport';
+import { useCoarsePointer, useNarrowViewport, useRoomForAnotherPane } from '../../layout/viewport';
 import { useOptionalItemCommands } from '../../items/item-commands-context';
 import { useItemDialog } from '../../items/item-dialog-context';
 
@@ -52,6 +52,7 @@ export function ContainerView({
 }: ContainerViewProps): ReactNode {
   const openDialog = useItemDialog();
   const narrow = useNarrowViewport();
+  const coarse = useCoarsePointer();
   const roomForPane = useRoomForAnotherPane();
   // One policy decides how an activated row opens; see open-policy.ts.
   const mode = resolveOpenMode({
@@ -138,7 +139,7 @@ export function ContainerView({
   ) : null;
   // What a drop does here, said before it happens rather than discovered afterwards.
   const dragHint =
-    capabilities.drag === null || container.locked ? null : (
+    capabilities.drag === null || container.locked || coarse ? null : (
       <Text as="p" variant="caption" tone="muted">
         {DRAG_EFFECT_COPY[capabilities.drag]}
       </Text>

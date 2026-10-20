@@ -1,8 +1,9 @@
-import { Icon, focusRing } from '@nix/ui';
+import { Icon, Select, focusRing } from '@nix/ui';
 import { FileText, List as ListIcon, TriangleAlert } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 
+import { useNarrowViewport } from '../../layout/viewport';
 import { DOCUMENT_VIEW, type View } from './container-model';
 import { findViewKind } from './view-kinds';
 
@@ -89,13 +90,43 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
 
 function ViewStrip(props: ViewSwitcherProps): ReactNode {
   const { trailing } = props;
-  const strip = <ViewTabs {...props} />;
+  const narrow = useNarrowViewport();
+  const strip = narrow ? <ViewSelect {...props} /> : <ViewTabs {...props} />;
   return trailing === undefined ? (
     strip
   ) : (
     <div className="flex min-w-0 items-center">
       <div className="min-w-0 flex-1">{strip}</div>
       <div className="flex shrink-0 items-center gap-1 pr-3">{trailing}</div>
+    </div>
+  );
+}
+
+/** The phone's picker: one native select, so six long view names never push into the item controls. */
+function ViewSelect(props: ViewSwitcherProps): ReactNode {
+  const { views, unrenderable, activeViewId, onSelect, documentLabel, documentHidden, defaultViewId } =
+    props;
+  const mark = (name: string, id: string): string =>
+    `${name}${id === defaultViewId ? ' (default)' : ''}${unrenderable.includes(id) ? ' (needs attention)' : ''}`;
+  return (
+    <div className="min-w-0 px-4 py-1.5">
+      <Select
+        aria-label="View"
+        value={activeViewId ?? ''}
+        onChange={(event) => {
+          onSelect(event.target.value);
+        }}
+      >
+        {activeViewId === '' || activeViewId === null ? <option value="" hidden disabled /> : null}
+        {documentLabel === undefined || documentHidden === true ? null : (
+          <option value={DOCUMENT_VIEW}>{mark(documentLabel, DOCUMENT_VIEW)}</option>
+        )}
+        {views.map((view) => (
+          <option key={view.id} value={view.id}>
+            {mark(view.name, view.id)}
+          </option>
+        ))}
+      </Select>
     </div>
   );
 }

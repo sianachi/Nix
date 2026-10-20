@@ -1,39 +1,67 @@
-import { Button, Field, Input, Text } from '@nix/ui';
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { Button, Icon, Input, Popover, Segmented, Select, Text } from '@nix/ui';
+import { Search, SlidersHorizontal, X } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
 
+import { useNarrowViewport } from '../../layout/viewport';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
+import { TITLE_COLUMN_KEY } from './columns';
 import type { PropertyDefinition, View, ViewFilterRule } from './container-model';
-import type { ViewStateControl } from './view-state';
+import type { SortDirection, ViewStateControl } from './view-state';
 
 export interface ViewToolsProps {
   readonly view: View | null;
   readonly schema: readonly PropertyDefinition[];
-  readonly viewState: Pick<ViewStateControl, 'search' | 'setSearch' | 'filters' | 'clearFilters'>;
+  readonly viewState: Pick<
+    ViewStateControl,
+    | 'search'
+    | 'setSearch'
+    | 'filters'
+    | 'clearFilters'
+    | 'sortBy'
+    | 'direction'
+    | 'setSort'
+    | 'clearSort'
+  >;
   readonly onSave: (filters: readonly ViewFilterRule[]) => Promise<string | null>;
 }
 
+const DIRECTIONS = [
+  { value: 'ascending', label: 'Ascending' },
+  { value: 'descending', label: 'Descending' },
+] as const;
+
+/**
+ * Search, sort and saved filters as one compact row of icons. Sort and saved filters live in the
+ * "View options" popover; on a phone the search field opens only when asked for, so the row costs
+ * one line rather than the stack of label, field, hint and button it used to.
+ */
 export function ViewTools({ view, schema, viewState, onSave }: ViewToolsProps): ReactNode {
-  const panelId = useId();
+  const narrow = useNarrowViewport();
   const searchInput = useRef<HTMLInputElement>(null);
-  const filterTrigger = useRef<HTMLButtonElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  // The draft lives here, not in the popover, so dismissing the popover never loses an edit.
   const [draft, setDraft] = useState<readonly ViewFilterRule[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const savedCount = view?.filters.length ?? 0;
+  const showSearch = !narrow || searchOpen || viewState.search.length > 0;
 
-  function closeFilters(): void {
+  function discard(): void {
     setDraft(null);
     setError(null);
-    requestAnimationFrame(() => filterTrigger.current?.focus());
   }
 
-  async function save(): Promise<void> {
-    if (draft === null || saving) return;
+  async function save(close: () => void): Promise<void> {
+    if (saving) return;
     setSaving(true);
     setError(null);
     try {
-      const refusal = await onSave(draft);
+      const refusal = await onSave(draft ?? view?.filters ?? []);
       if (refusal !== null) setError(refusal);
-      else closeFilters();
+      else {
+        discard();
+        close();
+      }
     } catch {
       setError('The filters could not be saved. Your changes are still here.');
     } finally {
@@ -41,102 +69,170 @@ export function ViewTools({ view, schema, viewState, onSave }: ViewToolsProps): 
     }
   }
 
+  const clearSearch = (
+    <Button
+      variant="icon"
+      aria-label="Clear search"
+      onClick={() => {
+        viewState.setSearch('');
+        searchInput.current?.focus();
+      }}
+    >
+      <Icon icon={X} size="sm" />
+    </Button>
+  );
+  const search = (
+    <Input
+      ref={searchInput}
+      type="search"
+      aria-label="Search titles"
+      placeholder="Search titles"
+      className={narrow ? 'min-w-0 flex-1' : 'w-48'}
+      value={viewState.search}
+      onChange={(event) => {
+        viewState.setSearch(event.target.value);
+      }}
+    />
+  );
+  const hasSearch = viewState.search.length > 0;
+
   return (
-    <div className="flex min-w-0 flex-col gap-3 pb-3">
-      <div className="flex min-w-0 flex-wrap items-end gap-2">
-        <div className="min-w-0 flex-1 basis-full">
-          <Field
-            label="Search titles"
-            hint={
-              view?.kind === 'query'
-                ? 'Search the loaded smart list results.'
-                : 'Search the loaded items in this view.'
-            }
-          >
-            {(control) => (
-              <Input
-                {...control}
-                ref={searchInput}
-                type="search"
-                value={viewState.search}
-                onChange={(event) => {
-                  viewState.setSearch(event.target.value);
-                }}
-              />
-            )}
-          </Field>
-        </div>
-        {viewState.search.length === 0 ? null : (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              viewState.setSearch('');
-              searchInput.current?.focus();
-            }}
-          >
-            Clear search
-          </Button>
-        )}
-        {view === null ? null : (
-          <Button
-            ref={filterTrigger}
-            variant="secondary"
-            aria-expanded={draft !== null}
-            aria-controls={panelId}
-            disabled={saving}
-            onClick={() => {
-              setDraft(draft === null ? view.filters : null);
-              setError(null);
-            }}
-          >
-            View filters{view.filters.length === 0 ? '' : ` (${String(view.filters.length)})`}
-          </Button>
-        )}
-        {viewState.filters.length === 0 ? null : (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              viewState.clearFilters();
-              searchInput.current?.focus();
-            }}
-          >
-            Clear link filters ({String(viewState.filters.length)})
-          </Button>
-        )}
-      </div>
-      {draft === null ? null : (
-        <section
-          id={panelId}
-          aria-label="Saved view filters"
-          className="flex min-w-0 flex-col gap-3 border border-divider p-3"
-          aria-busy={saving}
+    <div className="flex min-w-0 flex-wrap items-center gap-2 pb-3">
+      {narrow ? (
+        <Button
+          variant="icon"
+          aria-label="Search titles"
+          aria-expanded={showSearch}
+          onClick={() => {
+            setSearchOpen(true);
+            requestAnimationFrame(() => searchInput.current?.focus());
+          }}
         >
-          <Text variant="note" tone="muted">
-            Saving changes this view&apos;s filters for everyone. Title search only changes your
-            current link.
-          </Text>
-          <fieldset disabled={saving} className="min-w-0">
-            <FilterRulesEditor
-              scope={view?.kind === 'query' ? 'query' : 'container'}
-              rules={draft}
-              schema={schema}
-              onChange={setDraft}
-            />
-          </fieldset>
-          {error === null ? null : (
-            <Text variant="note" tone="accent" role="alert">
-              {error}
-            </Text>
-          )}
-          <div className="flex flex-wrap gap-2">
-            <Button variant="primary" disabled={saving} onClick={() => void save()}>
-              {saving ? 'Saving filters…' : 'Save view filters'}
-            </Button>
-            <Button variant="ghost" disabled={saving} onClick={closeFilters}>
-              Cancel
-            </Button>
+          <Icon icon={Search} size="sm" />
+        </Button>
+      ) : (
+        search
+      )}
+      {!narrow && hasSearch ? clearSearch : null}
+      <Popover
+        label="View options"
+        trigger={(trigger) => (
+          <Button
+            {...trigger}
+            variant="icon"
+            aria-label={`View options${savedCount === 0 ? '' : `, ${String(savedCount)} saved filters`}`}
+            className="w-auto gap-1 px-2"
+          >
+            <Icon icon={SlidersHorizontal} size="sm" />
+            {savedCount === 0 ? null : (
+              <Text as="span" variant="caption">
+                {savedCount}
+              </Text>
+            )}
+          </Button>
+        )}
+        className="w-80"
+      >
+        {({ close }) => (
+          <div className="flex min-w-0 flex-col gap-3">
+            <SortControls schema={schema} viewState={viewState} />
+            {view === null ? null : (
+              <section
+                aria-label="Saved view filters"
+                className="flex min-w-0 flex-col gap-3 border-t border-divider pt-3"
+                aria-busy={saving}
+              >
+                <Text variant="note" tone="muted">
+                  Saving changes this view&apos;s filters for everyone. Title search only changes
+                  your current link.
+                </Text>
+                <fieldset disabled={saving} className="min-w-0">
+                  <FilterRulesEditor
+                    scope={view.kind === 'query' ? 'query' : 'container'}
+                    rules={draft ?? view.filters}
+                    schema={schema}
+                    onChange={setDraft}
+                  />
+                </fieldset>
+                {error === null ? null : (
+                  <Text variant="note" tone="accent" role="alert">
+                    {error}
+                  </Text>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="primary" disabled={saving} onClick={() => void save(close)}>
+                    {saving ? 'Saving filters…' : 'Save view filters'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={saving}
+                    onClick={() => {
+                      discard();
+                      close();
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </section>
+            )}
           </div>
-        </section>
+        )}
+      </Popover>
+      {viewState.filters.length === 0 ? null : (
+        <Button
+          variant="ghost"
+          onClick={() => {
+            viewState.clearFilters();
+            searchInput.current?.focus();
+          }}
+        >
+          Clear link filters ({String(viewState.filters.length)})
+        </Button>
+      )}
+      {narrow && showSearch ? (
+        <div className="order-last flex basis-full items-center gap-2">
+          {search}
+          {hasSearch ? clearSearch : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SortControls({
+  schema,
+  viewState,
+}: Pick<ViewToolsProps, 'schema' | 'viewState'>): ReactNode {
+  const { sortBy, direction, setSort, clearSort } = viewState;
+  return (
+    <div role="group" aria-label="Sort" className="flex min-w-0 flex-col gap-2">
+      <Select
+        aria-label="Sort by"
+        value={sortBy ?? ''}
+        onChange={(event) => {
+          const key = event.target.value;
+          if (key === '') clearSort();
+          else setSort(key, direction);
+        }}
+      >
+        <option value="">View&apos;s order</option>
+        <option value={TITLE_COLUMN_KEY}>Title</option>
+        {schema.map((property) => (
+          <option key={property.key} value={property.key}>
+            {property.label}
+          </option>
+        ))}
+      </Select>
+      {sortBy === null ? null : (
+        <Segmented<SortDirection>
+          label="Direction"
+          options={DIRECTIONS}
+          value={direction}
+          onChange={(next) => {
+            setSort(sortBy, next);
+          }}
+        />
       )}
     </div>
   );

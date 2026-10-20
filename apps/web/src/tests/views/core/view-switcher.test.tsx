@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { View } from '../../../views/core/container-model';
 import { ViewSwitcher } from '../../../views/core/view-switcher';
+import { stubViewport } from '../../stub-viewport';
 import { aView } from '../../view-fixture';
 
 /**
@@ -167,5 +168,33 @@ describe('the view switcher', () => {
 
     expect(screen.queryByRole('button', { name: 'Body' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^all$/i })).toBeVisible();
+  });
+
+  it('is one native picker on a phone, marking the default and broken views', async () => {
+    stubViewport(false);
+    const onSelect = vi.fn();
+    try {
+      render(
+        <ViewSwitcher
+          views={VIEWS}
+          unrenderable={['by-status']}
+          activeViewId="all"
+          defaultViewId="all"
+          documentLabel="Body"
+          onSelect={onSelect}
+        />,
+      );
+      const picker = screen.getByRole('combobox', { name: 'View' });
+      expect(picker).toHaveValue('all');
+      expect(screen.getByRole('option', { name: 'All (default)' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('option', { name: 'By status (needs attention)' }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^all$/i })).not.toBeInTheDocument();
+      await userEvent.selectOptions(picker, 'schedule');
+      expect(onSelect).toHaveBeenCalledWith('schedule');
+    } finally {
+      stubViewport(true);
+    }
   });
 });

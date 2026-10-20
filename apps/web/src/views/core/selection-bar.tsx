@@ -1,4 +1,5 @@
 import { Button, Text, blueprintFrame, cn } from '@nix/ui';
+import { useCoarsePointer } from '../../layout/viewport';
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 export interface SelectionBarProps {
@@ -81,6 +82,7 @@ function Tray(props: SelectionBarProps): ReactNode {
     compact = false,
   } = props;
   const bar = useRef<HTMLDivElement>(null);
+  const coarse = useCoarsePointer();
 
   // The toolbar's arrow keys: left and right walk its buttons, Home and End jump to the ends.
   // Tab keeps its ordinary order, because the per-view actions are arbitrary buttons.
@@ -137,12 +139,14 @@ function Tray(props: SelectionBarProps): ReactNode {
       <span aria-hidden="true" className="w-px self-stretch bg-divider" />
       <Button variant="ghost" onClick={onClear}>
         Clear
-        <kbd
-          aria-hidden="true"
-          className="ml-2 rounded-sm bg-background px-1.5 font-body text-xs text-muted"
-        >
-          Esc
-        </kbd>
+        {coarse ? null : (
+          <kbd
+            aria-hidden="true"
+            className="ml-2 rounded-sm bg-background px-1.5 font-body text-xs text-muted"
+          >
+            Esc
+          </kbd>
+        )}
       </Button>
     </div>
   );

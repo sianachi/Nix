@@ -24,7 +24,7 @@ function Subject({
   return (
     <ViewTools
       view={aView({ filters: [...rules] })}
-      schema={[]}
+      schema={[{ key: 'status', label: 'Status', type: 'select' } as never]}
       viewState={state}
       onSave={onSave}
     />
@@ -55,7 +55,7 @@ describe('view search and saved filters', () => {
     const user = userEvent.setup();
     const onSave = vi.fn(() => Promise.resolve(null));
     renderAt(<Subject onSave={onSave} />);
-    await user.click(screen.getByRole('button', { name: 'View filters (1)' }));
+    await user.click(screen.getByRole('button', { name: 'View options, 1 saved filters' }));
     expect(screen.getByRole('region', { name: 'Saved view filters' })).toHaveTextContent(
       'for everyone',
     );
@@ -64,7 +64,7 @@ describe('view search and saved filters', () => {
     expect(onSave).toHaveBeenCalledExactlyOnceWith(rules);
     expect(screen.queryByRole('region', { name: 'Saved view filters' })).not.toBeInTheDocument();
     await vi.waitFor(() =>
-      expect(screen.getByRole('button', { name: 'View filters (1)' })).toHaveFocus(),
+      expect(screen.getByRole('button', { name: 'View options, 1 saved filters' })).toHaveFocus(),
     );
   });
 
@@ -72,7 +72,7 @@ describe('view search and saved filters', () => {
     const user = userEvent.setup();
     const onSave = vi.fn(() => Promise.resolve('You cannot edit this view.'));
     renderAt(<Subject onSave={onSave} />);
-    await user.click(screen.getByRole('button', { name: 'View filters (1)' }));
+    await user.click(screen.getByRole('button', { name: 'View options, 1 saved filters' }));
     await user.click(screen.getByRole('button', { name: 'Save view filters' }));
     expect(screen.getByRole('alert')).toHaveTextContent('You cannot edit this view.');
     expect(screen.getByRole('region', { name: 'Saved view filters' })).toBeVisible();
@@ -80,17 +80,39 @@ describe('view search and saved filters', () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('region', { name: 'Saved view filters' })).not.toBeInTheDocument();
     await vi.waitFor(() =>
-      expect(screen.getByRole('button', { name: 'View filters (1)' })).toHaveFocus(),
+      expect(screen.getByRole('button', { name: 'View options, 1 saved filters' })).toHaveFocus(),
     );
   });
 
   it('keeps failed changes editable when saving unexpectedly throws', async () => {
     const user = userEvent.setup();
     renderAt(<Subject onSave={() => Promise.reject(new Error('Transport failed'))} />);
-    await user.click(screen.getByRole('button', { name: 'View filters (1)' }));
+    await user.click(screen.getByRole('button', { name: 'View options, 1 saved filters' }));
     await user.click(screen.getByRole('button', { name: 'Save view filters' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Your changes are still here.');
     expect(screen.getByRole('button', { name: 'Save view filters' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  });
+
+  it('sets and clears the sort from the View options popover', async () => {
+    const user = userEvent.setup();
+    renderAt(<Subject />, '/?sort=status&dir=descending');
+    await user.click(screen.getByRole('button', { name: 'View options, 1 saved filters' }));
+    expect(screen.getByRole('combobox', { name: 'Sort by' })).toHaveValue('status');
+    await user.click(screen.getByRole('button', { name: 'Ascending' }));
+    expect(screen.getByRole('button', { name: 'Ascending' })).toHaveAttribute('aria-current');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), '');
+    expect(screen.queryByRole('button', { name: 'Ascending' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the filter draft when the popover is dismissed with Escape', async () => {
+    const user = userEvent.setup();
+    renderAt(<Subject />);
+    await user.click(screen.getByRole('button', { name: 'View options, 1 saved filters' }));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('region', { name: 'Saved view filters' })).not.toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'View options, 1 saved filters' })).toHaveFocus(),
+    );
   });
 });
