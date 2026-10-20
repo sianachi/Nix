@@ -1,0 +1,840 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "Stack": {
+      "$ref": "#/$defs/Stack"
+    },
+    "Row": {
+      "$ref": "#/$defs/Row"
+    },
+    "Grid": {
+      "$ref": "#/$defs/Grid"
+    },
+    "Card": {
+      "$ref": "#/$defs/Card"
+    },
+    "Text": {
+      "$ref": "#/$defs/Text"
+    },
+    "Stat": {
+      "$ref": "#/$defs/Stat"
+    },
+    "Button": {
+      "$ref": "#/$defs/Button"
+    },
+    "NumberInput": {
+      "$ref": "#/$defs/NumberInput"
+    },
+    "TextInput": {
+      "$ref": "#/$defs/TextInput"
+    },
+    "TextArea": {
+      "$ref": "#/$defs/TextArea"
+    },
+    "Select": {
+      "$ref": "#/$defs/Select"
+    },
+    "Slider": {
+      "$ref": "#/$defs/Slider"
+    },
+    "Toggle": {
+      "$ref": "#/$defs/Toggle"
+    },
+    "Table": {
+      "$ref": "#/$defs/Table"
+    },
+    "Chart": {
+      "$ref": "#/$defs/Chart"
+    },
+    "ItemList": {
+      "$ref": "#/$defs/ItemList"
+    },
+    "Form": {
+      "$ref": "#/$defs/Form"
+    }
+  },
+  "required": [
+    "Stack",
+    "Row",
+    "Grid",
+    "Card",
+    "Text",
+    "Stat",
+    "Button",
+    "NumberInput",
+    "TextInput",
+    "TextArea",
+    "Select",
+    "Slider",
+    "Toggle",
+    "Table",
+    "Chart",
+    "ItemList",
+    "Form"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Stack": {
+      "type": "object",
+      "properties": {
+        "children": {
+          "type": "array",
+          "items": {}
+        },
+        "gap": {
+          "type": "string",
+          "enum": [
+            "s",
+            "m",
+            "l"
+          ]
+        }
+      },
+      "required": [
+        "children"
+      ],
+      "additionalProperties": false,
+      "description": "Vertical layout. The root of every program."
+    },
+    "Row": {
+      "type": "object",
+      "properties": {
+        "children": {
+          "type": "array",
+          "items": {}
+        },
+        "align": {
+          "type": "string",
+          "enum": [
+            "start",
+            "center",
+            "between"
+          ]
+        }
+      },
+      "required": [
+        "children"
+      ],
+      "additionalProperties": false,
+      "description": "Horizontal layout that wraps on narrow screens."
+    },
+    "Grid": {
+      "type": "object",
+      "properties": {
+        "children": {
+          "type": "array",
+          "items": {}
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        }
+      },
+      "required": [
+        "children",
+        "columns"
+      ],
+      "additionalProperties": false,
+      "description": "Equal-width grid, for keypads, option tiles and stat rows."
+    },
+    "Card": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {}
+        }
+      },
+      "required": [
+        "title",
+        "children"
+      ],
+      "additionalProperties": false,
+      "description": "A titled, bordered group."
+    },
+    "Text": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "display",
+            "title",
+            "body",
+            "note",
+            "caption"
+          ]
+        },
+        "tone": {
+          "type": "string",
+          "enum": [
+            "default",
+            "muted",
+            "accent"
+          ]
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "Text or a computed value. display is large, for a calculator screen or a result."
+    },
+    "Stat": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "unit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "A labelled figure, such as a result or a total."
+    },
+    "Button": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/ActionExpression"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "secondary",
+            "ghost"
+          ]
+        }
+      },
+      "required": [
+        "label",
+        "action"
+      ],
+      "additionalProperties": false,
+      "description": "Runs an Action: @Set or @Reset state, @Run a query, or ask the pet."
+    },
+    "ActionExpression": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "open_url"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "continue_conversation"
+            },
+            "context": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "params": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NumberInput": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "step": {
+          "type": "number"
+        },
+        "rules": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "email": {
+              "type": "boolean"
+            },
+            "url": {
+              "type": "boolean"
+            },
+            "numeric": {
+              "type": "boolean"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "minLength": {
+              "type": "number"
+            },
+            "maxLength": {
+              "type": "number"
+            },
+            "pattern": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "A number field bound to a $variable."
+    },
+    "TextInput": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "rules": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "email": {
+              "type": "boolean"
+            },
+            "url": {
+              "type": "boolean"
+            },
+            "numeric": {
+              "type": "boolean"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "minLength": {
+              "type": "number"
+            },
+            "maxLength": {
+              "type": "number"
+            },
+            "pattern": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "A text field bound to a $variable."
+    },
+    "TextArea": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20
+        },
+        "rules": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "email": {
+              "type": "boolean"
+            },
+            "url": {
+              "type": "boolean"
+            },
+            "numeric": {
+              "type": "boolean"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "minLength": {
+              "type": "number"
+            },
+            "maxLength": {
+              "type": "number"
+            },
+            "pattern": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "Multi-line text bound to a $variable, for notes and longer answers."
+    },
+    "Select": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "rules": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "email": {
+              "type": "boolean"
+            },
+            "url": {
+              "type": "boolean"
+            },
+            "numeric": {
+              "type": "boolean"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "minLength": {
+              "type": "number"
+            },
+            "maxLength": {
+              "type": "number"
+            },
+            "pattern": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "label",
+        "value",
+        "options"
+      ],
+      "additionalProperties": false,
+      "description": "A choice from a list, bound to a $variable holding the chosen value."
+    },
+    "Slider": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "step": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "value",
+        "min",
+        "max"
+      ],
+      "additionalProperties": false,
+      "description": "A range slider bound to a $variable."
+    },
+    "Toggle": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "boolean"
+        },
+        "rules": {
+          "type": "object",
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "email": {
+              "type": "boolean"
+            },
+            "url": {
+              "type": "boolean"
+            },
+            "numeric": {
+              "type": "boolean"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "minLength": {
+              "type": "number"
+            },
+            "maxLength": {
+              "type": "number"
+            },
+            "pattern": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "A checkbox bound to a true/false $variable."
+    },
+    "Table": {
+      "type": "object",
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "number",
+                "null"
+              ]
+            }
+          }
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "columns",
+        "rows"
+      ],
+      "additionalProperties": false,
+      "description": "Rows of cells under column headers."
+    },
+    "Chart": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "column",
+            "line",
+            "pie"
+          ]
+        },
+        "caption": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "series": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            },
+            "required": [
+              "label",
+              "values"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "caption",
+        "labels",
+        "series"
+      ],
+      "additionalProperties": false,
+      "description": "A column, line or pie chart over labelled buckets, with its figures as a table."
+    },
+    "ItemList": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "workspaceId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "empty": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "additionalProperties": false,
+      "description": "Nix items that open on click. Pass Query results (search.results, items.items), never typed-out titles."
+    },
+    "Form": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "submit": {},
+        "fields": {
+          "type": "array",
+          "items": {}
+        }
+      },
+      "required": [
+        "name",
+        "submit",
+        "fields"
+      ],
+      "additionalProperties": false,
+      "description": "Groups inputs whose rules are checked when submit (a Button) is pressed; the action runs only when every field passes."
+    }
+  },
+  "functions": {
+    "Today": {
+      "description": "Today's date in the owner's time zone, as yyyy-MM-dd.",
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "returns": {
+        "type": "string"
+      }
+    },
+    "AddDays": {
+      "description": "The yyyy-MM-dd day n days after day (n may be negative).",
+      "params": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "n": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "day",
+          "n"
+        ],
+        "additionalProperties": false
+      },
+      "returns": {
+        "type": "string"
+      }
+    },
+    "DaysBetween": {
+      "description": "Whole days from one yyyy-MM-dd day to another; negative when to is earlier.",
+      "params": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false
+      },
+      "returns": {
+        "type": "number"
+      }
+    },
+    "FormatDate": {
+      "description": "A yyyy-MM-dd day for reading: \"short\" (Sep 1, 2026), \"long\" or \"weekday\".",
+      "params": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "short",
+              "long",
+              "weekday"
+            ]
+          }
+        },
+        "required": [
+          "day"
+        ],
+        "additionalProperties": false
+      },
+      "returns": {
+        "type": "string"
+      }
+    }
+  }
+}

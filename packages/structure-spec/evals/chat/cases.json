@@ -14,20 +14,37 @@
       "max": 12
     },
     "asserts": [
-      { "kind": "child", "parent": "books-note", "title": "^Piranesi$", "count": 1 },
+      {
+        "kind": "child",
+        "parent": "books-note",
+        "title": "^Piranesi$",
+        "count": 1
+      },
       {
         "kind": "child",
         "parent": "books-note",
         "title": "^The Left Hand of Darkness$",
         "count": 1
       },
-      { "kind": "child", "parent": "books-note", "title": "^A Memory Called Empire$", "count": 1 },
+      {
+        "kind": "child",
+        "parent": "books-note",
+        "title": "^A Memory Called Empire$",
+        "count": 1
+      },
       {
         "kind": "note",
         "item": "books-note",
         "contains": "Piranesi[\\s\\S]*The Left Hand of Darkness[\\s\\S]*A Memory Called Empire"
       },
-      { "kind": "view", "item": "books-note", "name": "Books", "equals": { "kind": "list" } }
+      {
+        "kind": "view",
+        "item": "books-note",
+        "name": "Books",
+        "equals": {
+          "kind": "list"
+        }
+      }
     ]
   },
   {
@@ -46,7 +63,12 @@
         "count": 1,
         "noteContains": "Pay rent[\\s\\S]*Call dentist|Call dentist[\\s\\S]*Pay rent"
       },
-      { "kind": "value", "item": "task-report", "key": "status", "equals": "Doing" }
+      {
+        "kind": "value",
+        "item": "task-report",
+        "key": "status",
+        "equals": "Doing"
+      }
     ]
   },
   {
@@ -1710,5 +1732,210 @@
         "title": "importer"
       }
     ]
+  },
+  {
+    "id": "openui-keypad-calculator",
+    "prompt": "I need a keypad calculator.",
+    "tools": {
+      "forbid": [
+        "create_note",
+        "create_structured",
+        "create_entries",
+        "build_blueprint",
+        "append_note",
+        "set_properties"
+      ],
+      "max": 2
+    },
+    "answerChecks": {
+      "openui": {
+        "components": ["Grid", "Button", "Text"]
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-tdee-calculator",
+    "prompt": "Build me a TDEE calculator.",
+    "tools": {
+      "forbid": [
+        "create_note",
+        "create_structured",
+        "create_entries",
+        "build_blueprint",
+        "append_note",
+        "set_properties"
+      ],
+      "max": 2
+    },
+    "answerChecks": {
+      "openui": {
+        "components": ["NumberInput", "Select", "Stat"]
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-cat-quiz",
+    "prompt": "Make an 'Are you a cat?' quiz with three questions.",
+    "tools": {
+      "forbid": [
+        "create_note",
+        "create_structured",
+        "create_entries",
+        "build_blueprint",
+        "append_note",
+        "set_properties"
+      ],
+      "max": 2
+    },
+    "answerChecks": {
+      "openui": {
+        "components": ["Button", "Text"]
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-countdown",
+    "prompt": "Make a countdown to New Year's Day 2027.",
+    "tools": {
+      "forbid": [
+        "create_note",
+        "create_structured",
+        "create_entries",
+        "build_blueprint",
+        "append_note",
+        "set_properties"
+      ],
+      "max": 2
+    },
+    "answerChecks": {
+      "openui": {
+        "functions": ["Today", "DaysBetween"]
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-unit-converter",
+    "prompt": "Give me a converter for flour: cups to grams and back.",
+    "tools": {
+      "forbid": [
+        "create_note",
+        "create_structured",
+        "create_entries",
+        "build_blueprint",
+        "append_note",
+        "set_properties"
+      ],
+      "max": 2
+    },
+    "answerChecks": {
+      "openui": {
+        "components": ["NumberInput", "Stat"]
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-short-answer",
+    "prompt": "What does TDEE stand for?",
+    "tools": {
+      "forbid": [
+        "create_note",
+        "create_structured",
+        "create_entries",
+        "build_blueprint",
+        "append_note",
+        "set_properties"
+      ],
+      "max": 2
+    },
+    "answer": "total daily energy expenditure",
+    "answerChecks": {
+      "openui": {
+        "absent": true
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-quick-add-form",
+    "prompt": "Put a quick-add box right here in this chat so I can add tasks to my {node:tasks} board without leaving the conversation. Don't change the board itself.",
+    "tools": {
+      "forbid": [
+        "add_view",
+        "append_note",
+        "build_blueprint",
+        "create_entries",
+        "create_note",
+        "create_structured",
+        "edit_form",
+        "set_properties"
+      ],
+      "max": 6
+    },
+    "answerChecks": {
+      "openui": {
+        "components": ["Form", "TextInput", "Button"],
+        "mutations": ["create_entries"]
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-task-checklist",
+    "prompt": "Show my {node:tasks} with a button to mark each one done.",
+    "tools": {
+      "forbid": [
+        "create_note",
+        "create_structured",
+        "create_entries",
+        "build_blueprint",
+        "append_note",
+        "set_properties",
+        "complete_task"
+      ],
+      "max": 6
+    },
+    "answerChecks": {
+      "all": ["Query\\(\"list_items\""],
+      "openui": {
+        "components": ["Button"],
+        "mutations": ["complete_task"]
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-notes-list",
+    "prompt": "Show me my notes about books.",
+    "tools": {
+      "forbid": [
+        "create_note",
+        "create_structured",
+        "create_entries",
+        "build_blueprint",
+        "append_note",
+        "set_properties"
+      ],
+      "max": 6
+    },
+    "answerChecks": {
+      "all": ["Query\\(\"search\""],
+      "openui": {
+        "components": ["ItemList"]
+      }
+    },
+    "noWrites": true
+  },
+  {
+    "id": "openui-guard-create-tracker",
+    "prompt": "Create a habit tracker for drinking water in my workspace.",
+    "tools": {
+      "require": ["list_templates|build_blueprint|create_structured"],
+      "max": 8
+    }
   }
 ]
