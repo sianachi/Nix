@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # No version input: pnpm/action-setup reads the root package.json
       # "packageManager" field, keeping CI pinned with the repo.
@@ -197,7 +197,7 @@ jobs:
     timeout-minutes: 20
     needs: frontend-static
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v5
 
@@ -232,7 +232,7 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v5
 
@@ -257,7 +257,7 @@ jobs:
     # turns a wedged runner into a red job instead of a six-hour default.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v5
 
@@ -305,7 +305,7 @@ jobs:
           --health-retries 20
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v5
 

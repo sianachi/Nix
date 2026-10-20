@@ -58,7 +58,7 @@ jobs:
       publish: ${{ steps.plan.outputs.publish }}
       retag: ${{ steps.plan.outputs.retag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: docker/login-action@v4
         with:
@@ -162,7 +162,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # GHCR repository paths must be lowercase; the owner may not be.
       - name: Image name
