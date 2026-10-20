@@ -94,6 +94,9 @@ export interface TableProps<Row> {
    */
   readonly caption: string;
 
+  /** Keep the caption as the accessible name but do not draw it: a heading already sits above. */
+  readonly captionHidden?: boolean;
+
   readonly columns: readonly TableColumn<Row>[];
 
   readonly rows: readonly Row[];
@@ -210,6 +213,7 @@ export interface TableRowDrag extends Pick<
 export function Table<Row>(props: TableProps<Row>): ReactNode {
   const {
     caption,
+    captionHidden,
     columns,
     rows,
     rowKey,
@@ -259,7 +263,7 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
             'border-b border-divider font-body text-md text-foreground',
             cellPadding,
             column.gutter === true && 'w-px pr-0',
-            column.align === 'end' ? 'text-right' : 'text-left',
+            column.align === 'end' ? 'text-right tabular-nums' : 'text-left',
           );
 
           return column.rowHeader === true ? (
@@ -288,7 +292,12 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
       aria-rowcount={virtualization === undefined ? undefined : virtualization.totalRows + 1}
       className={cn('w-full border-separate border-spacing-0 text-left', className)}
     >
-      <Text as="caption" variant="h6" tone="muted" className="pb-2 text-left">
+      <Text
+        as="caption"
+        variant="h6"
+        tone="muted"
+        className={cn('pb-2 text-left', captionHidden === true && 'sr-only')}
+      >
         {caption}
       </Text>
 

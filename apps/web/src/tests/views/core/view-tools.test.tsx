@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
+import { stubViewport } from '../../stub-viewport';
 import { aView } from '../../view-fixture';
 import { filterGroup, type ViewFilterRule } from '../../../views/core/container-model';
 import { ViewTools } from '../../../views/core/view-tools';
@@ -114,5 +115,30 @@ describe('view search and saved filters', () => {
     await vi.waitFor(() =>
       expect(screen.getByRole('button', { name: 'View options, 1 saved filters' })).toHaveFocus(),
     );
+  });
+});
+
+describe('view search on a phone', () => {
+  it('opens a focused field from the icon and closes it again while empty', async () => {
+    stubViewport(false);
+    const user = userEvent.setup();
+    renderAt(<Subject />);
+    const icon = screen.getByRole('button', { name: 'Search titles' });
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(icon).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(icon);
+    expect(icon).toHaveAttribute('aria-expanded', 'true');
+    await vi.waitFor(() => expect(screen.getByRole('searchbox')).toHaveFocus());
+
+    await user.click(icon);
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+  });
+
+  it('shows the field and Clear search when it arrives with search text', () => {
+    stubViewport(false);
+    renderAt(<Subject />, '/?search=Water');
+    expect(screen.getByRole('searchbox')).toHaveValue('Water');
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeVisible();
   });
 });

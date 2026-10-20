@@ -1,10 +1,11 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
+import { stubViewport } from '../../stub-viewport';
 import { aView } from '../../view-fixture';
 import type {
   EffectiveSchema,
@@ -12,6 +13,7 @@ import type {
   PropertyDefinition,
   View,
 } from '../../../views/core/container-model';
+import { setColumnWidth } from '../../../views/core/column-widths';
 import { ListView } from '../../../views/list/list-view';
 import { aContainer } from '../../container-fixture';
 import type { ContainerData } from '../../../views/core/use-container';
@@ -73,6 +75,9 @@ function listWith(options: {
   readonly schema: EffectiveSchema;
   readonly refuse?: string;
   readonly writeError?: string;
+  readonly view?: View;
+  readonly onSet?: (itemId: string, properties: Record<string, unknown>) => void;
+  readonly onOpen?: (itemId: string) => void;
 }): ReactElement {
   function Harness(): ReactNode {
     const [children, setChildren] = useState<readonly Item[]>(options.items);
@@ -82,6 +87,7 @@ function listWith(options: {
       children,
       ...(options.writeError === undefined ? {} : { writeError: options.writeError }),
       setProperties: async (itemId, properties) => {
+        options.onSet?.(itemId, properties);
         setChildren((current) =>
           current.map((entry) =>
             entry.id === itemId
@@ -101,7 +107,13 @@ function listWith(options: {
       },
     });
 
-    return <ListView container={container} view={null} onOpen={vi.fn()} />;
+    return (
+      <ListView
+        container={container}
+        view={options.view ?? null}
+        onOpen={options.onOpen ?? vi.fn()}
+      />
+    );
   }
 
   return <Harness />;
@@ -576,5 +588,115 @@ describe('ListView', () => {
     );
 
     expect(screen.getByRole('cell')).toHaveTextContent('');
+  });
+});
+
+describe('ListView on a phone', () => {
+  const select = (key: string, label: string, options: string[]): PropertyDefinition => ({
+    key,
+    label,
+    type: 'select',
+    options,
+    required: false,
+  });
+  const schema = schemaOf(
+    select('status', 'Status', ['open', 'done']),
+    property('owner', 'Owner', 'text'),
+    property('notes', 'Notes', 'text'),
+  );
+  const row = item('item-p', 'Pay rent', 1, { status: 'open', owner: 'Sam', notes: 'late' });
+
+  it('shows the title and the first two fields as values, with no Fields disclosure', () => {
+    stubViewport(false);
+    renderAt(listWith({ items: [row], schema }));
+
+    expect(screen.getByRole('button', { name: 'Pay rent' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Status for Pay rent/ })).toHaveTextContent('open');
+    expect(screen.getByRole('button', { name: /Owner for Pay rent/ })).toHaveTextContent('Sam');
+    expect(screen.queryByRole('button', { name: /Notes for/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Fields')).not.toBeInTheDocument();
+    // Values are read, not live controls, until a person opens one.
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('marks an empty value with a placeholder that still names the field', () => {
+    stubViewport(false);
+    renderAt(listWith({ items: [item('item-e', 'Empty', 1)], schema }));
+
+    expect(screen.getByRole('button', { name: /Owner for Empty/ })).toHaveTextContent('\u2014');
+  });
+
+  it('edits one field in a popover through the normal write path', async () => {
+    stubViewport(false);
+    const user = userEvent.setup();
+    const onSet = vi.fn();
+    renderAt(listWith({ items: [row], schema, onSet }));
+
+    await user.click(screen.getByRole('button', { name: /Status for Pay rent/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Status for Pay rent' });
+    await user.selectOptions(within(dialog).getByRole('combobox'), 'done');
+
+    expect(onSet).toHaveBeenCalledExactlyOnceWith('item-p', { status: 'done' });
+  });
+
+  it('shows a refused write inside the popover', async () => {
+    stubViewport(false);
+    const user = userEvent.setup();
+    renderAt(listWith({ items: [row], schema, refuse: 'You cannot edit this.' }));
+
+    await user.click(screen.getByRole('button', { name: /Status for Pay rent/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Status for Pay rent' });
+    await user.selectOptions(within(dialog).getByRole('combobox'), 'done');
+
+    expect(await within(dialog).findByText('You cannot edit this.')).toBeVisible();
+  });
+
+  it('closes the popover on Escape and returns focus to the value', async () => {
+    stubViewport(false);
+    const user = userEvent.setup();
+    renderAt(listWith({ items: [row], schema }));
+
+    await user.click(screen.getByRole('button', { name: /Status for Pay rent/ }));
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Status for Pay rent/ })).toHaveFocus();
+  });
+
+  it('draws only the title for a view with no property columns, and opens on a tap', async () => {
+    stubViewport(false);
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    renderAt(listWith({ items: [row], schema: schemaOf(), onOpen }));
+
+    expect(screen.queryByRole('button', { name: / for Pay rent/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Pay rent' }));
+    expect(onOpen).toHaveBeenCalled();
+  });
+});
+
+describe('ListView on a wide screen', () => {
+  it('keeps a stored column width once the list is virtualized', () => {
+    stubViewport(true);
+    setColumnWidth('view-wide', 'title', 321);
+    const many = Array.from({ length: 150 }, (_unused, index) =>
+      item(`item-${String(index)}`, `Item ${String(index)}`, index),
+    );
+    renderAt(
+      <ListView
+        container={containerData({ children: many })}
+        view={viewOf({ id: 'view-wide' })}
+        onOpen={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByRole('columnheader')[0]).toHaveStyle({ width: '321px' });
+  });
+
+  it('names the table by its caption without drawing it', () => {
+    stubViewport(true);
+    renderAt(listWith({ items: [ZETA], schema: schemaOf(property('status', 'Status', 'select')) }));
+
+    expect(screen.getByRole('table', { name: 'Items in this one' })).toBeInTheDocument();
+    expect(screen.getByText('Items in this one')).toHaveClass('sr-only');
   });
 });

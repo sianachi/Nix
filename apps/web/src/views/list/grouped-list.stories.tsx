@@ -99,3 +99,37 @@ export const DarkBySelect = { ...BySelect, globals: { ground: 'dark' } };
 export const DarkSectionFolded = { ...SectionFolded, globals: { ground: 'dark' } };
 export const Phone = { ...BySelect, parameters: { viewport: { defaultViewport: 'mobile1' } } };
 export const DarkPhone = { ...Phone, globals: { ground: 'dark' } };
+
+const EXTRA: PropertyDefinition[] = [
+  STATUS,
+  OWNER,
+  { key: 'area', label: 'Area', type: 'text', options: [], required: false },
+  { key: 'note', label: 'Note', type: 'text', options: [], required: false },
+];
+const PHONE = { parameters: { viewport: { defaultViewport: 'mobile1' } } };
+/** Four properties configured: only the first two are drawn on the row, the rest live in the item. */
+export const PhoneManyFields = {
+  ...PHONE,
+  render: (): ReactNode => (
+    <Example
+      properties={EXTRA}
+      overrides={{ groupBy: null, columns: ['status', 'owner', 'area', 'note'] }}
+    />
+  ),
+};
+export const PhoneLongTitle = {
+  ...PHONE,
+  render: (): ReactNode => (
+    <Example
+      overrides={{ groupBy: null, columns: ['status', 'owner'] }}
+      children={[
+        storyItem(
+          'long',
+          'Notes for the editorial review and publication decision on the spring programme',
+          1,
+          { status: 'Doing' },
+        ),
+      ]}
+    />
+  ),
+};

@@ -61,6 +61,22 @@ describe('Table', () => {
     expect(screen.getByRole('table', { name: 'Documents in this workspace' })).toBeInTheDocument();
   });
 
+  it('keeps the caption as the name but hides it when captionHidden', () => {
+    render(
+      <Table
+        caption="Documents"
+        captionHidden
+        columns={[{ key: 'title', header: 'Title', cell: (row: { t: string }) => row.t }]}
+        rows={[{ t: 'One' }]}
+        rowKey={(row) => row.t}
+        emptyMessage="None"
+      />,
+    );
+
+    expect(screen.getByRole('table', { name: 'Documents' })).toBeInTheDocument();
+    expect(screen.getByText('Documents')).toHaveClass('sr-only');
+  });
+
   it('renders a header per column and a row per record', () => {
     renderTable();
 

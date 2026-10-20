@@ -68,3 +68,24 @@ it('draws in place, with the same copy, in its compact variant', async () => {
   await user.click(screen.getByRole('button', { name: 'Clear' }));
   expect(onClear).toHaveBeenCalled();
 });
+
+it('drops the Esc key cap on a coarse pointer', () => {
+  const previous = globalThis.matchMedia;
+  globalThis.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: query.includes('coarse'),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+  try {
+    render(<SelectionBar count={1} onClear={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Clear' })).toHaveTextContent(/^Clear$/);
+  } finally {
+    globalThis.matchMedia = previous;
+  }
+});

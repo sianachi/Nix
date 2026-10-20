@@ -72,6 +72,16 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+/** The caption still names the table for assistive technology but is not drawn. */
+export const CaptionHidden: Story = {
+  args: { captionHidden: true },
+  play: async ({ canvasElement }) => {
+    await expect(
+      within(canvasElement).getByRole('table', { name: 'Documents in this workspace' }),
+    ).toBeInTheDocument();
+  },
+};
+
 /** Rows, unsorted: every sortable header offers itself, none of them claims a direction. */
 export const Default: Story = {
   play: async ({ canvasElement }) => {

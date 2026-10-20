@@ -104,6 +104,11 @@ export function ViewTools({ view, schema, viewState, onSave }: ViewToolsProps): 
           aria-label="Search titles"
           aria-expanded={showSearch}
           onClick={() => {
+            // An empty field closes again; one holding text stays, so a search is never hidden.
+            if (showSearch && !hasSearch) {
+              setSearchOpen(false);
+              return;
+            }
             setSearchOpen(true);
             requestAnimationFrame(() => searchInput.current?.focus());
           }}

@@ -17,6 +17,9 @@ import { ListCell } from './list-cell';
 /** The selection column's key; never a property, so it cannot collide with one. */
 export const SELECT_COLUMN_KEY = '\u0000select';
 
+/** A table column that, when it edits a known property, also names it so a phone row can read it. */
+export type ListColumn = TableColumn<Item> & { readonly property?: PropertyDefinition };
+
 export type RowGestures = ReturnType<typeof rowGestures>;
 
 /**
@@ -38,7 +41,7 @@ export function buildColumns(
   gestures: (item: Item) => RowGestures,
   write: (itemId: string, key: string, value: PropertyValue) => Promise<string | null>,
   refusals: CellRefusalStore,
-): readonly TableColumn<Item>[] {
+): readonly ListColumn[] {
   const { keys, definitions } = resolveConfiguredColumns(view, schema);
 
   return [
@@ -59,7 +62,7 @@ export function buildColumns(
           type="button"
           {...gestures(item)}
           className={cn(
-            'cursor-default text-left hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
+            'line-clamp-2 w-full cursor-default text-left hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
             focusRing,
           )}
         >
@@ -67,7 +70,7 @@ export function buildColumns(
         </button>
       ),
     },
-    ...keys.map((key): TableColumn<Item> => {
+    ...keys.map((key): ListColumn => {
       const definition = definitions.get(key);
 
       return {
@@ -75,6 +78,9 @@ export function buildColumns(
         header: definition?.label ?? key,
         sortable: true,
         cell: (item) => renderProperty(item, key, definition, write, refusals),
+        ...(definition !== undefined && isKnownPropertyType(definition.type)
+          ? { property: definition }
+          : {}),
 
         // Numbers read right-aligned so their digits line up; everything else keeps the table's
         // own default rather than restating it.

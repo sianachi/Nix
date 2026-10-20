@@ -362,14 +362,12 @@ export function ListView(props: ListViewProps): ReactNode {
       {sections === null ? (
         rowsFor(chrome.items, ITEMS_CAPTION)
       ) : (
-        <>
-          <ListSections
-            sections={sections}
-            collapsed={collapsed}
-            onToggle={toggleSection}
-            renderRows={(section) => rowsFor(section.items, section.label)}
-          />
-        </>
+        <ListSections
+          sections={sections}
+          collapsed={collapsed}
+          onToggle={toggleSection}
+          renderRows={(section) => rowsFor(section.items, section.label)}
+        />
       )}
 
       {/* Below the table rather than as a last row. `<Table>` has no footer seam, and a row would

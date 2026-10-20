@@ -1,22 +1,17 @@
-import {
-  Table,
-  type MenuEntry,
-  type TableColumn,
-  type TableRowDrag,
-  type TableSort,
-} from '@nix/ui';
+import { Table, type MenuEntry, type TableRowDrag, type TableSort } from '@nix/ui';
 import { useMemo, useRef, type ReactNode } from 'react';
 
 import type { Item } from '../core/container-model';
 import { useVirtualWindow } from '../core/use-virtual-window';
 import { virtualSpacers } from '../core/virtual-window';
+import type { ListColumn } from './list-columns';
 
 const VIRTUALIZATION_THRESHOLD = 100;
 const ESTIMATED_ROW_HEIGHT = 45;
 
 export interface ListRowsProps {
   readonly items: readonly Item[];
-  readonly columns: readonly TableColumn<Item>[];
+  readonly columns: readonly ListColumn[];
   readonly sort: TableSort | undefined;
   readonly onSortChange: (sort: TableSort) => void;
   readonly rowContextMenu?: (item: Item) => MenuEntry[];
@@ -44,7 +39,7 @@ export interface WidthControl {
 }
 
 /** Which row a list row's menu acts on, for the name a screen reader hears. */
-function rowMenuLabel(item: Item): string {
+export function rowMenuLabel(item: Item): string {
   return `${item.title || 'Untitled'} actions`;
 }
 
@@ -55,6 +50,7 @@ export function ListRows(props: ListRowsProps): ReactNode {
     return (
       <Table<Item>
         caption={caption}
+        captionHidden
         columns={columns}
         rows={items}
         rowKey={(item) => item.id}
@@ -76,7 +72,8 @@ export function ListRows(props: ListRowsProps): ReactNode {
 }
 
 function VirtualListRows(props: ListRowsProps): ReactNode {
-  const { items, columns, sort, onSortChange, rowContextMenu, rowSelection, caption } = props;
+  const { items, columns, sort, onSortChange, rowContextMenu, rowSelection, caption, widths } =
+    props;
   const rootRef = useRef<HTMLTableElement>(null);
   // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
   const keys = useMemo(() => items.map((item) => item.id), [items]);
@@ -99,6 +96,7 @@ function VirtualListRows(props: ListRowsProps): ReactNode {
       rowKey={(item) => item.id}
       emptyMessage="Nothing in here yet."
       {...(sort === undefined ? {} : { sort })}
+      {...(widths ?? {})}
       onSortChange={onSortChange}
       rowSelected={rowSelection.selected}
       {...(rowSelection.drag === undefined ? {} : { rowDrag: rowSelection.drag })}
@@ -106,6 +104,7 @@ function VirtualListRows(props: ListRowsProps): ReactNode {
       {...(rowContextMenu === undefined
         ? {}
         : { rowContextMenu, rowContextMenuLabel: rowMenuLabel })}
+      captionHidden
       virtualization={{
         totalRows: items.length,
         rowIndexes: windowed.indexes,

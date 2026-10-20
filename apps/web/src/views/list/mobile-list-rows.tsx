@@ -1,16 +1,19 @@
 import {
   Button,
   ContextMenu,
+  Popover,
   Text,
   cn,
+  focusRing,
   type ContextMenuTargetProps,
   type TableColumn,
 } from '@nix/ui';
 import { useState, type ReactNode } from 'react';
 
+import { PropertyValueDisplay, hasDisplayValue } from '../../properties/property-value-display';
 import type { Item } from '../core/container-model';
 import { SELECT_COLUMN_KEY } from './list-columns';
-import type { ListRowsProps } from './list-rows';
+import { rowMenuLabel, type ListRowsProps } from './list-rows';
 
 export function MobileListRows({
   items,
@@ -41,7 +44,7 @@ export function MobileListRows({
           ) : (
             <ContextMenu
               key={item.id}
-              label={`${item.title || 'Untitled'} actions`}
+              label={rowMenuLabel(item)}
               items={() => rowContextMenu(item)}
               {...(rowSelection.longPress === undefined
                 ? {}
@@ -74,7 +77,11 @@ export function MobileListRows({
   );
 }
 
-/** One phone row: the first column's cell, and the rest folded under "Fields". */
+/**
+ * One phone row: the title and the view's first two fields. The values are read, not edited, in the
+ * row - a column of live controls is a form per row - and each opens the cell's own editor in a
+ * popover, so there is one edit path. The remaining fields are in the item.
+ */
 function MobileRow(props: {
   readonly item: Item;
   readonly columns: ListRowsProps['columns'];
@@ -83,30 +90,51 @@ function MobileRow(props: {
   readonly selected: boolean;
 }): ReactNode {
   const { item, columns, target, selectColumn, selected } = props;
+  const title = item.title || 'Untitled';
 
   return (
-    <li {...target} className={cn('min-w-0 py-3', selected && 'bg-accent/10')}>
-      <div className="flex items-center gap-2 py-2">
-        {selectColumn?.cell(item)}
-        {columns[0]?.cell(item)}
-      </div>
-      {columns.length > 1 ? (
-        <details>
-          <summary className="cursor-default py-2">Fields</summary>
-          <dl className="flex flex-col gap-3">
-            {columns.slice(1).map((column) => (
-              <div key={column.key} className="min-w-0">
-                <dt>
-                  <Text as="span" variant="caption" tone="muted">
-                    {column.header}
-                  </Text>
-                </dt>
-                <dd className="min-w-0 py-1">{column.cell(item)}</dd>
-              </div>
-            ))}
-          </dl>
-        </details>
-      ) : null}
+    <li
+      {...target}
+      className={cn('flex min-w-0 items-center gap-2 py-2', selected && 'bg-accent/10')}
+    >
+      {selectColumn?.cell(item)}
+      <div className="min-w-0 flex-1">{columns[0]?.cell(item)}</div>
+      {columns.slice(1, 3).map((column) => {
+        const { property } = column;
+        return (
+          <div key={column.key} className="w-28 shrink-0">
+            {property === undefined ? (
+              <Text as="span" variant="caption" tone="muted" truncate>
+                {column.cell(item)}
+              </Text>
+            ) : (
+              <Popover
+                label={`${column.header} for ${title}`}
+                trigger={(trigger) => (
+                  <button
+                    {...trigger}
+                    className={cn(
+                      'flex min-h-(--control-lg) w-full min-w-0 cursor-default items-center rounded-md px-2 text-left',
+                      focusRing,
+                    )}
+                  >
+                    {hasDisplayValue(item, property) ? (
+                      <PropertyValueDisplay item={item} property={property} density="cell" />
+                    ) : (
+                      <Text as="span" variant="caption" tone="muted" aria-hidden>
+                        {'\u2014'}
+                      </Text>
+                    )}
+                    <span className="sr-only">{`${column.header} for ${title}`}</span>
+                  </button>
+                )}
+              >
+                {column.cell(item)}
+              </Popover>
+            )}
+          </div>
+        );
+      })}
     </li>
   );
 }

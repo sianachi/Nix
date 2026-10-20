@@ -139,3 +139,43 @@ it('selects a checklist line by its box, apart from the box that ticks it', asyn
   expect(within(bar).getByText('1 selected')).toBeVisible();
   expect(screen.getByRole('checkbox', { name: 'First' })).not.toBeChecked();
 });
+
+it('does not show the drag hint on a coarse pointer', () => {
+  // beforeEach restores a mouse viewport for the next test.
+  globalThis.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: query.includes('coarse'),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+  renderAt(
+    <ContainerView
+      container={aContainer({
+        children: [first],
+        schema: {
+          properties: [
+            {
+              key: 'status',
+              label: 'Status',
+              type: 'select',
+              options: ['A', 'B'],
+              required: false,
+            },
+          ],
+          declared: [],
+          inherit: true,
+        },
+      })}
+      view={aView({ kind: 'board', groupBy: 'status', groupOrder: ['A', 'B'] })}
+      onOpen={vi.fn()}
+    />,
+  );
+  expect(
+    screen.queryByText('Dropping changes the grouping property, not the order.'),
+  ).not.toBeInTheDocument();
+});
