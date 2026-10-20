@@ -605,26 +605,36 @@ func TestInterruptWhileAToolWaitsAnswersEveryCall(t *testing.T) {
 
 func TestAToolResultPictureReachesEachProviderInItsOwnShape(t *testing.T) {
 	const picture = "data:image/jpeg;base64,/9j/AAAA"
+	const anthropicCall = "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call-1\",\"name\":\"nix_read_note\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	const anthropicDone = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	const openrouterCall = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"function\":{\"name\":\"nix_read_note\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n"
+	const openrouterDone = "data: {\"choices\":[{\"delta\":{\"content\":\"Done\"}}]}\n\ndata: [DONE]\n\n"
 	for _, tc := range []struct {
-		kind, firstReply, done string
-		want                   []string
+		name, kind, modalities, firstReply, done string
+		want, absent                             []string
 	}{
 		{
-			kind:       "anthropic",
-			firstReply: "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call-1\",\"name\":\"nix_read_note\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
-			done:       "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
-			want:       []string{`"type":"tool_result"`, `"type":"image"`, `"media_type":"image/jpeg"`, `"data":"/9j/AAAA"`},
+			name: "anthropic", kind: "anthropic", firstReply: anthropicCall, done: anthropicDone,
+			want: []string{`"type":"tool_result"`, `"type":"image"`, `"media_type":"image/jpeg"`, `"data":"/9j/AAAA"`},
 		},
 		{
-			kind:       "openrouter",
-			firstReply: "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"function\":{\"name\":\"nix_read_note\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n",
-			done:       "data: {\"choices\":[{\"delta\":{\"content\":\"Done\"}}]}\n\ndata: [DONE]\n\n",
-			want:       []string{`"role":"tool"`, `"type":"image_url"`, `"url":"` + picture + `"`},
+			name: "openrouter vision model", kind: "openrouter", modalities: `["text","image"]`, firstReply: openrouterCall, done: openrouterDone,
+			want: []string{`"role":"tool"`, `"type":"image_url"`, `"url":"` + picture + `"`},
+		},
+		{
+			name: "openrouter text-only model", kind: "openrouter", modalities: `["text"]`, firstReply: openrouterCall, done: openrouterDone,
+			want:   []string{`"role":"tool"`, "cannot see images"},
+			absent: []string{"image_url", "/9j/AAAA"},
 		},
 	} {
-		t.Run(tc.kind, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/models") {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, `{"data":[{"id":"test-model","name":"Test","supported_parameters":["tools"],"architecture":{"input_modalities":%s}}]}`, tc.modalities)
+					return
+				}
 				body, _ := io.ReadAll(r.Body)
 				calls++
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -635,6 +645,11 @@ func TestAToolResultPictureReachesEachProviderInItsOwnShape(t *testing.T) {
 				for _, want := range tc.want {
 					if !strings.Contains(string(body), want) {
 						t.Errorf("second request lacks %s: %s", want, body)
+					}
+				}
+				for _, absent := range tc.absent {
+					if strings.Contains(string(body), absent) {
+						t.Errorf("second request carries %s: %s", absent, body)
 					}
 				}
 				_, _ = fmt.Fprint(w, tc.done)

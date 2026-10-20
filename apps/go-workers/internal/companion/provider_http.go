@@ -41,6 +41,8 @@ type httpTransport struct {
 	replies map[string]chan toolReply
 	handler func(json.RawMessage, string, json.RawMessage) bool
 	closed  bool
+	// seesImages holds the listed models that take image input; nil until a list is read.
+	seesImages map[string]bool
 }
 
 const maxThreadMessages = 32
@@ -208,7 +210,7 @@ func (t *httpTransport) Call(ctx context.Context, method string, params any) (js
 	case "account/login/start":
 		return nil, errors.New("this provider signs in with an API key saved in Pet settings, not a device code")
 	case "model/list":
-		models, err := t.wire.listModels(ctx, t.client, t.baseURL, t.apiKey)
+		models, err := t.listModels(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -272,7 +274,7 @@ func (t *httpTransport) startThread(ctx context.Context, params json.RawMessage)
 		return nil, err
 	}
 	if p.Model == "" {
-		models, err := t.wire.listModels(ctx, t.client, t.baseURL, t.apiKey)
+		models, err := t.listModels(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -449,6 +451,12 @@ func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID 
 				finish("interrupted", nil)
 				return
 			}
+			if reply.image != "" && !t.acceptsImages(ctx, thread.Model) {
+				// A picture a text-only model is sent fails this request and every later one in the
+				// thread, since the history keeps it.
+				reply.text += "\nThis result is a picture, but the selected model cannot see images. Tell the owner to choose a model that accepts images in Settings > Pets."
+				reply.image = ""
+			}
 			results = append(results, providerToolResult{CallID: call.ID, Text: reply.text, Image: reply.image, IsError: !reply.success})
 		}
 		t.mu.Lock()
@@ -584,3 +592,40 @@ func (r *lineReader) line() ([]byte, error) {
 // providerTimeout bounds a single provider request; a turn that streams longer than this is failed
 // rather than left thinking (watch.go's 15-minute expiry is the outer guard).
 const providerTimeout = 10 * time.Minute
+
+// listModels reads the provider's models and remembers which of them take image input.
+func (t *httpTransport) listModels(ctx context.Context) ([]Model, error) {
+	models, err := t.wire.listModels(ctx, t.client, t.baseURL, t.apiKey)
+	if err != nil {
+		return nil, err
+	}
+	seesImages := make(map[string]bool, len(models))
+	for _, model := range models {
+		seesImages[model.ID] = !model.textOnly
+	}
+	t.mu.Lock()
+	t.seesImages = seesImages
+	t.mu.Unlock()
+	return models, nil
+}
+
+// acceptsImages reports whether model takes image input. Every Claude model does. For OpenRouter
+// the model list says, read once if no list has been read yet; a model the list does not name, or
+// a list that cannot be read, counts as no.
+func (t *httpTransport) acceptsImages(ctx context.Context, model string) bool {
+	if t.kind != "openrouter" {
+		return true
+	}
+	t.mu.Lock()
+	known := t.seesImages
+	t.mu.Unlock()
+	if known == nil {
+		if _, err := t.listModels(ctx); err != nil {
+			return false
+		}
+		t.mu.Lock()
+		known = t.seesImages
+		t.mu.Unlock()
+	}
+	return known[model]
+}

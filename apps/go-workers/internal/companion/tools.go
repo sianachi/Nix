@@ -27,6 +27,9 @@ type Model struct {
 	// this model actually advertises before sending it on turn/start.
 	supportedEfforts []string `json:"-"`
 	defaultEffort    string   `json:"-"`
+	// textOnly marks a provider model that takes no image input (OpenRouter lists each model's
+	// input modalities); a tool result's picture is left out for it.
+	textOnly bool
 }
 
 func defaultModel(models []Model) Model {

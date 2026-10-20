@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -309,6 +310,9 @@ func (openrouterWire) listModels(ctx context.Context, client *http.Client, base,
 			ID                  string   `json:"id"`
 			Name                string   `json:"name"`
 			SupportedParameters []string `json:"supported_parameters"`
+			Architecture        struct {
+				InputModalities []string `json:"input_modalities"`
+			} `json:"architecture"`
 		} `json:"data"`
 	}
 	if json.NewDecoder(&boundedReader{r: response.Body, limit: 4 << 20}).Decode(&page) != nil {
@@ -329,7 +333,9 @@ func (openrouterWire) listModels(ctx context.Context, client *http.Client, base,
 		if name == "" || len(name) > 200 {
 			name = entry.ID
 		}
-		models = append(models, Model{ID: entry.ID, Name: name, SupportsTools: supportsTools})
+		// A model that does not list image input is treated as text-only.
+		textOnly := !slices.Contains(entry.Architecture.InputModalities, "image")
+		models = append(models, Model{ID: entry.ID, Name: name, SupportsTools: supportsTools, textOnly: textOnly})
 	}
 	if len(models) == 0 {
 		return nil, errors.New("OpenRouter listed no models for this key")
