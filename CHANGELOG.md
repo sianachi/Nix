@@ -3,6 +3,27 @@
 All notable changes to Nix are recorded here. The format follows Keep a Changelog and the project
 follows semantic versioning (`0.x` pre-1.0).
 
+## Unreleased
+
+### Added
+
+**Interactive replies and artifacts (OpenUI, ADR-0066)**
+
+- The pet and chat notes can answer with live components: calculators, quizzes, converters,
+  forms, tables, charts and lists of your items, built from generic pieces (state, inputs,
+  buttons, expressions, date functions and validated forms). Lists of your items stay live and
+  respect permissions and locks.
+- Save any component as an artifact: a new item kind that opens in a pane, embeds in notes and
+  keeps its values for everyone who opens it. Edit its source like a note, or ask the pet to
+  change it, with a before and after preview.
+- Components can change your workspace (add entries, tick off tasks, write notes) through an
+  approval card. "Apply without asking" in the pet panel covers them under the usual rules.
+- Approval cards show a summary of what changes, and simple requests (titles, note text,
+  property values, task completion) can be edited before you approve; the pet is told what you
+  changed.
+- Ask the pet to adjust a component it just made, and it changes only what you asked.
+- Published sites show a notice in place of an interactive component.
+
 ## 0.3.0 - 2026-10-16
 
 Work recorded on 2026-10-15 and 2026-10-16. The `v0.3` branch is merged into `main`.
