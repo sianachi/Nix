@@ -3,8 +3,22 @@ import { markdownToDocument } from '@nix/markdown';
 import { Button, Icon, Text } from '@nix/ui';
 import type { Node as DocumentNode } from '@tiptap/pm/model';
 import { Check, Copy, X } from 'lucide-react';
-import { Fragment, useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { Link } from 'react-router';
+
+import { pieceKind, type ProgramPiece } from '../openui/fence';
+
+// The renderer is its own chunk, loaded on first use.
+const OpenUiBlock = lazy(() => import('../openui/openui-block'));
 
 function workspaceHref(href: string, workspaceIds: readonly string[]): boolean {
   const match = /^\/w\/([a-f0-9-]{36})\/?\?item=[a-f0-9-]{36}$/.exec(href);
@@ -112,15 +126,34 @@ function messageHeading(value: unknown, outline: MessageHeading[]): 'h3' | 'h4' 
   return (['h3', 'h4', 'h5', 'h6'] as const)[level - 3] ?? 'h3';
 }
 
+/** What a generated-UI block in this message needs from the conversation around it. */
+interface OpenUiContext {
+  readonly streaming: boolean;
+  readonly onAsk: ((message: string) => void) | undefined;
+  /** The message's id, so each block's state is kept under its own key. */
+  readonly messageId: string | undefined;
+  /** Blocks seen so far in this message, numbering each one's state key. */
+  blocks: number;
+  readonly applyWithoutAsking: boolean;
+  /** Generated-UI blocks so far: the conversation's earlier ones, then this message's. */
+  readonly pieces: ProgramPiece[];
+  readonly followsLockedRead: boolean;
+  readonly noteScope: { readonly rootItemId: string; readonly readOnly: boolean } | undefined;
+  readonly readOnly: boolean;
+}
+
 /** Render a validated document through React; model HTML, images and external URLs stay inert. */
 function messageNode(
   node: DocumentNode,
   workspaceIds: readonly string[],
   outline: MessageHeading[],
+  openUi: OpenUiContext,
 ): ReactNode {
   const children: ReactNode[] = [];
   node.forEach((child, _offset, index) => {
-    children.push(<Fragment key={index}>{messageNode(child, workspaceIds, outline)}</Fragment>);
+    children.push(
+      <Fragment key={index}>{messageNode(child, workspaceIds, outline, openUi)}</Fragment>,
+    );
   });
   switch (node.type.name) {
     case 'text': {
@@ -185,13 +218,35 @@ function messageNode(
       return (
         <blockquote className="space-y-2 border-l-2 border-divider pl-3">{children}</blockquote>
       );
-    case 'codeBlock':
+    case 'codeBlock': {
+      const language = typeof node.attrs.language === 'string' ? node.attrs.language : null;
+      const code = <CodeBlock code={node.textContent} language={language} />;
+      const kind = pieceKind(language);
+      if (kind === null) return code;
+      const block = openUi.blocks++;
+      const base = kind === 'patch' ? [...openUi.pieces] : undefined;
+      openUi.pieces.push({ patch: kind === 'patch', source: node.textContent });
       return (
-        <CodeBlock
-          code={node.textContent}
-          language={typeof node.attrs.language === 'string' ? node.attrs.language : null}
-        />
+        <Suspense fallback={code}>
+          <OpenUiBlock
+            source={node.textContent}
+            workspaceIds={workspaceIds}
+            streaming={openUi.streaming}
+            onAsk={openUi.onAsk}
+            fallback={code}
+            stateKey={
+              openUi.messageId === undefined ? undefined : `${openUi.messageId}:${String(block)}`
+            }
+            saveable
+            applyWithoutAsking={openUi.applyWithoutAsking}
+            base={base}
+            followsLockedRead={openUi.followsLockedRead}
+            noteScope={openUi.noteScope}
+            readOnly={openUi.readOnly}
+          />
+        </Suspense>
       );
+    }
     case 'hardBreak':
       return <br />;
     case 'horizontalRule':
@@ -231,14 +286,41 @@ export function PetMessageText({
   workspaceId,
   format = 'markdown',
   sourceWorkspaceIds = [],
+  streaming = false,
+  onAsk,
+  messageId,
+  applyWithoutAsking = false,
+  earlierPieces,
+  followsLockedRead = false,
+  noteScope,
+  readOnly = false,
 }: {
   readonly text: string;
   readonly workspaceId: string;
   readonly format?: 'markdown' | 'plain';
   readonly sourceWorkspaceIds?: readonly string[];
+  /** A draft still arriving: generated UI renders progressively and its buttons wait. */
+  readonly streaming?: boolean;
+  /** Puts a generated-UI button's request to the pet in the composer, for the owner to send. */
+  readonly onAsk?: ((message: string) => void) | undefined;
+  /** Keys generated-UI state per message; without it a block's state is not kept. */
+  readonly messageId?: string | undefined;
+  /** The conversation's "Apply without asking" switch, for writes its components request. */
+  readonly applyWithoutAsking?: boolean;
+  /** Generated-UI blocks from earlier in the conversation, which a patch block here changes. */
+  readonly earlierPieces?: readonly ProgramPiece[] | undefined;
+  /** The conversation already read locked content: its components' writes wait for the owner. */
+  readonly followsLockedRead?: boolean;
+  /** A note-scoped conversation's scope, which bounds its components too. */
+  readonly noteScope?: { readonly rootItemId: string; readonly readOnly: boolean } | undefined;
+  /** Components here only read: they never offer a write. */
+  readonly readOnly?: boolean;
 }): ReactElement {
   const workspaceIds = [workspaceId, ...sourceWorkspaceIds];
-  const parsed = format === 'markdown' ? markdownToDocument(text) : undefined;
+  const parsed = useMemo(
+    () => (format === 'markdown' ? markdownToDocument(text) : undefined),
+    [format, text],
+  );
   if (!parsed?.ok) {
     return (
       <Text className="min-w-0 whitespace-pre-wrap wrap-anywhere">
@@ -248,7 +330,17 @@ export function PetMessageText({
   }
   return (
     <div className="flex min-w-0 max-w-full flex-col gap-3 wrap-anywhere">
-      {messageNode(nixSchema.nodeFromJSON(parsed.doc), workspaceIds, [])}
+      {messageNode(nixSchema.nodeFromJSON(parsed.doc), workspaceIds, [], {
+        streaming,
+        onAsk,
+        messageId,
+        blocks: 0,
+        applyWithoutAsking,
+        pieces: [...(earlierPieces ?? [])],
+        followsLockedRead,
+        noteScope,
+        readOnly,
+      })}
     </div>
   );
 }

@@ -42,6 +42,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -70,6 +71,7 @@ import { PetConnectionPanel } from './pet-connection-panel';
 import { PetHistory, TitleEditor, exportPetMessages } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
+import { earlierPieces, type ProgramPiece } from '../openui/fence';
 import { buildWorkspaceMap } from './turn-context';
 import { petProviderLabels } from './catalog';
 
@@ -248,6 +250,9 @@ export function Conversation({
   const menuTrigger = useRef<{ current: HTMLButtonElement | null } | null>(null);
   const preparing = useRef(false);
   const messages = runtime?.messages ?? [];
+  // Each message's view of the generated-UI blocks before it, so a patch can find what it changes.
+  const runtimeMessages = runtime?.messages;
+  const piecesBefore = useMemo(() => earlierPieces(runtimeMessages ?? []), [runtimeMessages]);
   const running = runtime?.state === 'thinking';
   const approvalPending = needsDecisionIds.length > 0;
   // Lane F: run clean changes without a click, for this conversation. Plain React state on
@@ -748,6 +753,13 @@ export function Conversation({
     pickSuggestion(option.id);
   });
 
+  /** A generated-UI button's request: filled in, never sent, so the owner reads what a component
+   * asks for (it may be a change) before the pet sees it. */
+  function askFromComponent(text: string) {
+    setDraft(text);
+    input.current?.focus();
+  }
+
   /** An action from the empty state or the slash menu: it fills the composer, and "Summarize
    * this page" also attaches the open page. */
   function pickSuggestion(suggestion: string) {
@@ -1051,6 +1063,11 @@ export function Conversation({
                         petName={pet.name}
                         workspaceId={workspaceId}
                         latest={index === messages.length - 1}
+                        onAsk={askFromComponent}
+                        applyWithoutAsking={applyWithoutAsking}
+                        earlierPieces={piecesBefore[index]}
+                        followsLockedRead={runtime.lockedRead}
+                        noteScope={noteScope}
                         editor={
                           edit ? (
                             <PetMessageEditor
@@ -1367,6 +1384,11 @@ function PetMessageRow({
   latest,
   editor,
   action,
+  onAsk,
+  applyWithoutAsking,
+  earlierPieces,
+  followsLockedRead,
+  noteScope,
 }: {
   readonly message: NonNullable<PetConnection['messages']>[number];
   readonly petName: string;
@@ -1377,6 +1399,12 @@ function PetMessageRow({
   /** The one thing the last turn offers: "Edit" on the user message, "Regenerate" on the reply. */
   readonly action?:
     { readonly label: string; readonly icon: LucideIcon; readonly onClick: () => void } | undefined;
+  /** A generated-UI button's request to the pet, which goes to the composer rather than out. */
+  readonly onAsk?: ((message: string) => void) | undefined;
+  readonly applyWithoutAsking: boolean;
+  readonly earlierPieces?: readonly ProgramPiece[] | undefined;
+  readonly followsLockedRead: boolean;
+  readonly noteScope?: { readonly rootItemId: string; readonly readOnly: boolean } | undefined;
 }): ReactElement {
   if (message.role === 'system')
     return (
@@ -1415,6 +1443,13 @@ function PetMessageRow({
             text={message.text}
             workspaceId={workspaceId}
             format={fromUser ? 'plain' : 'markdown'}
+            streaming={isDraft}
+            onAsk={onAsk}
+            applyWithoutAsking={applyWithoutAsking}
+            earlierPieces={earlierPieces}
+            followsLockedRead={followsLockedRead}
+            noteScope={noteScope}
+            {...(isDraft ? {} : { messageId: message.id })}
           />
         )}
         {isDraft ? (

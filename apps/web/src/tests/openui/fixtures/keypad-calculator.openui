@@ -1,0 +1,22 @@
+root = Stack([display, keys])
+display = Text($cur == 0 && $op != "" ? $acc : $cur, "display")
+keys = Grid([b7, b8, b9, div, b4, b5, b6, mul, b1, b2, b3, sub, clr, b0, eq, add], 4)
+b0 = Button("0", Action([@Set($cur, $cur * 10 + 0)]))
+b1 = Button("1", Action([@Set($cur, $cur * 10 + 1)]))
+b2 = Button("2", Action([@Set($cur, $cur * 10 + 2)]))
+b3 = Button("3", Action([@Set($cur, $cur * 10 + 3)]))
+b4 = Button("4", Action([@Set($cur, $cur * 10 + 4)]))
+b5 = Button("5", Action([@Set($cur, $cur * 10 + 5)]))
+b6 = Button("6", Action([@Set($cur, $cur * 10 + 6)]))
+b7 = Button("7", Action([@Set($cur, $cur * 10 + 7)]))
+b8 = Button("8", Action([@Set($cur, $cur * 10 + 8)]))
+b9 = Button("9", Action([@Set($cur, $cur * 10 + 9)]))
+add = Button("+", Action([@Set($acc, $op == "" ? $cur : ($op == "+" ? $acc + $cur : $op == "-" ? $acc - $cur : $op == "*" ? $acc * $cur : $acc / $cur)), @Set($op, "+"), @Set($cur, 0)]))
+sub = Button("-", Action([@Set($acc, $op == "" ? $cur : ($op == "+" ? $acc + $cur : $op == "-" ? $acc - $cur : $op == "*" ? $acc * $cur : $acc / $cur)), @Set($op, "-"), @Set($cur, 0)]))
+mul = Button("*", Action([@Set($acc, $op == "" ? $cur : ($op == "+" ? $acc + $cur : $op == "-" ? $acc - $cur : $op == "*" ? $acc * $cur : $acc / $cur)), @Set($op, "*"), @Set($cur, 0)]))
+div = Button("/", Action([@Set($acc, $op == "" ? $cur : ($op == "+" ? $acc + $cur : $op == "-" ? $acc - $cur : $op == "*" ? $acc * $cur : $acc / $cur)), @Set($op, "/"), @Set($cur, 0)]))
+eq = Button("=", Action([@Set($cur, $op == "+" ? $acc + $cur : $op == "-" ? $acc - $cur : $op == "*" ? $acc * $cur : $op == "/" ? $acc / $cur : $cur), @Set($op, ""), @Set($acc, 0)]), "primary")
+clr = Button("C", Action([@Reset($cur, $acc, $op)]))
+$cur = 0
+$acc = 0
+$op = ""
