@@ -7,10 +7,11 @@ import {
   type ConversationMessage,
 } from '@nix/api-client';
 import { Button, Text, Textarea, Checkbox } from '@nix/ui';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
 import { PetChatViewport } from '../../pets/pet-chat-viewport';
 import { PetMessageText } from '../../pets/pet-message-text';
+import { earlierPieces } from '../../openui/fence';
 import { useAccessibleWorkspaces } from '../../workspaces/workspace-context';
 
 function isAborted(signal: AbortSignal): boolean {
@@ -30,6 +31,8 @@ export function ChatView({
   const [insight, setInsight] = useState<string | null>(null);
   const [chat, setChat] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<readonly ConversationMessage[]>([]);
+  // Each message's view of the generated-UI blocks before it, so a patch can find what it changes.
+  const piecesBefore = useMemo(() => earlierPieces(messages), [messages]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
@@ -255,6 +258,15 @@ export function ChatView({
                   text={message.text}
                   workspaceId={workspaceId}
                   sourceWorkspaceIds={chat.sourceWorkspaceIds}
+                  // Only the pet's own replies draw components: a chat note is shared, and a
+                  // member's message must never run as UI in another member's session.
+                  format={message.role === 'assistant' ? 'markdown' : 'plain'}
+                  // A chat note is a read-only analysis conversation: its components only read.
+                  readOnly
+                  // Filled in, never sent: the owner reads a component's request first.
+                  onAsk={setDraft}
+                  messageId={message.id}
+                  earlierPieces={piecesBefore[index]}
                 />
                 {message.role === 'assistant' ? (
                   <Button
@@ -282,6 +294,9 @@ export function ChatView({
                   text={chat.turn.text}
                   workspaceId={workspaceId}
                   sourceWorkspaceIds={chat.sourceWorkspaceIds}
+                  streaming
+                  readOnly
+                  earlierPieces={piecesBefore.at(-1)}
                 />
               </article>
             ) : null}

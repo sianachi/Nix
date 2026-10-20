@@ -1,0 +1,16 @@
+root = Stack([title, inputs, results])
+title = Text("TDEE calculator", "title")
+inputs = Grid([age, weight, height, sex, activity], 2)
+age = NumberInput("Age (years)", $age, 15, 90)
+weight = NumberInput("Weight (kg)", $weight, 30, 250)
+height = NumberInput("Height (cm)", $height, 120, 230)
+sex = Select("Sex", $sex, [{value: "male", label: "Male"}, {value: "female", label: "Female"}])
+activity = Select("Activity", $activity, [{value: "sedentary", label: "Sedentary"}, {value: "light", label: "Light, 1-3 days a week"}, {value: "moderate", label: "Moderate, 3-5 days a week"}, {value: "very", label: "Very active, 6-7 days a week"}])
+results = Row([bmr, tdee])
+bmr = Stat("BMR", @Round(10 * $weight + 6.25 * $height - 5 * $age + ($sex == "male" ? 5 : -161), 0), "kcal/day")
+tdee = Stat("TDEE", @Round((10 * $weight + 6.25 * $height - 5 * $age + ($sex == "male" ? 5 : -161)) * ($activity == "sedentary" ? 1.2 : $activity == "light" ? 1.375 : $activity == "moderate" ? 1.55 : 1.725), 0), "kcal/day")
+$age = 30
+$weight = 70
+$height = 175
+$sex = "male"
+$activity = "moderate"

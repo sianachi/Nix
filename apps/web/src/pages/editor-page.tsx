@@ -55,6 +55,8 @@ import { SheetEditor } from '../views/sheet/sheet-editor';
 
 // Loaded at the moment somebody opens a canvas, not before: the editor is deliberately outside
 // the application shell's first-load path, and a workspace of notes never needs it.
+// An artifact's live view carries the OpenUI renderer, its own chunk loaded on first open.
+const ArtifactView = lazy(() => import('../openui/artifact-view'));
 const CanvasEditor = lazy(async () => {
   const module = await import('../editor/canvas-editor');
   return { default: module.CanvasEditor };
@@ -885,6 +887,20 @@ export function OpenItem({
     </div>
   );
 
+  // The prose editor, for notes and every kind this build has not heard of, and for an
+  // artifact's source.
+  const proseEditor = (
+    <NoteEditor
+      itemId={itemId}
+      cacheBody={!lock.locked}
+      hideToolbar={zen}
+      mobileActions={noteDocked && !zen ? itemActions : undefined}
+      mobileDetails={noteDocked && !zen ? { open: panelOpen, onToggle: togglePanel } : undefined}
+      // From the tree the page already holds: no fetch, only a ranking hint.
+      parentId={tree.find(itemId)?.parentId}
+    />
+  );
+
   return (
     <>
       <div className="flex min-w-0 shrink-0">
@@ -1027,20 +1043,21 @@ export function OpenItem({
                 itemId={itemId}
                 itemControls={editorHostsControls ? mobileItemControls : undefined}
               />
+            ) : bodyKind === 'artifact' ? (
+              // An artifact's body is prose holding one program: drawn live, edited as a note.
+              <Suspense
+                fallback={
+                  <span role="status" className="sr-only">
+                    Loading the artifact…
+                  </span>
+                }
+              >
+                <ArtifactView itemId={itemId} source={proseEditor} />
+              </Suspense>
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.
-              <NoteEditor
-                itemId={itemId}
-                cacheBody={!lock.locked}
-                hideToolbar={zen}
-                mobileActions={noteDocked && !zen ? itemActions : undefined}
-                mobileDetails={
-                  noteDocked && !zen ? { open: panelOpen, onToggle: togglePanel } : undefined
-                }
-                // From the tree the page already holds: no fetch, only a ranking hint.
-                parentId={tree.find(itemId)?.parentId}
-              />
+              proseEditor
             )
           ) : (
             <section aria-label="Container" className={paneColumn}>

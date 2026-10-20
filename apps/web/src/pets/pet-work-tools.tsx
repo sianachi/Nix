@@ -5,27 +5,28 @@ import {
   workspaceToolSchema,
   type WorkspaceToolArgs,
 } from '@nix/companion/tool-args';
-import { canApplyWithoutAsking, hasExternalLink } from '@nix/companion/auto-apply';
-import type { PreviewModel, Problem } from '@nix/structure-spec';
+import type { Problem } from '@nix/structure-spec';
 import { Button, Card, Text, cn, focusRing, inkWashStates } from '@nix/ui';
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link } from 'react-router';
 import { z } from 'zod';
 import { readActionReceipt, writeActionReceipt } from './action-receipts';
 import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { PetStructurePreview } from './pet-structure-preview';
 import { PetBodyEditPreview } from './pet-body-edit-preview';
+import {
+  BODY_EDIT_OPERATIONS,
+  HELD_AFTER_LOCKED_READ,
+  waitsForOwnerBecause,
+  writeMayRunWithoutAsking,
+  writeTextItems,
+} from './approval/write-gate';
+import { PropertyValueList, WriteTextSection } from './approval/write-text';
+import { afterWrite, prepareWrite, type PreparedPreview } from './approval/prepare-write';
+import { ApprovalSummary } from './approval/approval-summary';
+import { EditRequest, isEditable, type EditedRequest } from './approval/edit-request';
 import type { StructureFingerprint } from '@nix/companion';
 import { readReadWithoutAsking } from './device-preferences';
-
-interface PreparedPreview {
-  model: PreviewModel;
-  fingerprint: StructureFingerprint;
-  /** The write completes one occurrence of a repeating task, which Core cannot reopen. */
-  taskOccurrence: boolean;
-  /** The preview refused a body edit with text quoting a note under a lock. */
-  refusalQuotesLockedContent: boolean;
-}
 
 interface ToolPreviewState {
   loading: boolean;
@@ -43,65 +44,6 @@ interface BuildOutcome {
 }
 
 const DECLINED_BY_USER = 'Declined by the user. Do not retry this change unless asked.';
-/** Whether the switch may ever cover this write: the operation is allowed and none of the text
- * it would store links to another host (see `hasExternalLink`). The title is included because
- * `writeTextItems` lists only bodies, specs and property values. A note body edit also passes the
- * edited block as it will read afterwards (`model.bodyEdit.after`): the find and replace text can
- * join with what is already there into a link neither holds alone. An edit that would drop
- * formatting Markdown cannot carry always waits, so the owner sees the loss before it happens,
- * and so does completing an occurrence of a repeating task (`taskOccurrence`), which cannot be
- * undone. */
-function writeMayRunWithoutAsking(
-  args: WorkspaceToolArgs,
-  model?: PreviewModel,
-  taskOccurrence = false,
-): boolean {
-  return (
-    canApplyWithoutAsking(args.operation) &&
-    // Completing an occurrence of a repeating task cannot be undone (Core has no reopen).
-    !taskOccurrence &&
-    // A body edit's stored text is only known once its preview has placed it.
-    (!BODY_EDIT_OPERATIONS.has(args.operation) || model?.bodyEdit !== undefined) &&
-    model?.bodyEdit?.losesFormatting !== true &&
-    !hasExternalLink([
-      args.title,
-      ...writeTextItems(args).map((item) => item.text),
-      ...(model?.bodyEdit ? [model.bodyEdit.after] : []),
-    ])
-  );
-}
-
-/** Note body edits show the whole edited block before and after (`PetBodyEditPreview`), which
- * already includes every character the request would store. */
-const WAITS_FOR_FORMATTING =
-  'This one waits for you: approving it removes formatting this edit can’t keep (see below).';
-const WAITS_FOR_LINK = 'This one waits for you: it adds a link to another site.';
-const HELD_AFTER_LOCKED_READ =
-  'This one waits for you: earlier reads need your review before changes.';
-const HELD_FOR_OCCURRENCE =
-  "This one waits for you: completing a repeating task's occurrence cannot be undone.";
-
-/** Why a write the owner's switch would otherwise run is waiting anyway, in the owner's words,
- * when that is something the preview shows: formatting a body edit drops, or a link to another
- * host in what it would store. */
-function waitsForOwnerBecause(
-  args: WorkspaceToolArgs,
-  model: PreviewModel,
-  taskOccurrence = false,
-): string | undefined {
-  if (taskOccurrence) return HELD_FOR_OCCURRENCE;
-  if (model.bodyEdit?.losesFormatting) return WAITS_FOR_FORMATTING;
-  if (
-    hasExternalLink([
-      args.title,
-      ...writeTextItems(args).map((item) => item.text),
-      ...(model.bodyEdit ? [model.bodyEdit.after] : []),
-    ])
-  )
-    return WAITS_FOR_LINK;
-  return undefined;
-}
-
 /** The receipt of an approved write that was refused before it changed anything, with the
  * owner's reason kept beside it (`ownerReasons`) rather than the model's. */
 const NOT_RUN = 'Not run - nothing changed';
@@ -118,11 +60,6 @@ function settledBodyEditHeadline(args: WorkspaceToolArgs): string {
     ? `Edit to the section “${name}” in the linked note`
     : 'Edit to one passage in the linked note';
 }
-const BODY_EDIT_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
-  'replace_section',
-  'replace_passage',
-]);
-
 /** Receipts for a write the owner's "Apply without asking" switch ran (lane F). Stored like
  * every other receipt, so the wording survives closing and reopening the panel, and read back
  * by `ranWithoutAsking` so no card has to remember it. */
@@ -385,6 +322,7 @@ export function PetWorkTools({
     reportProgress?: (completed: number, total: number) => void,
     withoutAsking = false,
     refusalQuotesLockedContent = false,
+    edited?: EditedRequest,
   ): Promise<boolean> {
     const key = decisionKey(tool);
     if (lock.current || tool.status !== 'pending' || decisions[key] || readActionReceipt(key))
@@ -459,7 +397,7 @@ export function PetWorkTools({
         try {
           const { runWorkspaceTool, createCompanionBodies, defaultClock, defaultIds } =
             await import('@nix/companion');
-          const args = workspaceToolSchema.parse(JSON.parse(tool.arguments));
+          const args = workspaceToolSchema.parse(JSON.parse(edited?.arguments ?? tool.arguments));
           const ledger = args.operation === 'save_as_template' ? buildLedger : undefined;
           const outcome = await runWorkspaceTool(
             {
@@ -470,7 +408,7 @@ export function PetWorkTools({
               ids: defaultIds(),
             },
             workspaceId,
-            tool.arguments,
+            edited?.arguments ?? tool.arguments,
             signal,
             {
               ...(noteScope ? { scope: noteScope } : {}),
@@ -481,6 +419,7 @@ export function PetWorkTools({
               ...(reportProgress === undefined ? {} : { onProgress: reportProgress }),
             },
           );
+          // An owner's edit is what ran, so the pet hears it before the result.
           toolResult = outcome.text;
           toolSuccess = true;
           toolLockedContent = outcome.lockedContent;
@@ -488,16 +427,7 @@ export function PetWorkTools({
             const build = buildOutcome(outcome.text);
             if (build?.complete) setBuildLedger(build.ledger);
           }
-          if (!outcome.readOnly) {
-            client.invalidate(['items']);
-            for (const parent of outcome.touchedParents)
-              notifyItemChildrenChanged(workspaceId, parent);
-            if (args.operation === 'apply_template') client.invalidate(['templates']);
-            // A completed occurrence changes what the calendar draws, and its cache is keyed by
-            // workspace, not by item.
-            if (args.operation === 'complete_task')
-              client.invalidate(['workspaces', workspaceId, 'calendar']);
-          }
+          afterWrite(client, workspaceId, args, outcome);
         } catch (reason) {
           toolResult =
             reason instanceof WorkspaceToolRefusal
@@ -510,6 +440,8 @@ export function PetWorkTools({
           if (reason instanceof WorkspaceToolRefusal) toolLockedContent = reason.lockedContent;
         }
       }
+      // An owner's edit is what ran - or what failed - so the pet hears it with every outcome.
+      if (approved && edited) toolResult = `${edited.note}\n${toolResult}`;
       const result = await client.execute(
         pets.runtime({
           operation: 'tool_result',
@@ -526,7 +458,7 @@ export function PetWorkTools({
       );
       onChange(result);
       if (approved && toolSuccess) {
-        const args = workspaceToolSchema.parse(JSON.parse(tool.arguments));
+        const args = workspaceToolSchema.parse(JSON.parse(edited?.arguments ?? tool.arguments));
         const build = args.operation === 'build_blueprint' ? buildOutcome(toolResult) : undefined;
         const completed = build?.ledger.filter((entry) => entry.status === 'done').length;
         const outcome =
@@ -625,6 +557,7 @@ type Resolver = (
   reportProgress?: (completed: number, total: number) => void,
   withoutAsking?: boolean,
   refusalQuotesLockedContent?: boolean,
+  edited?: EditedRequest,
 ) => Promise<boolean>;
 
 /** One line: an icon-free status word or two, next to what happened. Used for every read - which
@@ -863,244 +796,6 @@ function WriteReceiptRow({
   );
 }
 
-/** One piece of text a pending write would store, with a human label derived from where it sits
- * in the parsed request (security fix S1). */
-interface WriteTextItem {
-  label: string;
-  text: string;
-}
-
-const WRITE_TEXT_ARRAY_NOUNS: Record<string, string> = {
-  entries: 'Entry',
-  fields: 'Field',
-  inputs: 'Input',
-  pages: 'Page',
-  blocks: 'Question',
-  views: 'View',
-  rules: 'Rule',
-};
-
-const WRITE_TEXT_KEY_WORDS: Record<string, string> = {
-  markdown: 'body',
-  body: 'body',
-  help: 'help',
-  description: 'description',
-  message: 'confirmation message',
-  paragraph: 'paragraph',
-  heading: 'heading',
-  formula: 'formula',
-  why: 'why',
-  default: 'default',
-  title: 'title',
-  label: 'label',
-  value: 'value',
-  query: 'query',
-};
-
-function writeTextWord(key: string): string {
-  return WRITE_TEXT_KEY_WORDS[key] ?? key.replaceAll(/([A-Z])/g, ' $1').toLowerCase();
-}
-
-/** The `label`/`title`/`field`/`heading` a spec array item names itself by, so a nested string
- * (a field's help, a question's confirmation copy) can be labelled by what it belongs to rather
- * than by its position alone. */
-function writeTextItemName(record: Record<string, unknown>): string | undefined {
-  for (const key of ['label', 'title', 'field', 'heading']) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-  return undefined;
-}
-
-/** Walks a parsed spec (or the property values of a `set_properties` request) and collects every
- * non-empty string value in it, each with a plain-language label built from its path - "Entry 3
- * body", "Field help: Status" - falling back to a capitalized key name. Security fix S1: nothing
- * a pending write would store may stay off this list, so every string leaf is collected, not just
- * the ones a specific operation is known to care about. */
-function collectWriteText(
-  value: unknown,
-  key: string | undefined,
-  arrayNoun: string | undefined,
-  itemName: string | undefined,
-  out: WriteTextItem[],
-): void {
-  if (typeof value === 'string') {
-    if (!value.trim() || key === undefined) return;
-    const word = writeTextWord(key);
-    const label =
-      itemName !== undefined
-        ? `${arrayNoun ?? 'Item'} ${word}: ${itemName}`
-        : word.charAt(0).toUpperCase() + word.slice(1);
-    out.push({ label, text: value });
-    return;
-  }
-  if (Array.isArray(value)) {
-    const noun = key !== undefined ? WRITE_TEXT_ARRAY_NOUNS[key] : undefined;
-    value.forEach((item) => {
-      const name =
-        item !== null && typeof item === 'object' && !Array.isArray(item)
-          ? writeTextItemName(item as Record<string, unknown>)
-          : undefined;
-      collectWriteText(item, undefined, noun, name, out);
-    });
-    return;
-  }
-  if (value !== null && typeof value === 'object') {
-    for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-      collectWriteText(nestedValue, nestedKey, arrayNoun, itemName, out);
-    }
-  }
-}
-
-const WRITE_TEXT_SPEC_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
-  'create_structured',
-  'add_view',
-  'create_entries',
-  'add_fields',
-  'edit_fields',
-  'edit_form',
-  'set_recurrence',
-  'apply_template',
-  'build_blueprint',
-  'save_as_template',
-]);
-
-/** Every piece of text a pending write would store, for the section that shows it in full before
- * Approve (security fix S1). */
-// View refinements show every changed string in the complete before/after structure preview.
-// Selection identities and field keys are not additional text the change writes.
-function writeTextItems(args: WorkspaceToolArgs): WriteTextItem[] {
-  const out: WriteTextItem[] = [];
-  if (WRITE_TEXT_SPEC_OPERATIONS.has(args.operation) && args.specJson.trim()) {
-    try {
-      const parsed: unknown = JSON.parse(args.specJson);
-      collectWriteText(parsed, undefined, undefined, undefined, out);
-    } catch {
-      // Invalid JSON is already surfaced as a problem elsewhere; there is nothing to list here.
-    }
-  }
-  if (args.operation === 'set_properties' && args.propertiesJson.trim()) {
-    try {
-      const parsed: unknown = JSON.parse(args.propertiesJson);
-      collectWriteText(parsed, undefined, undefined, undefined, out);
-    } catch {
-      // ditto
-    }
-  }
-  if (args.markdown.trim()) {
-    out.push({
-      label:
-        args.operation === 'append_note'
-          ? 'Added note text'
-          : args.operation === 'replace_section'
-            ? 'New section text'
-            : args.operation === 'replace_passage'
-              ? 'Replacement text'
-              : 'Note body',
-      text: args.markdown,
-    });
-  }
-  return out;
-}
-
-/** Security fix S1: every string a pending write would store, in a focusable scroll region so
- * nothing here can hide or truncate behind a click before Approve. */
-function WriteTextSection({
-  items,
-}: {
-  readonly items: readonly WriteTextItem[];
-}): ReactElement | null {
-  if (items.length === 0) return null;
-  // Each scroll box is a region, and regions need distinct names: a repeated label (two node
-  // titles in a blueprint, say) is numbered so every box can be told apart.
-  const totals = new Map<string, number>();
-  for (const item of items) totals.set(item.label, (totals.get(item.label) ?? 0) + 1);
-  const seen = new Map<string, number>();
-  const names = items.map((item) => {
-    const total = totals.get(item.label) ?? 1;
-    if (total === 1) return item.label;
-    const position = (seen.get(item.label) ?? 0) + 1;
-    seen.set(item.label, position);
-    return `${item.label} ${String(position)} of ${String(total)}`;
-  });
-  return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <Text variant="note" tone="muted">
-        Text this change will write
-      </Text>
-      {items.map((item, index) => {
-        const lineCount = item.text.split('\n').length;
-        const name = names[index] ?? item.label;
-        return (
-          <div key={`${item.label}:${String(index)}`} className="flex min-w-0 flex-col gap-1">
-            <Text variant="note" tone="muted">
-              {name} ({String(lineCount)} line{lineCount === 1 ? '' : 's'})
-            </Text>
-            <div
-              role="region"
-              aria-label={name}
-              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
-              tabIndex={0}
-              className={cn(
-                'min-w-0 max-h-60 overflow-y-auto overscroll-contain whitespace-pre-wrap wrap-anywhere rounded-sm border border-divider p-2',
-                focusRing,
-              )}
-            >
-              <Text variant="note">{item.text}</Text>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function formatPropertyValue(value: unknown): string {
-  if (value === null || value === undefined) return '(empty)';
-  if (Array.isArray(value)) return value.map((entry) => formatPropertyValue(entry)).join(', ');
-  if (typeof value === 'boolean') return value ? 'yes' : 'no';
-  if (typeof value === 'number' || typeof value === 'string') return String(value);
-  return JSON.stringify(value);
-}
-
-/** UX fix U15: a `set_properties` request's values as a plain key/value list, alongside (never
- * instead of) `WriteTextSection`'s full text of every string among them. */
-function PropertyValueList({
-  propertiesJson,
-}: {
-  readonly propertiesJson: string;
-}): ReactElement | null {
-  let entries: [string, unknown][] = [];
-  try {
-    const parsed: unknown = propertiesJson.trim() ? JSON.parse(propertiesJson) : undefined;
-    if (
-      parsed !== undefined &&
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-    ) {
-      entries = Object.entries(parsed as Record<string, unknown>);
-    }
-  } catch {
-    return null;
-  }
-  if (entries.length === 0) return null;
-  return (
-    <dl className="flex flex-col gap-1">
-      {entries.map(([key, value]) => (
-        <div key={key} className="flex flex-wrap gap-2">
-          <Text as="dt" variant="note" tone="muted">
-            {key}
-          </Text>
-          <Text as="dd" variant="note">
-            {formatPropertyValue(value)}
-          </Text>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
 function PetWorkToolCard({
   tool,
   client,
@@ -1150,13 +845,25 @@ function PetWorkToolCard({
   // Set only once `onResolve` actually started this write on its own (the S3 pattern
   // `ReadActivityRow` follows). The receipt, not this ref, carries "without asking" into the UI.
   const autoApplyKey = useRef('');
+  // The owner's correction of this request, which then is what previews, approves and runs.
+  const [edit, setEdit] = useState<EditedRequest | null>(null);
+  const [editing, setEditing] = useState(false);
+  const effectiveArguments = edit?.arguments ?? tool.arguments;
   let parsed: ReturnType<typeof workspaceToolSchema.safeParse>;
   try {
-    parsed = workspaceToolSchema.safeParse(JSON.parse(tool.arguments));
+    parsed = workspaceToolSchema.safeParse(JSON.parse(effectiveArguments));
   } catch {
     parsed = workspaceToolSchema.safeParse(null);
   }
   const args = parsed.success ? parsed.data : undefined;
+  const originalArgs = useMemo(() => {
+    try {
+      const original = workspaceToolSchema.safeParse(JSON.parse(tool.arguments));
+      return original.success ? original.data : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [tool.arguments]);
   // Reads never write. There is nothing here for the owner to approve after the fact - only
   // whether it ran at all, which `readReadWithoutAsking` governs - so they are never shown as a
   // card, and never load a mutation preview.
@@ -1168,7 +875,7 @@ function PetWorkToolCard({
     const controller = new AbortController();
     let current: ReturnType<typeof workspaceToolSchema.safeParse>;
     try {
-      current = workspaceToolSchema.safeParse(JSON.parse(tool.arguments));
+      current = workspaceToolSchema.safeParse(JSON.parse(effectiveArguments));
     } catch {
       current = workspaceToolSchema.safeParse(null);
     }
@@ -1184,51 +891,25 @@ function PetWorkToolCard({
     }
     void (async () => {
       try {
-        // Keep the yjs-bearing companion package out of the initial web bundle. The card displays
-        // an explicit loading state while this preview-only dependency is fetched.
-        const {
-          createCompanionBodies,
-          defaultClock,
-          defaultIds,
-          describeToolCall,
-          loadPreviewContext,
-          prepareNoteScopedTool,
-        } = await import('@nix/companion');
-        const ports = {
-          core: client,
-          collab: client,
-          bodies: createCompanionBodies(client),
-          clock: defaultClock(),
-          ids: defaultIds(),
-        };
         const scope = rootItemId ? { rootItemId, readOnly } : undefined;
-        const preparedArgs = scope
-          ? await prepareNoteScopedTool(ports, workspaceId, current.data, controller.signal, scope)
-          : current.data;
-        const context = await loadPreviewContext(
-          ports,
+        const prepared = await prepareWrite(
+          client,
           workspaceId,
-          preparedArgs,
+          current.data,
           controller.signal,
           scope,
         );
-        const model = describeToolCall(preparedArgs, context);
         if (!controller.signal.aborted)
           setState({
             loading: false,
-            arguments: tool.arguments,
-            prepared: {
-              model,
-              fingerprint: context.fingerprint,
-              taskOccurrence: context.taskCompletion?.kind === 'occurrence',
-              refusalQuotesLockedContent: context.refusalQuotesLockedContent ?? false,
-            },
+            arguments: effectiveArguments,
+            prepared,
           });
       } catch (reason) {
         if (!controller.signal.aborted)
           setState({
             loading: false,
-            arguments: tool.arguments,
+            arguments: effectiveArguments,
             error:
               reason instanceof WorkspaceToolRefusal
                 ? reason.message
@@ -1239,9 +920,9 @@ function PetWorkToolCard({
     return () => {
       controller.abort();
     };
-  }, [tool.arguments, workspaceId, client, settledBodyEdit, rootItemId, readOnly]);
+  }, [effectiveArguments, workspaceId, client, settledBodyEdit, rootItemId, readOnly]);
 
-  const currentPreview = state.arguments === tool.arguments;
+  const currentPreview = state.arguments === effectiveArguments;
   const model = currentPreview ? state.prepared?.model : undefined;
   const problems = model?.problems ?? [];
   const problemResult = `${DECLINED_FOR_PROBLEMS_PREFIX}\n${problems
@@ -1255,7 +936,9 @@ function PetWorkToolCard({
   // Invalid writes go straight back to the pet: once a structure write's preview proves it has
   // problems, decline it automatically, once per tool id, in both modes, rather than making the
   // owner click through a request that cannot run.
-  const hasProblems = !isReadOp && tool.status === 'pending' && problems.length > 0 && !submitted;
+  // An edited request with problems is the owner's to fix or undo; it is never declined for them.
+  const hasProblems =
+    edit === null && !isReadOp && tool.status === 'pending' && problems.length > 0 && !submitted;
   useEffect(() => {
     onProblemsChange(hasProblems);
   }, [hasProblems, onProblemsChange]);
@@ -1297,6 +980,8 @@ function PetWorkToolCard({
   // `disabled` expression so the switch can never run what the button could not.
   const canAutoApply =
     applyWithoutAsking &&
+    edit === null &&
+    !editing &&
     !isReadOp &&
     args !== undefined &&
     !followsLockedRead &&
@@ -1415,8 +1100,11 @@ function PetWorkToolCard({
           ? waitsForOwnerBecause(args, model, taskOccurrence)
           : undefined
       : undefined;
+  // An edited request with problems stays a full card: the owner fixes, undoes or declines it
+  // there (security review L2), rather than being left on a receipt with no way forward.
   const isCompactWrite =
-    args !== undefined && (tool.status !== 'pending' || Boolean(submitted) || problems.length > 0);
+    args !== undefined &&
+    (tool.status !== 'pending' || Boolean(submitted) || (problems.length > 0 && edit === null));
   if (isCompactWrite) {
     // A body edit that ran keeps its comparison whether the owner approved it or the switch
     // did, plus the way back: the note's own history. After the panel is reopened the approved
@@ -1476,6 +1164,9 @@ function PetWorkToolCard({
       title={parsed.success ? 'Approve this change?' : 'Unsupported tool request'}
       headingLevel={3}
     >
+      {model && args ? (
+        <ApprovalSummary model={model} args={args} workspaceId={workspaceId} />
+      ) : null}
       {model ? (
         <PetStructurePreview
           model={model}
@@ -1529,11 +1220,30 @@ function PetWorkToolCard({
         </Text>
       ) : null}
       {cleanup}
+      {edit !== null ? (
+        <Text variant="note" role="status">
+          You edited this request. The preview above shows the edited version.
+        </Text>
+      ) : null}
+      {editing && originalArgs ? (
+        <EditRequest
+          original={originalArgs}
+          current={args ?? originalArgs}
+          onSave={(edited) => {
+            setEdit(edited);
+            setEditing(false);
+          }}
+          onCancel={() => {
+            setEditing(false);
+          }}
+        />
+      ) : null}
       {tool.status === 'pending' && !submitted ? (
         <div className="flex flex-wrap gap-2">
           <Button
             variant="primary"
             disabled={
+              editing ||
               busy ||
               !parsed.success ||
               !currentPreview ||
@@ -1555,6 +1265,9 @@ function PetWorkToolCard({
                       onBuildProgress(`Building ${String(completed)} of ${String(total)}...`);
                     }
                   : undefined,
+                false,
+                false,
+                edit ?? undefined,
               );
             }}
           >
@@ -1569,6 +1282,28 @@ function PetWorkToolCard({
           >
             Decline request
           </Button>
+          {originalArgs && isEditable(originalArgs) && !editing ? (
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                setEditing(true);
+              }}
+            >
+              {edit === null ? 'Edit before approving' : 'Edit again'}
+            </Button>
+          ) : null}
+          {edit !== null && !editing ? (
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                setEdit(null);
+              }}
+            >
+              Undo my edits
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </Card>
