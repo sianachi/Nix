@@ -45,3 +45,28 @@ export function useMobileKeyboard(enabled: boolean): boolean {
   }, [enabled]);
   return enabled && visible;
 }
+
+/**
+ * The visible height above the software keyboard while `enabled`, else null.
+ *
+ * iOS Safari keeps `dvh` at the full window when the keyboard opens and scrolls the page instead,
+ * which pushes a bottom composer out of sight; a column sized to this stays above the keyboard.
+ */
+export function useVisualViewportHeight(enabled: boolean): number | null {
+  const [height, setHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!enabled || !viewport) return;
+    const measure = (): void => {
+      setHeight(viewport.height);
+      window.scrollTo(0, 0);
+    };
+    measure();
+    viewport.addEventListener('resize', measure);
+    return () => {
+      viewport.removeEventListener('resize', measure);
+    };
+  }, [enabled]);
+  // Masked here, not reset in the effect, so a stale height never outlives `enabled`.
+  return enabled ? height : null;
+}

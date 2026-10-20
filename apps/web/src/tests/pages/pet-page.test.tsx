@@ -236,4 +236,22 @@ describe('note chat page', () => {
       0,
     );
   });
+
+  it.each([390, 844])(
+    'keeps a touch screen %ipx wide on the page, never the desktop tab',
+    async (width) => {
+      // A phone (or landscape phone) answers width and coarse-pointer queries from the first render.
+      globalThis.matchMedia = (query: string): MediaQueryList =>
+        ({
+          matches: query.includes('pointer')
+            ? query.includes('coarse')
+            : width >= Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? 0),
+          media: query,
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+        }) as unknown as MediaQueryList;
+      renderNote();
+      expect(await screen.findByRole('combobox', { name: 'Note chat access' })).toBeVisible();
+    },
+  );
 });

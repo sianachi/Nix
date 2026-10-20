@@ -1,5 +1,5 @@
 import { MobileNoteCapture } from '../items/mobile-note-capture';
-import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
+import { useMobileKeyboard, useVisualViewportHeight } from '../layout/use-mobile-keyboard';
 import { useBackDismiss } from '../layout/use-back-dismiss';
 import { describeBulkDelete, executeBulkDelete } from '../items/bulk-delete';
 import { ItemCommandsProvider } from '../items/item-commands-context';
@@ -160,6 +160,10 @@ export function AppShell(): ReactNode {
   const sidebar = useSidebar(narrow);
   const [searchOpen, setSearchOpen] = useState(false);
   const location = useLocation();
+  // The companion page owns a phone screen: the sync footer and install nudge would otherwise
+  // squeeze the message list to a sliver. Offline and update notices still show; they are state.
+  const chatOwnsScreen = narrow && /^\/w\/[^/]+\/pet\/?$/.test(location.pathname);
+  const visibleHeight = useVisualViewportHeight(chatOwnsScreen && keyboardVisible);
   // The installed app's Search shortcut lands here with a request to open search over whatever
   // is showing. Taken during render, once per history entry (React's pattern for state that
   // follows a changed input), then cleared from history so Back and a reload do not reopen it.
@@ -494,7 +498,10 @@ export function AppShell(): ReactNode {
 
   return (
     // design-token-exempt: device safe-area insets protect content in portrait and landscape.
-    <div className="flex h-dvh flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] font-body text-foreground">
+    <div
+      style={visibleHeight === null ? undefined : { height: visibleHeight }} // design-token-exempt: the keyboard-reduced visual viewport height is measured at runtime.
+      className="flex h-dvh flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] font-body text-foreground"
+    >
       {/* First focusable thing in the document, for everybody, on every screen. It used to live in
           a layout element that the route tree had stopped rendering, so in practice the app had no
           skip link at all.
@@ -724,8 +731,8 @@ export function AppShell(): ReactNode {
             clears this region's measured height, clears the player too. Hidden while the software
             keyboard is up, when the room is better spent on the text being typed. */}
         {keyboardVisible || zen ? null : <MiniPlayer onOpen={openPinned} />}
-        {zen ? null : <OfflineStatus />}
-        {zen ? null : <PwaControls compact={keyboardVisible} />}
+        {zen || chatOwnsScreen ? null : <OfflineStatus />}
+        {zen ? null : <PwaControls compact={keyboardVisible || chatOwnsScreen} />}
         {navRendered ? (
           <MobileNavigation
             workspaceId={workspaceId}
