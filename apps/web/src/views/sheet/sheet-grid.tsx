@@ -1,15 +1,12 @@
 import {
   SHEET_COLUMN_WIDTH,
-  SHEET_ERROR_HELP,
   SHEET_LIMITS,
   type CellRef,
   cellKey,
   columnLetters,
-  isSheetError,
   parseCellKey,
-  rangeContains,
 } from '@nix/sheet';
-import { ContextMenu, Text, focusRingInset } from '@nix/ui';
+import { ContextMenu, focusRingInset } from '@nix/ui';
 import {
   useEffect,
   useReducer,
@@ -22,13 +19,17 @@ import {
 
 import { pickRowHeight } from '../spreadsheet/grid-geometry';
 import { CellEditor } from './cell-editor';
-import { parseTsv, rangeToTsv } from './clipboard';
 import { gridKeyAction } from './grid-keys';
 import { INITIAL_SELECTION, type GridBounds, selectedRange, selectionReducer } from './selection';
 import { FormulaBar } from './formula-bar';
-import { SheetCell } from './sheet-cell';
+import { SheetCellRows } from './sheet-cell-rows';
+import { sheetCellMenuItems } from './sheet-cell-menu';
+import { sheetClipboardHandlers } from './sheet-clipboard';
+import { SheetRowNumbers } from './sheet-row-numbers';
 import { RESIZE_HINT_ID, SheetColumnHeader } from './sheet-column-header';
+import { SheetStatus } from './sheet-status';
 import { useColumnResize } from './use-column-resize';
+import { useGridViewport } from './use-grid-viewport';
 import { type SheetData } from './use-sheet';
 import { columnOffsets, columnWindow, rowWindow } from './windowing';
 
@@ -71,8 +72,6 @@ const GRID_HINT_ID = 'sheet-grid-keyboard-hint';
 export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
   const [rowHeight] = useState(pickRowHeight);
-  const [scroll, setScroll] = useState({ top: 0, left: 0 });
-  const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const {
     resize,
     cancelResize,
@@ -115,6 +114,14 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const totalWidth = offsets[bounds.cols] ?? 0;
   const totalHeight = bounds.rows * rowHeight;
 
+  const { scroll, viewport, onScroll } = useGridViewport(scrollerRef, {
+    top: selection.active.row * rowHeight,
+    left: offsets[selection.active.col] ?? 0,
+    width: widths[selection.active.col] ?? DEFAULT_COLUMN_WIDTH,
+    rowHeight,
+    resizing: resize !== null,
+  });
+
   const rows = rowWindow({
     scrollTop: scroll.top,
     viewportHeight: viewport.height,
@@ -126,47 +133,6 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
     viewportWidth: viewport.width,
     offsets,
   });
-
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (scroller === null) {
-      return;
-    }
-    const observer = new ResizeObserver(() => {
-      setViewport({ width: scroller.clientWidth, height: scroller.clientHeight });
-    });
-    observer.observe(scroller);
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
-  // The active cell is kept on screen the way a caret is: moving it scrolls
-  // the minimum that makes it visible. Keyed on the cell's own geometry as
-  // scalars, not on the geometry arrays, so it cannot fire for an unrelated
-  // column's change - and suspended while a resize drag is live, or every
-  // pointermove that pushes the active cell's edge past the viewport would
-  // scroll the grid out from under the column being held.
-  const activeTop = selection.active.row * rowHeight;
-  const activeLeft = offsets[selection.active.col] ?? 0;
-  const activeWidth = widths[selection.active.col] ?? DEFAULT_COLUMN_WIDTH;
-  const resizing = resize !== null;
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (scroller === null || resizing) {
-      return;
-    }
-    if (activeTop < scroller.scrollTop) {
-      scroller.scrollTop = activeTop;
-    } else if (activeTop + rowHeight > scroller.scrollTop + scroller.clientHeight) {
-      scroller.scrollTop = activeTop + rowHeight - scroller.clientHeight;
-    }
-    if (activeLeft < scroller.scrollLeft) {
-      scroller.scrollLeft = activeLeft;
-    } else if (activeLeft + activeWidth > scroller.scrollLeft + scroller.clientWidth) {
-      scroller.scrollLeft = activeLeft + activeWidth - scroller.clientWidth;
-    }
-  }, [activeTop, activeLeft, activeWidth, resizing, rowHeight]);
 
   useEffect(() => {
     // Editing via the formula bar keeps focus there; the overlay only takes
@@ -327,6 +293,14 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
     dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
   }
 
+  const clipboard = sheetClipboardHandlers(
+    sheet,
+    range,
+    rangeLabel,
+    selection.mode === 'edit',
+    setNotice,
+  );
+
   const visibleRows: number[] = [];
   for (let row = rows.first; row <= rows.last; row += 1) {
     visibleRows.push(row);
@@ -411,50 +385,20 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
           onHandlePointerDown={onHandlePointerDown}
         />
 
-        {/* Row numbers, pinned horizontally, following vertical scroll. */}
-        <div className="absolute bottom-0 left-0 top-8 z-20 w-12 overflow-hidden border-r border-divider bg-surface">
-          <div className="relative w-12" style={rowStripStyle}>
-            {visibleRows.map((row) => (
-              <div
-                key={row}
-                aria-hidden="true"
-                className="absolute left-0 flex w-12 items-center justify-center border-b border-divider text-xs text-muted"
-                style={{ top: `${String(row * rowHeight)}px`, height: `${String(rowHeight)}px` }} // design-token-exempt: a row's place is grid geometry computed at runtime
-              >
-                {row + 1}
-              </div>
-            ))}
-          </div>
-        </div>
+        <SheetRowNumbers visibleRows={visibleRows} rowHeight={rowHeight} style={rowStripStyle} />
 
         {/* The body: the one real scroller, and the keyboard's home. */}
         <ContextMenu
           label="Spreadsheet cell actions"
-          items={() => {
-            const ref = menuCellRef.current ?? selection.active;
-            const key = cellKey(ref);
-            return [
-              {
-                label: `Edit ${key}`,
-                onSelect: () => {
-                  commitDraft('stay');
-                  dispatch({ type: 'moveTo', ref, extend: false });
-                  beginEdit('open', sheet.cells.get(key) ?? '');
-                },
-              },
-              {
-                label: `Clear ${key}`,
-                disabled: !sheet.cells.has(key),
-                onSelect: () => {
-                  commitDraft('stay');
-                  sheet.setCell(ref, '');
-                  dispatch({ type: 'moveTo', ref, extend: false });
-                },
-              },
-              { label: 'Undo', onSelect: sheet.undo },
-              { label: 'Redo', onSelect: sheet.redo },
-            ];
-          }}
+          items={() =>
+            sheetCellMenuItems(
+              sheet,
+              menuCellRef.current ?? selection.active,
+              commitDraft,
+              dispatch,
+              beginEdit,
+            )
+          }
         >
           {(target) => (
             <div
@@ -480,40 +424,8 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                 menuCellRef.current = null;
               }}
               onKeyDown={onGridKeyDown}
-              onScroll={(event) => {
-                setScroll({
-                  top: event.currentTarget.scrollTop,
-                  left: event.currentTarget.scrollLeft,
-                });
-              }}
-              onCopy={(event) => {
-                if (selection.mode === 'edit') {
-                  return;
-                }
-                event.preventDefault();
-                event.clipboardData.setData('text/plain', rangeToTsv(sheet.cells, range));
-                setNotice(`Copied ${rangeLabel}`);
-              }}
-              onCut={(event) => {
-                if (selection.mode === 'edit') {
-                  return;
-                }
-                event.preventDefault();
-                event.clipboardData.setData('text/plain', rangeToTsv(sheet.cells, range));
-                sheet.clearRange(range);
-                setNotice(`Cut ${rangeLabel}`);
-              }}
-              onPaste={(event) => {
-                if (selection.mode === 'edit') {
-                  return;
-                }
-                event.preventDefault();
-                const text = event.clipboardData.getData('text/plain');
-                if (text.length > 0) {
-                  sheet.pasteBlock({ row: range.startRow, col: range.startCol }, parseTsv(text));
-                  setNotice(`Pasted at ${cellKey({ row: range.startRow, col: range.startCol })}`);
-                }
-              }}
+              onScroll={onScroll}
+              {...clipboard}
               className={`absolute bottom-0 left-12 right-0 top-8 overflow-auto overscroll-contain outline-none ${focusRingInset}`}
             >
               <div
@@ -521,35 +433,22 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                 role="presentation"
                 style={{ width: `${String(totalWidth)}px`, height: `${String(totalHeight)}px` }} // design-token-exempt: the scrollable canvas is sized by the grid's own extent, a runtime value
               >
-                {visibleRows.map((row) => (
-                  <div key={row} role="row" aria-rowindex={row + 1} className="contents">
-                    {visibleCols.map((col) => {
-                      const key = cellKey({ row, col });
-                      const raw = sheet.cells.get(key);
-                      return (
-                        <SheetCell
-                          key={col}
-                          cellKey={key}
-                          col={col}
-                          value={sheet.values.get(key)}
-                          raw={raw}
-                          top={row * rowHeight}
-                          left={offsets[col] ?? 0}
-                          width={widths[col] ?? DEFAULT_COLUMN_WIDTH}
-                          height={rowHeight}
-                          inRange={!rangeIsCell && rangeContains(range, { row, col })}
-                          isActive={row === selection.active.row && col === selection.active.col}
-                          onMouseDown={(event) => {
-                            onCellMouseDown(row, col, raw ?? '', event);
-                          }}
-                          onDoubleClick={() => {
-                            beginEdit('open', raw ?? '');
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
+                <SheetCellRows
+                  sheet={sheet}
+                  visibleRows={visibleRows}
+                  visibleCols={visibleCols}
+                  rowHeight={rowHeight}
+                  offsets={offsets}
+                  widths={widths}
+                  defaultWidth={DEFAULT_COLUMN_WIDTH}
+                  range={range}
+                  rangeIsCell={rangeIsCell}
+                  active={selection.active}
+                  onCellMouseDown={onCellMouseDown}
+                  onCellOpen={(raw) => {
+                    beginEdit('open', raw);
+                  }}
+                />
 
                 {selection.mode === 'edit' && selection.editSource !== 'bar' ? (
                   <CellEditor
@@ -589,23 +488,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
         </ContextMenu>
       </div>
 
-      {/* Always mounted, so a screen reader announces the text the moment it
-          appears rather than missing a region that arrived with content
-          already in it. */}
-      <Text
-        variant="caption"
-        as="p"
-        aria-live="polite"
-        className="shrink-0 border-t border-divider px-3 py-1"
-      >
-        {(() => {
-          const value = sheet.values.get(activeKey);
-          if (value === undefined || !isSheetError(value)) {
-            return notice;
-          }
-          return `${activeKey}: ${value.error} — ${SHEET_ERROR_HELP[value.error]}`;
-        })()}
-      </Text>
+      <SheetStatus activeKey={activeKey} value={sheet.values.get(activeKey)} notice={notice} />
     </div>
   );
 }
