@@ -79,7 +79,7 @@ export const CellEditor = forwardRef<EditorElement, CellEditorProps>(function Ce
       }}
       onBlur={onBlur}
       className={`${CELL_EDITOR_CLASSNAME} resize-none`}
-      style={{ ...position, height: undefined, minHeight: position.height }}
+      style={{ ...position, height: undefined, minHeight: position.height }} // design-token-exempt: the editor overlays the active cell, whose place is runtime geometry
     />
   );
 });
