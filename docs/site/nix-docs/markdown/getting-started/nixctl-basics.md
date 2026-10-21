@@ -109,3 +109,7 @@ nixctl automations test <rule-id>
 
 Run `nixctl <command> --help` for the full set of options.
 
+## Properties
+
+- title: nixctl basics
+

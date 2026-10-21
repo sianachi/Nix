@@ -1,6 +1,8 @@
 # Upgrades
 
-Every commit on `main` gets a full set of images, tagged with its full 40-character commit SHA, for `linux/amd64` and `linux/arm64`. There are no moving tags such as `latest`. An upgrade means choosing a SHA, checking out the matching manifest and running it. See [Images and tags](nix://item/01a13137-c3f3-7efb-8afc-83357024c5b5).
+# Upgrades
+
+Every commit on `main` gets a full set of images, tagged with its full 40-character commit SHA, for `linux/amd64` and `linux/arm64`; a release tag adds `vX.Y.Z` and `latest`. An install made by `deploy/install.sh` upgrades by running the installer again with `--version`: see [Install in one line](nix://item/01a16030-a2fa-76fd-bef3-cb99a1a146d0). For a deployment you run by hand, an upgrade means choosing a SHA, checking out the matching manifest and running it. See [Images and tags](nix://item/01a13137-c3f3-7efb-8afc-83357024c5b5).
 
 ## Before you start
 
@@ -68,4 +70,8 @@ Keep the previous release's checkout and backup until the new version has been c
 ## Cleaning up
 
 `deploy/compose/prune.sh` lists old release checkouts and backups it would remove, keeping the running release and the one before it. Add `--apply` to delete them. It never touches volumes.
+
+## Properties
+
+- title: Upgrades
 

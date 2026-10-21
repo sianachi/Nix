@@ -60,3 +60,7 @@ Every other hostname is an alias, and answers in one of two ways:
 
 Each served hostname has a small host manifest in storage, written when a build goes live, that names the build to serve and whether to redirect. The sites server looks up the request's `Host` in those manifests. A default hostname with no live site gets a plain `404`. A custom hostname without a manifest, which means it has not been verified, the sites domain itself and another instance's names are all refused with `421`, which tells the client this server does not answer for that name. The server only answers `GET` and `HEAD`.
 
+## Properties
+
+- title: Hostnames and DNS
+

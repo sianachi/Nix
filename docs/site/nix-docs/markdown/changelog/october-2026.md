@@ -121,3 +121,35 @@
 - One account's settings no longer show up for another on a shared browser.
 - Workspace arrangement, provider keys and MCP tokens can be changed only interactively, not with a personal access token. Provider keys are stored protected and never shown again.
 
+## Properties
+
+- date: 2026-10-11
+- tags: offline; sites; views; charts; formulas; calendar; pets; cli; deploy
+- title: October 2026
+
+
+
+## Fields
+
+### Date
+
+- aggregate: Unset
+- expression: Unset
+- key: date
+- label: Date
+- options: 
+- required: false
+- source: Unset
+- type: date
+
+### Tags
+
+- aggregate: Unset
+- expression: Unset
+- key: tags
+- label: Tags
+- options: automations; calendar; charts; cli; deploy; editor; export; files; finance; formulas; habits; import; locks; offline; pets; pwa; reminders; sites; templates; views
+- required: false
+- source: Unset
+- type: multi\_select
+

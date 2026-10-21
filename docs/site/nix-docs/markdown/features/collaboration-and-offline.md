@@ -36,3 +36,7 @@ A few things to know:
 - Downloaded notes are not encrypted on the device. Signing out removes them, and the copies on a device cannot learn that your access was revoked until it reconnects.
 - Browser storage is not a backup. Your browser or operating system can clear it.
 
+## Properties
+
+- title: Collaboration and offline
+

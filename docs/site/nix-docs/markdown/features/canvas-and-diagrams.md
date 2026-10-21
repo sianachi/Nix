@@ -24,3 +24,7 @@ flowchart LR
 
 Uploaded `.mmd` and `.mermaid` files open in the same viewer. Diagrams render with strict security settings and follow the light or dark theme. The source is what is stored; the picture is derived from it.
 
+## Properties
+
+- title: Canvas and diagrams
+

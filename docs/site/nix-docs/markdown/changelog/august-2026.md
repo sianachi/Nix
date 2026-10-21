@@ -54,3 +54,35 @@ August turned the foundations laid at the end of July (the item tree, cascading 
 
 - Item cards that show properties and open their item, images, a shape library and multi-selection.
 
+## Properties
+
+- date: 2026-08-31
+- tags: editor; views; formulas; templates; import; export; cli; pwa
+- title: August 2026
+
+
+
+## Fields
+
+### Date
+
+- aggregate: Unset
+- expression: Unset
+- key: date
+- label: Date
+- options: 
+- required: false
+- source: Unset
+- type: date
+
+### Tags
+
+- aggregate: Unset
+- expression: Unset
+- key: tags
+- label: Tags
+- options: automations; calendar; charts; cli; deploy; editor; export; files; finance; formulas; habits; import; locks; offline; pets; pwa; reminders; sites; templates; views
+- required: false
+- source: Unset
+- type: multi\_select
+

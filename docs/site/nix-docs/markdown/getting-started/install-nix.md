@@ -7,8 +7,8 @@ There are two ways to run Nix: a local development stack for trying it out, and 
 The local stack runs every service on your own machine, including a development identity provider and mail catcher. You need Docker and [mise](https://mise.jdx.dev), which installs the pinned toolchain.
 
 ```sh
-git clone https://github.com/sianachi/nixsites.git
-cd nixsites
+git clone https://github.com/sianachi/Nix.git
+cd Nix
 mise install
 pnpm install --frozen-lockfile
 pnpm dev
@@ -35,4 +35,8 @@ The installed app gives you:
 - push notifications for reminders, once you allow them.
 
 Updates arrive as an "An update is ready" prompt. Nix finishes saving pending work before it reloads into the new version.
+
+## Properties
+
+- title: Install Nix
 

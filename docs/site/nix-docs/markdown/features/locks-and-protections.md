@@ -38,3 +38,7 @@ Protections guard against slips rather than against colleagues: anyone with edit
 
 Some items are owned by an integration. When you link an external calendar to a container, the container and its synced events become managed: they cannot be deleted from the tree, and events cannot be moved out of their calendar. You remove them by unlinking the calendar in settings, where you choose to keep the items as ordinary ones or move them to the trash. Workspace owners can see and unlink any calendar linked into their workspace.
 
+## Properties
+
+- title: Locks and protections
+

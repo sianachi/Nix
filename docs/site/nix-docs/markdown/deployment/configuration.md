@@ -153,3 +153,7 @@ The Kubernetes manifests read the same settings from Secrets and ConfigMaps inst
 
 The inputs to `create-secrets.sh` include `DOMAIN`, the `NIX_OBJECT_STORE_*` and `NIX_CALENDAR_*` values, `NIX_SITES_BUCKET` and `NIX_SITES_READ_*`, the optional `NIX_SITES_CLOUDFLARE_*` values, `NIX_PUSH_VAPID_*`, `NIX_ORIGIN_TLS_CERT_FILE`, `NIX_ORIGIN_TLS_KEY_FILE`, and `NIX_ZITADEL_ADMIN_USERNAME` and `NIX_ZITADEL_ADMIN_PASSWORD`. Passwords for the database, broker, internal secret and signing keys are generated.
 
+## Properties
+
+- title: Configuration
+

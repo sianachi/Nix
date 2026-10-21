@@ -31,3 +31,7 @@ nixctl template capture <workspace-id> <source-item-id>
 nixctl template apply <template-id> --parent <item-id> --title "Q4 launch"
 ```
 
+## Properties
+
+- title: Templates
+

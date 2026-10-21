@@ -1,5 +1,7 @@
 # Requirements
 
+# Requirements
+
 ## A machine
 
 - Linux on `amd64` or `arm64`.
@@ -10,7 +12,7 @@
 
 You do not need Node, .NET or Go on the host. Everything runs from the published images. The Compose release scripts need Python 3 to check exported files.
 
-For the Kubernetes path, you need a k3s cluster instead. See [Kubernetes](nix://item/01a13137-c1a1-7f79-bfe5-4e7cad094458) for what it expects.
+For the Kubernetes path, you need a cluster instead. See [Kubernetes](nix://item/01a13137-c1a1-7f79-bfe5-4e7cad094458) for what it expects.
 
 ## A domain and HTTPS
 
@@ -22,7 +24,7 @@ To publish websites with Sites, you also need a domain for them, with a wildcard
 
 ## An identity provider
 
-Nix does not store passwords. Sign-in goes through an OpenID Connect provider using the authorisation code flow with PKCE. Nix is developed and tested against Zitadel, and supports more than one issuer. The Kubernetes manifests deploy Zitadel for you; with Docker Compose you bring your own. You need:
+Nix does not store passwords. Sign-in goes through an OpenID Connect provider using the authorisation code flow with PKCE. Nix is developed and tested against Zitadel, and supports more than one issuer. The installer bundles Zitadel on both paths. If you run the Compose manifest by hand instead, you bring your own provider and need:
 
 - an OIDC application (client ID) for Nix, with `https://<your-domain>` as its origin;
 - the issuer URL;
@@ -43,10 +45,14 @@ You can point Nix at an external S3-compatible store or an external TLS RabbitMQ
 - **A P-256 signing key** for the short-lived access tokens Nix issues to browsers and `nixctl`.
 - **A Web Push key pair** (VAPID) for push notifications. The notification worker will not start without it.
 
-Keep both for the lifetime of the deployment.
+Keep both for the lifetime of the deployment. The installer generates them.
 
 ## Optional accounts
 
 - **Google Cloud or Microsoft Entra** OAuth applications, for two-way calendar sync.
 - **A ChatGPT account** for each person who wants to use the companion pet. Nobody needs one for anything else.
+
+## Properties
+
+- title: Requirements
 

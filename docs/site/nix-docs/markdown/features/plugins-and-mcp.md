@@ -48,3 +48,7 @@ General item reading and editing, note bodies and search stay as `nixctl` comman
 
 Tool results are data. Note contents and filenames that come back from a tool never grant an agent new authority.
 
+## Properties
+
+- title: Plugins and MCP
+
