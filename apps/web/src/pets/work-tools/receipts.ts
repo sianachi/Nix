@@ -1,3 +1,4 @@
+import type { PetToolCall } from '@nix/api-client';
 import type { WorkspaceToolArgs } from '@nix/companion/tool-args';
 
 export type BuildLedger = readonly { nodeId: string; itemId?: string; status?: string }[];
@@ -65,6 +66,21 @@ export function buildOutcome(text: string): BuildOutcome | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** The one sentence worth speaking when the newest tool call ended badly: a build that stopped
+ * part way, or a write that did not finish. A clean finish and a decline say nothing. */
+export function toolOutcomeSentence(tool: PetToolCall | undefined): string {
+  if (!tool) return '';
+  if (tool.status === 'completed') {
+    const build = buildOutcome(tool.result);
+    if (!build || build.complete) return '';
+    const done = build.ledger.filter((entry) => entry.status === 'done').length;
+    return `Stopped after ${String(done)} of ${String(build.ledger.length)}. The draft is incomplete.`;
+  }
+  return tool.status === 'failed' && tool.result !== DECLINED_BY_USER && tool.result !== NOT_RUN
+    ? "Didn't finish. Check your workspace before retrying."
+    : '';
 }
 
 /** A request's headline said what the pet would do ("I will create a note ... with the content

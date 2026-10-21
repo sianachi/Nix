@@ -22,6 +22,7 @@ import {
   writeReadWithoutAsking,
   writeWorkspaceAccess,
 } from '../device-preferences';
+import { toolOutcomeSentence } from '../work-tools/receipts';
 import { type PetAnimationState } from '../pet-avatar';
 import { usePetDraft } from '../pet-drafts';
 import { PetConnectionPanel } from '../pet-connection-panel';
@@ -166,6 +167,7 @@ export function Conversation({
     petName: pet.name,
     ready: connected,
     approvalPending,
+    outcome: toolOutcomeSentence(runtime?.tools?.at(-1)),
   });
 
   // Stable identity: `PetWorkTools` re-fires its own reporting effect whenever the callback it
