@@ -108,6 +108,9 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
             });
           }
         }}
+        onRename={() => {
+          if (activeRow !== null) tree.startRename(activeRow.item.id);
+        }}
         onIndent={() => {
           if (activeRow !== null) void tree.indent(activeRow);
         }}
@@ -122,16 +125,10 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
         }}
       />
 
-      <div id={captionId}>
-        <Text as="p" variant="caption" tone="muted" className="pointer-coarse:hidden">
-          Enter adds an item below. Tab and Shift+Tab, or Alt with Right and Left, indent and
-          outdent. Ctrl or Cmd with Up and Down reorders, and with Enter opens. Escape, then Tab,
-          leaves the outline.
-        </Text>
-        <Text as="p" variant="caption" tone="muted" className="hidden pointer-coarse:block">
-          Tap a row to choose it, then use the buttons above to add, indent, move or open it.
-        </Text>
-      </div>
+      <Text as="p" id={captionId} variant="caption" tone="muted" className="pointer-coarse:sr-only">
+        Enter adds below. F2 renames. Tab and Shift+Tab indent and outdent. Ctrl or Cmd with Up and
+        Down reorders. Escape, then Tab, leaves.
+      </Text>
 
       {rows.length === 0 && draft === null ? (
         <EmptyPanel

@@ -1,10 +1,11 @@
-import { Button, Icon, Text } from '@nix/ui';
+import { Button, Icon } from '@nix/ui';
 import {
   ArrowDown,
   ArrowUp,
   ExternalLink,
   IndentDecrease,
   IndentIncrease,
+  Pencil,
   Plus,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -16,26 +17,36 @@ interface OutlineToolbarProps {
   readonly busy: boolean;
   readonly onOpen: () => void;
   readonly onAdd: () => void;
+  readonly onRename: () => void;
   readonly onIndent: () => void;
   readonly onOutdent: () => void;
   readonly onUp: () => void;
   readonly onDown: () => void;
 }
 
-/** The structural edits as buttons, acting on the row last focused - a phone has no Tab key. */
+/**
+ * The structural edits as one row of icon buttons, acting on the row last focused - a phone has no
+ * Tab key. Each is named for the row it acts on, so no caption has to say which row that is.
+ */
 export function OutlineToolbar(props: OutlineToolbarProps): ReactNode {
-  const { row, busy, onOpen, onAdd, onIndent, onOutdent, onUp, onDown } = props;
+  const { row, busy, onOpen, onAdd, onRename, onIndent, onOutdent, onUp, onDown } = props;
   const name = row === null ? '' : ` "${titleOf(row.item)}"`;
   const disabled = row === null || busy;
   return (
-    <div role="group" aria-label="Outline actions" className="flex flex-wrap items-center gap-1">
-      <Button variant="ghost" onClick={onOpen} disabled={row === null}>
-        <Icon icon={ExternalLink} size="sm" />
-        Open
-      </Button>
-      <Button variant="ghost" onClick={onAdd} disabled={busy}>
+    <div
+      role="group"
+      aria-label="Outline actions"
+      aria-busy={busy}
+      className="flex flex-wrap items-center gap-1"
+    >
+      <Button variant="icon" aria-label="Add item" onClick={onAdd} disabled={busy}>
         <Icon icon={Plus} size="sm" />
-        Add item
+      </Button>
+      <Button variant="icon" aria-label={`Rename${name}`} onClick={onRename} disabled={disabled}>
+        <Icon icon={Pencil} size="sm" />
+      </Button>
+      <Button variant="icon" aria-label="Open" onClick={onOpen} disabled={row === null}>
+        <Icon icon={ExternalLink} size="sm" />
       </Button>
       <Button variant="icon" aria-label={`Indent${name}`} onClick={onIndent} disabled={disabled}>
         <Icon icon={IndentIncrease} size="sm" />
@@ -49,10 +60,6 @@ export function OutlineToolbar(props: OutlineToolbarProps): ReactNode {
       <Button variant="icon" aria-label={`Move${name} down`} onClick={onDown} disabled={disabled}>
         <Icon icon={ArrowDown} size="sm" />
       </Button>
-      {/* Which row the buttons act on, said where they are: the highlight alone is easy to lose. */}
-      <Text as="span" variant="caption" tone="muted" truncate className="min-w-0">
-        {busy ? 'Saving…' : row === null ? 'No row chosen' : `Acting on “${titleOf(row.item)}”`}
-      </Text>
     </div>
   );
 }

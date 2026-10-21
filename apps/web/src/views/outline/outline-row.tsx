@@ -7,6 +7,7 @@ import {
   IndentDecrease,
   IndentIncrease,
   Lock,
+  Pencil,
   Plus,
 } from 'lucide-react';
 import type { RefObject, ReactNode } from 'react';
@@ -15,6 +16,7 @@ import { useOptionalItemSelection } from '../core/item-selection-context';
 import { SelectCheckbox } from '../core/select-checkbox';
 import { rowGestures } from '../core/use-item-selection';
 import type { useItemContextActions } from '../core/use-item-context-actions';
+import { RenameField } from './outline-rename-field';
 import { onRowKeyDown } from './outline-keys';
 import { titleOf, type OutlineRow } from './outline-model';
 import type { OutlineTreeState } from './use-outline-tree';
@@ -33,9 +35,22 @@ interface OutlineRowViewProps {
 /** One tree row with its context menu: the disclosure, checkbox, title and the row's own note. */
 export function OutlineRowView(props: OutlineRowViewProps): ReactNode {
   const { row, tree, itemActions, clickSelects, sizeKnown, releaseTab, onOpen } = props;
-  const { busy, expanded, loading, locked, note, activeId, rowRefs, setFocusedId, setDraft } = tree;
+  const {
+    busy,
+    expanded,
+    loading,
+    locked,
+    note,
+    activeId,
+    renamingId,
+    rowRefs,
+    setFocusedId,
+    setDraft,
+  } = tree;
   const selection = useOptionalItemSelection();
   const openBeside = selection?.openBeside;
+  // A phone has no hover, so the boxes appear only once a long-press has started a selection.
+  const selecting = selection !== null && selection.selected.size > 0;
   const id = row.item.id;
   const isOpen = expanded.has(id);
   const selectOrFocus = rowGestures(
@@ -65,6 +80,15 @@ export function OutlineRowView(props: OutlineRowViewProps): ReactNode {
             disabled: busy,
             onSelect: () => {
               setDraft({ parentId: row.parentId, afterId: id, level: row.level });
+            },
+          },
+          {
+            kind: 'action',
+            label: 'Rename',
+            icon: Pencil,
+            disabled: busy,
+            onSelect: () => {
+              tree.startRename(id);
             },
           },
           {
@@ -138,7 +162,7 @@ export function OutlineRowView(props: OutlineRowViewProps): ReactNode {
             if (!isEditableTarget(event.target)) selectOrFocus.onKeyUp(event);
           }}
           onDoubleClick={() => {
-            onOpen(id);
+            tree.startRename(id);
           }}
           className={cn(
             'group flex min-h-(--control-sm) min-w-0 flex-wrap items-center gap-1 rounded-sm py-1 pointer-coarse:min-h-(--control-lg)',
@@ -162,10 +186,22 @@ export function OutlineRowView(props: OutlineRowViewProps): ReactNode {
               <Icon icon={isOpen ? ChevronDown : ChevronRight} size="sm" />
             ) : null}
           </span>
-          <SelectCheckbox item={row.item} />
-          <Text as="span" variant="body" className="min-w-0 flex-1">
-            {titleOf(row.item)}
-          </Text>
+          <span className={cn('contents', !selecting && 'pointer-coarse:hidden')}>
+            <SelectCheckbox item={row.item} />
+          </span>
+          {renamingId === id ? (
+            <RenameField
+              title={row.item.title}
+              onCommit={(title) => void tree.rename(row, title)}
+              onCancel={() => {
+                tree.cancelRename(id);
+              }}
+            />
+          ) : (
+            <Text as="span" variant="body" className="min-w-0 flex-1">
+              {titleOf(row.item)}
+            </Text>
+          )}
           {locked.has(id) ? (
             <>
               <Icon icon={Lock} size="sm" className="text-muted" />

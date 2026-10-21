@@ -1,4 +1,4 @@
-import { isNixApiError, items as coreItems } from '@nix/api-client';
+import { isNixApiError, items as coreItems, structure as coreStructure } from '@nix/api-client';
 import { useMemo } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
@@ -24,6 +24,9 @@ export interface OutlineSource {
 
   /** Makes a child at the end of `parentId`'s children. */
   readonly create: (parentId: string | null, title: string) => Promise<Item>;
+
+  /** Renames an item: the title is a property like any other, written through the same call. */
+  readonly rename: (itemId: string, parentId: string | null, title: string) => Promise<void>;
 
   /** Moves an item under `parentId`, after `afterId` or first when it is null. */
   readonly move: (
@@ -59,6 +62,10 @@ export function useOutlineSource(): OutlineSource {
         );
         notifyItemChildrenChanged(workspaceId, parentId);
         return created;
+      },
+      rename: async (itemId, parentId, title) => {
+        await client.execute(coreStructure.setItemProperties(itemId, { title }));
+        notifyItemChildrenChanged(workspaceId, parentId);
       },
       move: async (itemId, fromParentId, parentId, afterId) => {
         await client.execute(coreItems.moveItem(workspaceId, itemId, { parentId, afterId }));

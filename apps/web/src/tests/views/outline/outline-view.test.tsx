@@ -105,6 +105,10 @@ function Harness(options: HarnessOptions): ReactNode {
       commit([...latest.current, node]);
       return Promise.resolve(toItem(node, latest.current));
     },
+    rename: (itemId, _parent, title) => {
+      commit(latest.current.map((node) => (node.id === itemId ? { ...node, title } : node)));
+      return Promise.resolve();
+    },
     move: (itemId, _from, parentId, afterId) => {
       options.onMove?.(itemId, parentId, afterId);
       if (options.refuseMove !== undefined) return Promise.reject(options.refuseMove);
@@ -220,6 +224,24 @@ describe('OutlineTree', () => {
     await waitFor(() => {
       expect(treeTitles()).toEqual(['Alpha', 'Bravo', 'New sibling', 'Charlie', 'Delta']);
     });
+  });
+
+  it('renames a row in place with F2 and from the toolbar, and Escape drops the edit', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness />);
+
+    row('Alpha').focus();
+    await user.keyboard('{F2}');
+    await user.keyboard('{Control>}a{/Control}Apex{Enter}');
+    await waitFor(() => {
+      expect(treeTitles()).toEqual(['Apex', 'Bravo', 'Charlie', 'Delta']);
+    });
+
+    await user.click(row('Charlie'));
+    await user.click(screen.getByRole('button', { name: 'Rename "Charlie"' }));
+    await user.keyboard('Nope{Escape}');
+    expect(treeTitles()).toEqual(['Apex', 'Bravo', 'Charlie', 'Delta']);
+    expect(row('Charlie')).toHaveFocus();
   });
 
   it('draws the top level as a tree with one tab stop', () => {
@@ -387,7 +409,6 @@ describe('OutlineTree', () => {
 
     await user.click(row('Charlie'));
     expect(onOpen).not.toHaveBeenCalled();
-    expect(screen.getByText('Acting on “Charlie”')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Open' }));
 
     expect(onOpen).toHaveBeenCalledWith('c');

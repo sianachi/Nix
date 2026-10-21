@@ -17,6 +17,7 @@ export interface OutlineTreeState {
   readonly note: RowNote | null;
   readonly draft: Draft | null;
   readonly busy: boolean;
+  readonly renamingId: string | null;
   readonly rowRefs: RefObject<Map<string, HTMLDivElement>>;
   readonly setFocusedId: (id: string | null) => void;
   readonly setDraft: (draft: Draft | null) => void;
@@ -28,6 +29,9 @@ export interface OutlineTreeState {
   readonly add: (title: string, at: Draft) => Promise<string | null>;
   readonly focusRow: (id: string | undefined) => void;
   readonly cancelDraft: () => void;
+  readonly startRename: (id: string) => void;
+  readonly rename: (row: OutlineRow, title: string) => Promise<void>;
+  readonly cancelRename: (id: string) => void;
 }
 
 /**
@@ -44,6 +48,7 @@ export function useOutlineTree(container: ContainerData, source: OutlineSource):
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const pendingFocus = useRef<string | null>(null);
 
@@ -272,6 +277,40 @@ export function useOutlineTree(container: ContainerData, source: OutlineSource):
     return null;
   }
 
+  function startRename(id: string): void {
+    setNote(null);
+    setFocusedId(id);
+    setRenamingId(id);
+  }
+
+  function cancelRename(id: string): void {
+    setRenamingId(null);
+    pendingFocus.current = id;
+    setFocusedId(id);
+  }
+
+  /** Renames in place; an empty or unchanged title is a cancel, a refusal is said on the row. */
+  async function rename(row: OutlineRow, title: string): Promise<void> {
+    const named = title.trim();
+    cancelRename(row.item.id);
+    if (named.length === 0 || named === row.item.title) return;
+    setNote(null);
+    try {
+      await source.rename(row.item.id, row.parentId, named);
+    } catch (reason) {
+      setNote({ itemId: row.item.id, text: describeOutlineRefusal(reason) });
+      return;
+    }
+    try {
+      await refresh(row.parentId);
+    } catch {
+      setNote({
+        itemId: row.item.id,
+        text: 'Renamed, but this outline could not be re-read. Reload to see it.',
+      });
+    }
+  }
+
   /** Closes the new-item field and puts focus back on the row it followed. */
   function cancelDraft(): void {
     const back = draft?.afterId ?? null;
@@ -299,6 +338,7 @@ export function useOutlineTree(container: ContainerData, source: OutlineSource):
     note,
     draft,
     busy,
+    renamingId,
     rowRefs,
     setFocusedId,
     setDraft,
@@ -310,5 +350,8 @@ export function useOutlineTree(container: ContainerData, source: OutlineSource):
     add,
     focusRow,
     cancelDraft,
+    startRename,
+    rename,
+    cancelRename,
   };
 }

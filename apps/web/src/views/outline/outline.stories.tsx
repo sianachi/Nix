@@ -91,6 +91,10 @@ function Example({
       commit([...latest.current, item]);
       return Promise.resolve(item);
     },
+    rename: (itemId, _parent, title) => {
+      commit(latest.current.map((item) => (item.id === itemId ? { ...item, title } : item)));
+      return Promise.resolve();
+    },
     move: (itemId, _from, parentId, afterId) => {
       if (refuseMoves) {
         return Promise.reject(

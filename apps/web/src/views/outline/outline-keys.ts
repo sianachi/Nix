@@ -5,7 +5,7 @@ import type { OutlineTreeState } from './use-outline-tree';
 
 /**
  * The tree's keyboard: Up/Down/Home/End move, Right/Left open and close, Tab and Shift+Tab
- * reparent, Ctrl/Cmd+Up/Down reorder, Enter adds a sibling. Escape releases the next Tab.
+ * reparent, Ctrl/Cmd+Up/Down reorder, F2 renames, Enter adds a sibling. Escape releases the next Tab.
  */
 export function onRowKeyDown(
   event: KeyboardEvent<HTMLDivElement>,
@@ -97,6 +97,10 @@ export function onRowKeyDown(
     case 'End':
       event.preventDefault();
       tree.focusRow(rows[rows.length - 1]?.item.id);
+      return;
+    case 'F2':
+      event.preventDefault();
+      tree.startRename(row.item.id);
       return;
     case 'Enter':
       event.preventDefault();
