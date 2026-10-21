@@ -697,6 +697,7 @@ grep -Fq 'router.middlewares: ""' "$RENDERED_INGRESS"
 grep -Fq 'value: "X-Forwarded-For"' "$RENDERED_WEB"
 grep -Fq 'ZITADEL_EXTERNALSECURE: "false"' "$RENDERED_ZITADEL"
 grep -Fq '"--tlsMode", "external"' "$RENDERED_ZITADEL"
+assert_before "rollout:-n nix rollout status statefulset/nix-rabbitmq" "kubectl:-n nix rollout restart deployment/nix-worker deployment/nix-sites-worker"
 if grep -Fq 'cloudflare-only.yaml' "$KUBECTL_LOG"; then
   echo 'Deployment applied the Cloudflare origin lock on a generic cluster.' >&2
   exit 1

@@ -271,6 +271,9 @@ render deploy/k8s/worker.yaml | kubectl apply -f -
 render deploy/k8s/web.yaml | kubectl apply -f -
 render deploy/k8s/sites.yaml | kubectl apply -f -
 render deploy/k8s/mcp.yaml | kubectl apply -f -
+# The broker restarted above and the Go workers' consumers do not reconnect; an unchanged template
+# would keep the cut-off pods, so restart them the way Compose restarts its writers.
+kubectl -n nix rollout restart deployment/nix-worker deployment/nix-sites-worker
 
 kubectl -n nix rollout status deployment/nix-api --timeout=180s
 kubectl -n nix rollout status deployment/nix-collab --timeout=180s
