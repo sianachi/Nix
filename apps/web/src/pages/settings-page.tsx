@@ -1,5 +1,5 @@
 import { Icon, Nav, Text } from '@nix/ui';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useRef, type ReactElement } from 'react';
 import { Link, useLocation } from 'react-router';
 import { z } from 'zod';
@@ -30,25 +30,39 @@ const fromState = z.object({ from: z.string() });
 
 type Gate = (capabilities: Capabilities) => boolean;
 
-// Personal and place first, then connections, then the operator's own: each section keeps its id
-// so every `?tab=` link still lands where it did. The retired `publishing` id resolves to General.
-const settingsSections: readonly { id: SettingsTab; label: string; gate?: Gate }[] = [
-  { id: 'workspace', label: 'Workspace' },
-  { id: 'daily-notes', label: 'Daily notes' },
-  { id: 'editor', label: 'Editor' },
-  { id: 'preferences', label: 'General' },
-  { id: 'pets', label: 'Pets' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'integrations', label: 'Calendars' },
-  { id: 'access-tokens', label: 'Access tokens' },
-  { id: 'mcp', label: 'MCP' },
-  { id: 'backups', label: 'Backups', gate: (c) => c.operator },
-  { id: 'site-approvals', label: 'Site approvals', gate: (c) => c.siteApprover },
+type Group = 'You' | 'Workspace' | 'Administration';
+
+const GROUPS: readonly { name: Group; label: string }[] = [
+  { name: 'You', label: 'Your settings' },
+  { name: 'Workspace', label: 'Workspace settings' },
+  { name: 'Administration', label: 'Administration settings' },
+];
+
+// What is yours, then the workspace's, then the operator's: each section keeps its id so every
+// `?tab=` link still lands where it did. The retired `publishing` id resolves to General.
+const settingsSections: readonly { id: SettingsTab; label: string; group: Group; gate?: Gate }[] = [
+  { id: 'preferences', label: 'General', group: 'You' },
+  { id: 'editor', label: 'Editor', group: 'You' },
+  { id: 'daily-notes', label: 'Daily notes', group: 'You' },
+  { id: 'notifications', label: 'Notifications', group: 'You' },
+  { id: 'integrations', label: 'Calendars', group: 'You' },
+  { id: 'pets', label: 'Pets', group: 'You' },
+  { id: 'workspace', label: 'Workspace', group: 'Workspace' },
+  { id: 'access-tokens', label: 'Access tokens', group: 'Workspace' },
+  { id: 'mcp', label: 'MCP', group: 'Workspace' },
+  {
+    id: 'site-approvals',
+    label: 'Site approvals',
+    group: 'Administration',
+    gate: (c) => c.siteApprover,
+  },
   {
     id: 'administrators',
     label: 'Administrators',
+    group: 'Administration',
     gate: (c) => c.tenantAdministrator || c.siteApprover,
   },
+  { id: 'backups', label: 'Backups', group: 'Administration', gate: (c) => c.operator },
 ];
 
 function SectionBody(props: { readonly id: SettingsTab }): ReactElement | null {
@@ -116,13 +130,31 @@ export function SettingsPage(): ReactElement {
 
   const hrefFor = (id: SettingsTab): string => `${pathname}?${SETTINGS_TAB_PARAM}=${id}`;
   const navigation = (
-    <div ref={nav} className={narrow ? 'p-3' : 'sticky top-0 w-48 shrink-0 self-start'}>
-      <Nav
-        label="Settings sections"
-        items={sections.map((section) => ({ href: hrefFor(section.id), label: section.label }))}
-        {...(activeTab === null ? {} : { currentHref: hrefFor(activeTab) })}
-        renderLink={({ href, ...rest }) => <Link to={href} replace={!narrow} {...rest} />}
-      />
+    <div
+      ref={nav}
+      className={`flex flex-col gap-4 ${narrow ? 'p-3' : 'sticky top-0 w-48 shrink-0 self-start'}`}
+    >
+      {GROUPS.map((group) => {
+        const items = sections.filter((section) => section.group === group.name);
+        return items.length === 0 ? null : (
+          <div key={group.name} className="flex flex-col gap-1">
+            <Text as="span" variant="caption" tone="muted" aria-hidden="true">
+              {group.name}
+            </Text>
+            <Nav
+              label={group.label}
+              items={items.map((section) => ({ href: hrefFor(section.id), label: section.label }))}
+              {...(activeTab === null ? {} : { currentHref: hrefFor(activeTab) })}
+              renderLink={({ href, children, ...rest }) => (
+                <Link to={href} replace={!narrow} {...rest}>
+                  {children}
+                  {narrow ? <Icon icon={ChevronRight} size="sm" className="ml-auto" /> : null}
+                </Link>
+              )}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 

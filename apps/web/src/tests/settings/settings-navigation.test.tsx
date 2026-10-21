@@ -25,8 +25,8 @@ describe('reaching the settings screen', () => {
     renderAt(<App />, '/settings');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
-    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
-    expect(within(nav).getByRole('link', { name: 'Workspace' })).toHaveAttribute(
+    const workspaceNav = screen.getByRole('navigation', { name: 'Workspace settings' });
+    expect(within(workspaceNav).getByRole('link', { name: 'Workspace' })).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -34,9 +34,10 @@ describe('reaching the settings screen', () => {
     expect(screen.getAllByRole('main')).toHaveLength(1);
 
     const user = userEvent.setup();
-    await user.click(within(nav).getByRole('link', { name: 'Editor' }));
+    const yourNav = screen.getByRole('navigation', { name: 'Your settings' });
+    await user.click(within(yourNav).getByRole('link', { name: 'Editor' }));
     expect(await screen.findByRole('heading', { level: 2, name: 'Editor' })).toBeVisible();
-    expect(within(nav).getByRole('link', { name: 'Editor' })).toHaveAttribute(
+    expect(within(yourNav).getByRole('link', { name: 'Editor' })).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -58,22 +59,47 @@ describe('reaching the settings screen', () => {
   it('lists the sections in group order without the gated ones for an ordinary account', async () => {
     renderAt(<App />, '/settings');
 
-    const nav = await screen.findByRole('navigation', { name: 'Settings sections' });
+    await screen.findByRole('navigation', { name: 'Your settings' });
+    const navs = screen.getAllByRole('navigation', {
+      name: /^(Your|Workspace|Administration) settings$/,
+    });
+    expect(navs.map((nav) => nav.getAttribute('aria-label'))).toEqual([
+      'Your settings',
+      'Workspace settings',
+    ]);
+    expect(
+      navs.flatMap((nav) =>
+        within(nav)
+          .getAllByRole('link')
+          .map((link) => link.textContent),
+      ),
+    ).toEqual([
+      'General',
+      'Editor',
+      'Daily notes',
+      'Notifications',
+      'Calendars',
+      'Pets',
+      'Workspace',
+      'Access tokens',
+      'MCP',
+    ]);
+  });
+
+  it('adds an Administration group when the account may operate the install', () => {
+    renderAt(
+      <CapabilitiesProvider value={{ ...NO_CAPABILITIES, operator: true, siteApprover: true }}>
+        <SettingsPage />
+      </CapabilitiesProvider>,
+      '/settings?tab=preferences',
+    );
+
+    const nav = screen.getByRole('navigation', { name: 'Administration settings' });
     expect(
       within(nav)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual([
-      'Workspace',
-      'Daily notes',
-      'Editor',
-      'General',
-      'Pets',
-      'Notifications',
-      'Calendars',
-      'Access tokens',
-      'MCP',
-    ]);
+    ).toEqual(['Site approvals', 'Administrators', 'Backups']);
   });
 
   it('sends the old publishing address to the General toggle', () => {
