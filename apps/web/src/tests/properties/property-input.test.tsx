@@ -85,6 +85,48 @@ describe('a property input', () => {
     expect(onCommit).toHaveBeenCalledWith(8);
   });
 
+  it('keeps the stored number when the box holds text it cannot parse, and says so', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ points: 5 })}
+        property={propertyOf({ key: 'points', label: 'Points', type: 'number' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const box = screen.getByRole('spinbutton', { name: 'Points' });
+    await person.click(box);
+    // A number box reports '' for "3e" and flags it through validity.badInput.
+    Object.defineProperty(box, 'validity', { value: { badInput: true }, configurable: true });
+    fireEvent.change(box, { target: { value: '' } });
+    await person.tab();
+
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    expect(box).toHaveAccessibleDescription('Enter a number.');
+  });
+
+  it('still clears a number when the box is emptied on purpose', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ points: 5 })}
+        property={propertyOf({ key: 'points', label: 'Points', type: 'number' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    await person.clear(screen.getByRole('spinbutton', { name: 'Points' }));
+    await person.tab();
+
+    expect(onCommit).toHaveBeenCalledWith(null);
+  });
+
   it('gives a url property a url box', () => {
     render(
       <PropertyInput

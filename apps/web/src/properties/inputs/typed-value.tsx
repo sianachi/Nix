@@ -1,5 +1,5 @@
 import { Input } from '@nix/ui';
-import { useId, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 
 import { readPropertyText } from '../../views/core/container-model';
 
@@ -21,7 +21,16 @@ export function TypedValue(
   const stored = readPropertyText(item, property.key);
   const { draft, setDraft, sent, send } = useDraft(stored, onCommit);
 
-  function commit(): void {
+  // A `type=number` box reports '' for text it cannot parse ("3e"), which would read as a
+  // deliberate clear and null the stored value. The browser's own badInput flag tells them apart.
+  const [invalid, setInvalid] = useState<string | null>(null);
+
+  function commit(input: HTMLInputElement): void {
+    if (kind === 'number' && input.validity.badInput) {
+      setInvalid('Enter a number.');
+      return;
+    }
+
     // A blur that changed nothing is not an edit. Without this, tabbing through the panel would
     // write every property on the way past, and Enter followed by Tab would write twice.
     if (draft === sent) {
@@ -52,7 +61,7 @@ export function TypedValue(
   }
 
   return (
-    <ValueShell {...props}>
+    <ValueShell {...props} error={props.error ?? invalid}>
       {(control) => (
         <>
           <Input
@@ -65,14 +74,17 @@ export function TypedValue(
             required={property.required}
             disabled={disabled}
             onChange={(event) => {
+              setInvalid(null);
               setDraft(event.target.value);
             }}
-            onBlur={commit}
+            onBlur={(event) => {
+              commit(event.currentTarget);
+            }}
             onKeyDown={(event) => {
               // Enter is the explicit action for somebody who types and does not move on.
               if (event.key === 'Enter') {
                 event.preventDefault();
-                commit();
+                commit(event.currentTarget);
               }
             }}
           />
