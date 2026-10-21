@@ -211,4 +211,10 @@ describe('MatrixView', () => {
       screen.getByRole('button', { name: 'Add an item to Important, Urgent' }),
     ).toBeInTheDocument();
   });
+
+  it('shows a card field as a button named for the field and the card, empty ones included', () => {
+    renderMatrix({ columns: ['notes'] });
+
+    expect(screen.getByRole('button', { name: /Notes for Answer mail/ })).toBeInTheDocument();
+  });
 });

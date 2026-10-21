@@ -146,6 +146,9 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
       onMove={(to) => {
         move(item, to);
       }}
+      onWrite={(itemId, propertyKey, value) =>
+        container.setProperties(itemId, { [propertyKey]: value })
+      }
       onOpen={onOpen}
     />
   );
@@ -215,7 +218,7 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
       </div>
 
       {narrow ? (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           {rowGroups.map((row) => (
             <section key={row.group} aria-label={row.label} className="flex flex-col gap-2">
               <Text as="h3" variant="h6">
@@ -224,8 +227,8 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
               {columnGroups.map((column) => {
                 const items = cellItems({ row: row.group, column: column.group });
                 return items.length === 0 && !showEmpty ? null : (
-                  <div key={column.group} className="flex flex-col gap-2 border border-divider p-3">
-                    <Text as="h4" variant="kicker" tone="muted">
+                  <div key={column.group} className="flex flex-col gap-1.5">
+                    <Text as="h4" variant="caption" tone="muted">
                       {column.label}
                     </Text>
                     <CellCards

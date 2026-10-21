@@ -1,9 +1,12 @@
-import { Blueprint, Button, ContextMenu, Menu, Text, cn, focusRing } from '@nix/ui';
+import { Blueprint, Button, ContextMenu, Icon, Menu, Text, cn, focusRing } from '@nix/ui';
+import { ArrowRightLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { readPropertyText, type Item, type PropertyDefinition } from '../core/container-model';
+import type { Item, PropertyDefinition, PropertyValue } from '../core/container-model';
 import { useItemOpenProps } from '../core/item-open-click';
 import { useItemContextActions } from '../core/use-item-context-actions';
+import { ValuePopover } from '../core/value-popover';
+import { ListCell } from '../list/list-cell';
 import { cellValue, type CellAddress } from './matrix-axes';
 
 export interface CellChoice {
@@ -21,6 +24,11 @@ export interface MatrixCardProps {
   readonly onDragStart: () => void;
   readonly onDragEnd: () => void;
   readonly onMove: (to: CellAddress) => void;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
   readonly onOpen: (itemId: string) => void;
 }
 
@@ -35,6 +43,7 @@ export function MatrixCard(props: MatrixCardProps): ReactNode {
     onDragStart,
     onDragEnd,
     onMove,
+    onWrite,
     onOpen,
   } = props;
   const itemActions = useItemContextActions(onOpen);
@@ -48,72 +57,74 @@ export function MatrixCard(props: MatrixCardProps): ReactNode {
           <Blueprint
             className={cn('flex flex-col gap-1.5 bg-background p-3', dragging ? 'opacity-45' : '')}
           >
-            <div
-              draggable
-              onDragStart={(event) => {
-                onDragStart();
-                event.dataTransfer.effectAllowed = 'move';
-                // Without data attached, Firefox refuses to start the drag at all.
-                event.dataTransfer.setData('text/plain', item.id);
-              }}
-              onDragEnd={onDragEnd}
-            >
-              <button
-                ref={titleRef}
-                type="button"
-                {...openProps(item.id)}
-                className={cn(
-                  'min-w-0 w-full text-left any-pointer-coarse:min-h-(--control-lg)',
-                  focusRing,
-                )}
+            <div className="flex items-start gap-1">
+              <div
+                className="min-w-0 flex-1"
+                draggable
+                onDragStart={(event) => {
+                  onDragStart();
+                  event.dataTransfer.effectAllowed = 'move';
+                  // Without data attached, Firefox refuses to start the drag at all.
+                  event.dataTransfer.setData('text/plain', item.id);
+                }}
+                onDragEnd={onDragEnd}
               >
-                <Text variant="h5" as="span" lines={2}>
-                  {title}
-                </Text>
-              </button>
+                <button
+                  ref={titleRef}
+                  type="button"
+                  {...openProps(item.id)}
+                  className={cn(
+                    'min-w-0 w-full text-left any-pointer-coarse:min-h-(--control-lg)',
+                    focusRing,
+                  )}
+                >
+                  <Text variant="h5" as="span" lines={2}>
+                    {title}
+                  </Text>
+                </button>
+              </div>
+
+              {/* A menu of cells rather than a select: a select commits on a single arrow press and
+                  drops focus when the card leaves its cell, while a menu commits only on a choice. */}
+              <Menu
+                label={`Move ${title} to`}
+                items={cells.map((cell) => ({
+                  key: cellValue(cell.address),
+                  label: cell.label,
+                  disabled: cellValue(cell.address) === cellValue(current),
+                  onSelect: () => {
+                    onMove(cell.address);
+                  },
+                }))}
+              >
+                {(trigger) => (
+                  <Button {...trigger} variant="icon" aria-label={`Move ${title} to`}>
+                    <Icon icon={ArrowRightLeft} size="sm" />
+                  </Button>
+                )}
+              </Menu>
             </div>
 
-            {fields.map((field) => {
-              const text = readPropertyText(item, field.key);
-              return text.length === 0 ? null : (
-                // Line breaks kept and three lines at most, so a long text cannot stretch the card.
-                <Text
-                  key={field.key}
-                  as="span"
-                  variant="caption"
-                  tone="muted"
-                  lines={3}
-                  className="whitespace-pre-line"
-                >
-                  {`${field.label}: ${text}`}
-                </Text>
-              );
-            })}
-
-            {/* A menu of cells rather than a select: a select commits on a single arrow press and
-                drops focus when the card leaves its cell, while a menu commits only on a choice. */}
-            <Menu
-              label={`Move ${title} to`}
-              items={cells.map((cell) => ({
-                key: cellValue(cell.address),
-                label: cell.label,
-                disabled: cellValue(cell.address) === cellValue(current),
-                onSelect: () => {
-                  onMove(cell.address);
-                },
-              }))}
-            >
-              {(trigger) => (
-                <Button
-                  {...trigger}
-                  variant="ghost"
-                  aria-label={`Move ${title} to`}
-                  className="self-start"
-                >
-                  Move to…
-                </Button>
-              )}
-            </Menu>
+            {fields.length === 0 ? null : (
+              <div className="-mx-2 flex flex-col">
+                {fields.map((field) => (
+                  <ValuePopover
+                    key={field.key}
+                    item={item}
+                    property={field}
+                    density="chip"
+                    labelled
+                    className="max-w-full"
+                  >
+                    <ListCell
+                      item={item}
+                      property={field}
+                      onWrite={(value) => onWrite(item.id, field.key, value)}
+                    />
+                  </ValuePopover>
+                ))}
+              </div>
+            )}
           </Blueprint>
         </li>
       )}
