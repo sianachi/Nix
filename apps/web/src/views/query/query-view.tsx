@@ -21,6 +21,7 @@ import { ruleConditions } from '../core/filter-rules';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { useHiddenItems } from '../../items/use-hidden-items';
 import { editableDefinition, QueryRowValue } from './query-row-values';
+import { useRowSchemas } from './use-row-schemas';
 import { useQueryResults } from './use-query-results';
 
 /** Loaded once somebody asks for suggested filters; most visits to a smart list never do. */
@@ -54,6 +55,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
   // The itemId this view runs against is the smart list itself - the container's own id, not its
   // children. Every child the container may incidentally hold stays untouched by this view.
   const run = useQueryResults(container.itemId ?? '', view.id);
+  const rowSchemas = useRowSchemas((run.results?.results ?? []).map((row) => row.containerId));
 
   // Query by example: whether rows can be ticked, which ones are, and the proposal under review.
   // All of it is a gesture in progress on this screen, so it is local state and nothing else.
@@ -341,11 +343,14 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                     )}
 
                     {/* The values the query matched on, so a row says why it is here, each
-                      editable in place. A property this container does not declare reads as text. */}
+                      editable in place. A property the row's own container does not declare reads as text. */}
                     <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
                       {[...new Set(ruleConditions(view.filters).map((rule) => rule.property))].map(
                         (key) => {
-                          const definition = editableDefinition(schema, key);
+                          const definition = editableDefinition(
+                            rowSchemas.get(row.containerId) ?? [],
+                            key,
+                          );
                           const text = readPropertyText(owner, key);
                           return definition !== undefined ? (
                             <QueryRowValue
