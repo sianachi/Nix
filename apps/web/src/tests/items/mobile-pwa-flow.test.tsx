@@ -66,7 +66,7 @@ it('opens list items as pages, and the parent button returns to the parent', asy
   });
   renderAt(<App />, `/?item=${root.id}`);
   await screen.findByRole('textbox', { name: 'Note title' });
-  await userEvent.click(await screen.findByRole('button', { name: 'List' }));
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'View' }), 'List');
   await userEvent.click(
     await within(await screen.findByRole('region', { name: 'Container' })).findByRole('button', {
       name: 'Plan',
@@ -104,7 +104,7 @@ it('keeps a dismissed capture title and creates in the selected destination', as
     expect(screen.getByRole('textbox', { name: 'Note title' })).toHaveValue('Captured idea');
   });
   await userEvent.click(screen.getByRole('button', { name: 'Project' }));
-  await userEvent.click(await screen.findByRole('button', { name: 'List' }));
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'View' }), 'List');
   expect(
     await within(await screen.findByRole('region', { name: 'Container' })).findByRole('button', {
       name: 'Captured idea',
@@ -228,13 +228,14 @@ it("puts an item's details and actions in its views strip, beside Body, with no 
   await screen.findByRole('textbox', { name: 'Note title' });
 
   expect(screen.queryByRole('navigation', { name: 'Item sections' })).not.toBeInTheDocument();
-  // One place for all three: Body is the strip's first tab, Details and the actions sit at its end.
-  // The note's dock does not repeat them.
-  expect(await screen.findByRole('button', { name: 'Body' })).toBeInTheDocument();
+  // One place for all three: on a phone the strip's view picker offers Body first, and Details and the
+  // actions sit at its end. The note's dock does not repeat them.
+  const picker = await screen.findByRole('combobox', { name: 'View' });
+  expect(within(picker).getByRole('option', { name: /^Body/ })).toBeInTheDocument();
   expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'Item actions' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Item' })).not.toBeInTheDocument();
 
-  await userEvent.click(screen.getByRole('button', { name: 'List' }));
+  await userEvent.selectOptions(picker, 'List');
   expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(1);
 });
