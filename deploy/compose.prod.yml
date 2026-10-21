@@ -638,6 +638,8 @@ services:
       # Where /mcp is proxied; unset points at a name that never resolves so the route fails closed.
       NIX_MCP_UPSTREAM: ${NIX_MCP_UPSTREAM:-mcp.invalid:8500}
       NIX_SITES_DEFAULT_LABEL_SUFFIX: ${NIX_SITES_DEFAULT_LABEL_SUFFIX:-}
+      # The placeholder Caddy forwards as the client address (Caddyfile.prod).
+      NIX_CLIENT_IP: "{http.request.header.CF-Connecting-IP}"
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - nix-caddy-data:/data

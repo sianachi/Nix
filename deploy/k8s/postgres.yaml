@@ -43,5 +43,5 @@ spec:
     - metadata: { name: data }
       spec:
         accessModes: [ReadWriteOnce]
-        storageClassName: local-path
+        storageClassName: ${STORAGE_CLASS}
         resources: { requests: { storage: 20Gi } }

@@ -1,4 +1,5 @@
-# Rendered with envsubst by deploy/k8s/deploy.sh - needs $DOMAIN.
+# Rendered with envsubst by deploy/k8s/deploy.sh - needs $DOMAIN, $INGRESS_CLASS, $INGRESS_MIDDLEWARES,
+# $TLS_HOSTS (deploy.sh defaults: Traefik, the Cloudflare origin lock, apex plus wildcard).
 #
 # Three hosts. The apex is the app: all of its path routing happens inside Caddy
 # (deploy/k8s/Caddyfile), which keeps the browser's view identical to development. Traefik
@@ -22,11 +23,13 @@ metadata:
   namespace: nix
   annotations:
     # Only Cloudflare's edge may reach the origin (deploy/k8s/cloudflare-only.yaml).
-    traefik.ingress.kubernetes.io/router.middlewares: nix-cloudflare-only@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: "${INGRESS_MIDDLEWARES}"
+    # ingress-nginx only (Traefik ignores it): false keeps a plain-http .localhost try-out on http.
+    nginx.ingress.kubernetes.io/ssl-redirect: "${INGRESS_SSL_REDIRECT}"
 spec:
-  ingressClassName: traefik
+  ingressClassName: ${INGRESS_CLASS}
   tls:
-    - hosts: ["${DOMAIN}", "*.${DOMAIN}"]
+    - hosts: ${TLS_HOSTS}
       secretName: nix-tls
   rules:
     - host: "${DOMAIN}"
@@ -60,10 +63,12 @@ metadata:
   name: nix-sites
   namespace: nix
   annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: nix-cloudflare-only@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: "${INGRESS_MIDDLEWARES}"
+    # ingress-nginx only (Traefik ignores it): false keeps a plain-http .localhost try-out on http.
+    nginx.ingress.kubernetes.io/ssl-redirect: "${INGRESS_SSL_REDIRECT}"
     traefik.ingress.kubernetes.io/router.priority: "1"
 spec:
-  ingressClassName: traefik
+  ingressClassName: ${INGRESS_CLASS}
   tls:
     - hosts: ["*.${DOMAIN}"]
       secretName: nix-tls
@@ -88,10 +93,12 @@ metadata:
   name: nix-sites-custom-hosts
   namespace: nix
   annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: nix-cloudflare-only@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: "${INGRESS_MIDDLEWARES}"
+    # ingress-nginx only (Traefik ignores it): false keeps a plain-http .localhost try-out on http.
+    nginx.ingress.kubernetes.io/ssl-redirect: "${INGRESS_SSL_REDIRECT}"
     traefik.ingress.kubernetes.io/router.priority: "1"
 spec:
-  ingressClassName: traefik
+  ingressClassName: ${INGRESS_CLASS}
   tls:
     - secretName: nix-tls
   rules:

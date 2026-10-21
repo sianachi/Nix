@@ -1,0 +1,37 @@
+# Release image tags. ci-images.yml publishes every main commit as ghcr.io/<owner>/nix/<image>:<sha>.
+# Pushing a vX.Y.Z tag gives that commit's manifests two more names, vX.Y.Z and latest, without a
+# rebuild: deploy/install.sh defaults to latest and pins with --version. Tag only a commit whose
+# release checks passed, because every new install picks latest up at once.
+name: Release images
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  retag:
+    name: Tag ${{ matrix.image }} as ${{ github.ref_name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, migrator, collab, worker, web, sites, release-tools]
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag the commit's manifest
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix/${{ matrix.image }}"
+          docker buildx imagetools inspect "$image:$GITHUB_SHA" >/dev/null
+          docker buildx imagetools create -t "$image:$GITHUB_REF_NAME" -t "$image:latest" "$image:$GITHUB_SHA"

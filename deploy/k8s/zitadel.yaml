@@ -56,11 +56,17 @@ data:
   ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
   ZITADEL_DATABASE_POSTGRES_MAXOPENCONNS: "10"
   ZITADEL_EXTERNALDOMAIN: "auth.${DOMAIN}"
-  ZITADEL_EXTERNALPORT: "443"
-  ZITADEL_EXTERNALSECURE: "true"
+  ZITADEL_EXTERNALPORT: "${AUTH_PORT}"
+  ZITADEL_EXTERNALSECURE: "${AUTH_SECURE}"
   ZITADEL_FIRSTINSTANCE_ORG_NAME: Nix
   ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "true"
   ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_ALLOWREGISTER: "false"
+  # A machine user whose PAT deploy/install.sh reads once, through the pat sidecar, to register
+  # the Nix application. Written only when the instance is created, into a pod-local volume.
+  ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: nix-install
+  ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Nix install automation
+  ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
+  ZITADEL_FIRSTINSTANCE_PATPATH: /machinekey/pat.txt
   ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "false"
 ---
 apiVersion: v1
@@ -106,7 +112,7 @@ spec:
       containers:
         - name: zitadel
           image: ghcr.io/zitadel/zitadel:v4.16.1
-          args: ["start-from-setup", "--masterkeyFromEnv", "--tlsMode", "external"]
+          args: ["start-from-setup", "--masterkeyFromEnv", "--tlsMode", "${ZITADEL_TLS_MODE}"]
           ports: [{ containerPort: 8080 }]
           envFrom: [{ configMapRef: { name: nix-zitadel-env } }]
           env: *database-secrets
@@ -116,3 +122,23 @@ spec:
           readinessProbe: { httpGet: { path: /debug/ready, port: 8080 }, periodSeconds: 5 }
           resources: { requests: { cpu: 50m, memory: 256Mi }, limits: { memory: 768Mi } }
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+          volumeMounts: [{ name: machinekey, mountPath: /machinekey }]
+        # Zitadel's image has no shell; this is what `kubectl exec -c pat` reads the PAT through.
+        - name: pat
+          image: busybox:1.37
+          command: ["sleep", "infinity"]
+          volumeMounts: [{ name: machinekey, mountPath: /machinekey, readOnly: true }]
+          resources: { requests: { cpu: 1m, memory: 4Mi }, limits: { memory: 16Mi } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+      volumes:
+        - name: machinekey
+          persistentVolumeClaim: { claimName: nix-zitadel-machinekey }
+---
+# Holds the first-instance PAT across pod restarts until deploy/install.sh has used it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nix-zitadel-machinekey, namespace: nix }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ${STORAGE_CLASS}
+  resources: { requests: { storage: 1Mi } }

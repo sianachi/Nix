@@ -44,7 +44,7 @@ if [ "${NIX_DEPLOY_TARGET:-compose}" != kubernetes ]; then
   echo 'An explicit NIX_DEPLOY_TARGET=kubernetes is required to return to this target.' >&2
   exit 2
 fi
-cd "$(git rev-parse --show-toplevel)"
+cd "$(dirname "$0")/../.."
 source deploy/k8s/template-boot-config.sh
 
 : "${REGISTRY:?set REGISTRY, matching what build-and-push.sh pushed to}"
@@ -52,6 +52,7 @@ source deploy/k8s/template-boot-config.sh
 : "${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID}"
 : "${DOMAIN:?set DOMAIN, e.g. nix.example.com}"
 OIDC_ISSUER="${OIDC_ISSUER:-https://auth.$DOMAIN}"
+export PUBLIC_ORIGIN="${PUBLIC_ORIGIN:-https://$DOMAIN}"
 NIX_TEMPLATE_BOOT_ENABLED="${NIX_TEMPLATE_BOOT_ENABLED:-true}"
 case "$NIX_TEMPLATE_BOOT_ENABLED" in
   true) require_template_boot_config ;;
@@ -78,10 +79,29 @@ case "$BACKUP_OFFSITE" in
   *) echo "NIX_BACKUP_OFFSITE must be true or false" >&2; exit 1 ;;
 esac
 export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
+# Generic clusters (deploy/install.sh --kubernetes) override the k3s and Cloudflare defaults below.
+export INGRESS_CLASS="${INGRESS_CLASS:-traefik}"
+export STORAGE_CLASS="${STORAGE_CLASS:-local-path}"
+export STORAGE_CLASS_RETAIN="${STORAGE_CLASS_RETAIN:-local-path-retain}"
+export AUTH_PORT="${AUTH_PORT:-443}"
+export AUTH_SECURE="${AUTH_SECURE:-true}"
+# external: TLS ends at the ingress. disabled: a plain-http .localhost try-out (tlsMode external
+# would still advertise an https issuer).
+export ZITADEL_TLS_MODE="${ZITADEL_TLS_MODE:-external}"
+export INGRESS_SSL_REDIRECT="${INGRESS_SSL_REDIRECT:-true}"
+export TLS_HOSTS="${TLS_HOSTS:-[\"$DOMAIN\", \"*.$DOMAIN\"]}"
+# true: only Cloudflare's edge may reach the Ingress and the visitor comes from CF-Connecting-IP.
+# false: any ingress controller; the visitor is the X-Forwarded-For it sets.
+NIX_INGRESS_CLOUDFLARE_ONLY="${NIX_INGRESS_CLOUDFLARE_ONLY:-true}"
+case "$NIX_INGRESS_CLOUDFLARE_ONLY" in
+  true) export INGRESS_MIDDLEWARES=nix-cloudflare-only@kubernetescrd CLIENT_IP_HEADER=CF-Connecting-IP ;;
+  false) export INGRESS_MIDDLEWARES= CLIENT_IP_HEADER=X-Forwarded-For ;;
+  *) echo "NIX_INGRESS_CLOUDFLARE_ONLY must be true or false" >&2; exit 1 ;;
+esac
 SITES_FOREIGN_LABEL_SUFFIX="${SITES_FOREIGN_LABEL_SUFFIX--home}"
 export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN SITES_REQUIRE_OPERATOR_APPROVAL SITES_FOREIGN_LABEL_SUFFIX BACKUP_OFFSITE
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${SITES_FOREIGN_LABEL_SUFFIX} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${BACKUP_OFFSITE} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${SITES_FOREIGN_LABEL_SUFFIX} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${BACKUP_OFFSITE} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET} ${INGRESS_CLASS} ${INGRESS_MIDDLEWARES} ${STORAGE_CLASS} ${STORAGE_CLASS_RETAIN} ${AUTH_PORT} ${AUTH_SECURE} ${ZITADEL_TLS_MODE} ${INGRESS_SSL_REDIRECT} ${PUBLIC_ORIGIN} ${TLS_HOSTS} ${CLIENT_IP_HEADER}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -183,11 +203,11 @@ kubectl -n nix delete serviceaccount/nix-alloy role/nix-alloy rolebinding/nix-al
   secret/nix-observability --ignore-not-found
 
 echo "== Postgres =="
-kubectl apply -f deploy/k8s/postgres.yaml
+render deploy/k8s/postgres.yaml | kubectl apply -f -
 kubectl -n nix rollout status statefulset/postgres --timeout=180s
 
 echo "== Object store =="
-kubectl apply -f deploy/k8s/objectstore.yaml
+render deploy/k8s/objectstore.yaml | kubectl apply -f -
 kubectl -n nix rollout status statefulset/nix-versitygw --timeout=180s
 kubectl -n nix delete "job/nix-storage-init-$TAG" --ignore-not-found
 render deploy/k8s/job-storage-init.yaml | kubectl apply -f -
@@ -263,7 +283,7 @@ kubectl -n nix rollout status deployment/nix-zitadel --timeout=900s
 # The worker's readiness probes the object store's public origin, which is this Ingress, and managed
 # templates upload through it too: on a first install nothing answers there until it is applied.
 echo "== Ingress =="
-kubectl apply -f deploy/k8s/cloudflare-only.yaml
+if [ "$NIX_INGRESS_CLOUDFLARE_ONLY" = true ]; then kubectl apply -f deploy/k8s/cloudflare-only.yaml; fi
 render deploy/k8s/ingress.yaml | kubectl apply -f -
 kubectl -n nix rollout status deployment/nix-worker --timeout=180s
 render deploy/k8s/backup.yaml | kubectl apply -f -

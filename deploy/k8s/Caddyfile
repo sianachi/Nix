@@ -9,14 +9,15 @@
 # two policies. Provider communication is server-side through Core.
 #
 # Client address: Cloudflare -> Traefik -> this Caddy -> Core. Caddy takes the visitor from
-# CF-Connecting-IP, but only when the peer is in NIX_TRUSTED_PROXY_CIDR (the pod network, where
+# NIX_CLIENT_IP_HEADER (CF-Connecting-IP behind Cloudflare, X-Forwarded-For behind any other
+# ingress; deploy/k8s/deploy.sh), but only when the peer is in NIX_TRUSTED_PROXY_CIDR (the pod network, where
 # Traefik runs; set by deploy/k8s/web.yaml). That header is trustworthy only because the ingress
 # admits Cloudflare alone (the nix-cloudflare-only middleware in deploy/k8s/cloudflare-only.yaml).
 # Core then receives that address as the sole X-Forwarded-For hop, from a pod-network peer it trusts.
 {
 	servers {
 		trusted_proxies static {$NIX_TRUSTED_PROXY_CIDR}
-		client_ip_headers CF-Connecting-IP
+		client_ip_headers {$NIX_CLIENT_IP_HEADER}
 	}
 }
 

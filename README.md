@@ -61,8 +61,20 @@ Run/Debug configurations for each service.
 
 ## Run it for real
 
-Production is Docker Compose with CI-built multi-architecture images at `ghcr.io/sianachi/nix`.
-Follow the [deployment guide](deploy/README.md) and the
+One line installs Nix on a machine with Docker, using the CI-built multi-architecture images at
+`ghcr.io/sianachi/nix`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sianachi/nix/main/deploy/install.sh | bash -s -- https://nix.example.org
+```
+
+Point `nix.example.org` and `auth.nix.example.org` at the machine first, with ports 80 and 443
+free; the installer generates every secret into `~/nix/nix.env`, brings up the bundled identity
+provider, migrates the database and prints the administrator sign-in. Re-run it with
+`--version vX.Y.Z` to upgrade. For a try-out without DNS, pass `http://nix.localhost`.
+Add `--kubernetes` to install into the current `kubectl` context instead.
+
+Operating a production install: the [deployment guide](deploy/README.md) and the
 [backup and restore guide](deploy/backup/production.md). Back up before every upgrade.
 
 ## Stack

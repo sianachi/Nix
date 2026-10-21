@@ -4,6 +4,22 @@ Docker Compose is the default build, release and operations target. Kubernetes m
 retained for a future explicit switch; do not run `deploy/k8s/*` during a Compose release.
 Start here rather than treating a green container health check as a successful deployment.
 
+## One-line install
+
+A new machine (or cluster) needs none of the hand steps below: `deploy/install.sh` generates every
+secret, bundles Zitadel behind Caddy with automatic HTTPS (`compose.quickstart.yml` over
+`compose.prod.yml`), registers the web application, migrates and starts. Re-running upgrades.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sianachi/nix/main/deploy/install.sh | bash -s -- https://nix.example.org
+# or, into the current kubectl context (deploy/k8s with generic-cluster defaults):
+curl -fsSL https://raw.githubusercontent.com/sianachi/nix/main/deploy/install.sh | bash -s -- --kubernetes https://nix.example.org
+```
+
+The header of `deploy/install.sh` lists the options. State lives in `~/nix` (`nix.env` on
+Compose, `kubernetes.env` plus the cluster's secrets on Kubernetes). The rest of this guide is
+for operating an install by hand, and still applies afterwards: backups, drift, rollback.
+
 ## Production baseline
 
 As verified on 2026-09-05, production is `operator@release-host` (Linux ARM64), Compose project
