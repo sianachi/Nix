@@ -144,6 +144,10 @@ export function Conversation({
     savedDefault: pet.applyWithoutAsking,
     readOnly: noteScope?.readOnly ?? false,
     needsDecisionIds,
+    loaded: runtime !== null && runtime !== undefined,
+    pendingToolIds: (runtime?.tools ?? [])
+      .filter((tool) => tool.status === 'pending')
+      .map((tool) => tool.id),
   });
   const hasDraft = messages.some((message) => message.id.includes(':draft:'));
   const animation: PetAnimationState = approvalPending

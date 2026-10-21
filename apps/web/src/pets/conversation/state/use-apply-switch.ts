@@ -6,6 +6,8 @@ import { useState } from 'react';
  * stored scope makes a switch to another pet or workspace read as the new pet's default without
  * an effect: the choice belonged to the conversation it was made in. Writes already waiting when
  * the switch goes on stay the owner's to decide: the switch only covers what arrives after it.
+ * The same holds when the panel (re)mounts: a write already waiting when the conversation first
+ * loads is never auto-applied, so one left waiting with the switch off cannot run on reopening.
  * A note-scoped conversation offers the same switch; the note scope still bounds what it may
  * touch (packages/companion scope rules), and a read-only note offers no writes at all. */
 export function useApplySwitch({
@@ -14,12 +16,18 @@ export function useApplySwitch({
   savedDefault,
   readOnly,
   needsDecisionIds,
+  loaded,
+  pendingToolIds,
 }: {
   readonly workspaceId: string;
   readonly petId: string;
   readonly savedDefault: boolean;
   readonly readOnly: boolean;
   readonly needsDecisionIds: readonly string[];
+  /** Whether the conversation has loaded; the tools pending then are noted once. */
+  readonly loaded: boolean;
+  /** Ids of every tool call still pending in the loaded conversation. */
+  readonly pendingToolIds: readonly string[];
 }): {
   readonly applyWithoutAsking: boolean;
   readonly applyExemptToolIds: readonly string[];
@@ -31,9 +39,13 @@ export function useApplySwitch({
     on: boolean;
     exempt: readonly string[];
   }>({ scope: applyScope, on: savedDefault, exempt: [] });
+  // Adjusted during render so no card sees a waiting write before it is exempt.
+  const [waiting, setWaiting] = useState<{ scope: string; ids: readonly string[] } | null>(null);
+  if (loaded && waiting?.scope !== applyScope) setWaiting({ scope: applyScope, ids: pendingToolIds });
+  const waitingAtLoad = waiting?.scope === applyScope ? waiting.ids : [];
   const applyWithoutAsking =
     !readOnly && (applySwitch.scope === applyScope ? applySwitch.on : savedDefault);
-  const applyExemptToolIds = applyWithoutAsking ? applySwitch.exempt : [];
+  const applyExemptToolIds = applyWithoutAsking ? [...waitingAtLoad, ...applySwitch.exempt] : [];
   const setApplyWithoutAsking = (on: boolean) => {
     setApplySwitch({ scope: applyScope, on, exempt: on ? needsDecisionIds : [] });
   };
