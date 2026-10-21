@@ -149,7 +149,7 @@ export function InteractiveFormRespondentPreview({
           </div>
         );
       })}
-      <div className="flex min-w-0 flex-wrap gap-2">
+      <div className="sticky bottom-0 -mx-3 flex min-w-0 flex-wrap gap-2 border-t border-divider bg-background px-3 py-2">
         {pageIndex === 0 ? null : (
           <Button
             variant="secondary"

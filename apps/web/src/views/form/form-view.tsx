@@ -340,8 +340,8 @@ function EntryForm({
         />
         <Text variant="note" tone="muted" className="wrap-anywhere">
           {saveResponse
-            ? 'Saving adds an ordinary child entry to this note. Image uploads are saved immediately.'
-            : 'Inputs stay in this view only and are discarded when you leave. File uploads and input history are off.'}
+            ? 'Adds a child entry to this note.'
+            : 'Answers stay in this view. Uploads and history are off.'}
         </Text>
       </div>
       <div ref={fieldsRef} key={submissions} className="flex flex-col gap-4">

@@ -1,4 +1,4 @@
-import { Button, Checkbox, Field, Select, Input, Textarea } from '@nix/ui';
+import { Button, Checkbox, Field, Select, Input, Text, Textarea } from '@nix/ui';
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { Icon } from '@nix/ui';
 import type { ReactNode } from 'react';
@@ -84,37 +84,6 @@ export function BlockEditor({
       </div>
       {block.kind !== 'field' ? null : (
         <>
-          <div className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2">
-            <FieldPicker block={block} schema={schema} onChange={onChange} />
-            <Field label="Respondent identity">
-              {(control) => (
-                <Select
-                  {...control}
-                  disabled={!identityEligible}
-                  value={block.identityRole ?? ''}
-                  onChange={(event) => {
-                    onChange({ ...block, identityRole: event.target.value || null });
-                  }}
-                >
-                  <option value="">Not identity</option>
-                  <option value="name">Name</option>
-                  <option value="email">Email</option>
-                </Select>
-              )}
-            </Field>
-          </div>
-          <Field label="Help text">
-            {(control) => (
-              <Textarea
-                rows={3}
-                {...control}
-                value={block.help ?? ''}
-                onChange={(event) => {
-                  onChange({ ...block, help: event.target.value || null });
-                }}
-              />
-            )}
-          </Field>
           <Checkbox
             label="Required"
             checked={block.required}
@@ -122,7 +91,48 @@ export function BlockEditor({
               onChange({ ...block, required: event.target.checked });
             }}
           />
-          <BlockConditions block={block} earlier={earlier} onChange={onChange} />
+          <details className="flex min-w-0 flex-col gap-2">
+            <summary className="min-h-11 cursor-pointer py-2">
+              <Text variant="note" tone="muted" as="span">
+                More options
+                {block.visibleWhen.length > 0
+                  ? ` (${String(block.visibleWhen.length)} condition)`
+                  : ''}
+              </Text>
+            </summary>
+            <div className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2">
+              <FieldPicker block={block} schema={schema} onChange={onChange} />
+              <Field label="Respondent identity">
+                {(control) => (
+                  <Select
+                    {...control}
+                    disabled={!identityEligible}
+                    value={block.identityRole ?? ''}
+                    onChange={(event) => {
+                      onChange({ ...block, identityRole: event.target.value || null });
+                    }}
+                  >
+                    <option value="">Not identity</option>
+                    <option value="name">Name</option>
+                    <option value="email">Email</option>
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <Field label="Help text">
+              {(control) => (
+                <Textarea
+                  rows={3}
+                  {...control}
+                  value={block.help ?? ''}
+                  onChange={(event) => {
+                    onChange({ ...block, help: event.target.value || null });
+                  }}
+                />
+              )}
+            </Field>
+            <BlockConditions block={block} earlier={earlier} onChange={onChange} />
+          </details>
         </>
       )}
     </div>

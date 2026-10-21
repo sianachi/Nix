@@ -274,8 +274,8 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
         />
         <Text variant="note" tone="muted" className="wrap-anywhere">
           {saveResponse
-            ? 'Saving adds an ordinary child entry to this note. Image uploads are saved immediately.'
-            : 'Inputs stay in this view only. File uploads and input history are off.'}
+            ? 'Adds a child entry to this note.'
+            : 'Answers stay in this view. Uploads and history are off.'}
         </Text>
       </div>
       <header
@@ -317,7 +317,7 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
       ))}
 
       {outcome === null ? null : <Text role="alert">{outcome}</Text>}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-divider bg-background py-2">
         {pageIndex === 0 ? null : (
           <Button
             type="button"

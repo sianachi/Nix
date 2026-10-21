@@ -18,11 +18,13 @@ export function PageConditions({
   return (
     <div className="flex min-w-0 flex-col gap-2 border-t border-divider p-3">
       <Text variant="note" tone="muted">
-        Show this page only when all conditions match
+        Show this page only when all match
       </Text>
       {conditions.map((condition, index) => (
         <div
           key={`${condition.fieldBlockId}-${String(index)}`}
+          role="group"
+          aria-label={`Condition ${String(index + 1)}`}
           className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
         >
           <Select
@@ -111,11 +113,13 @@ export function BlockConditions({
   return (
     <div className="flex min-w-0 flex-col gap-2 border-t border-divider p-3">
       <Text variant="note" tone="muted">
-        Show only when all of these are true
+        Show only when all match
       </Text>
       {block.visibleWhen.map((condition, conditionIndex) => (
         <div
           key={`${condition.fieldBlockId}-${String(conditionIndex)}`}
+          role="group"
+          aria-label={`Condition ${String(conditionIndex + 1)}`}
           className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
         >
           <Field label="Field">

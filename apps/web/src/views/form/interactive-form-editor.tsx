@@ -75,7 +75,7 @@ export function InteractiveFormEditor({
           Form flow
         </Text>
         <Text variant="note" tone="muted">
-          Pages are shown in order. Conditions only use answers from earlier fields.
+          Conditions use answers from earlier fields.
         </Text>
       </div>
       <Button
@@ -85,7 +85,7 @@ export function InteractiveFormEditor({
           setPreviewing((current) => !current);
         }}
       >
-        {previewing ? 'Close preview' : 'Preview structure'}
+        {previewing ? 'Close preview' : 'Preview'}
       </Button>
       {previewing ? <InteractiveFormRespondentPreview form={form} schema={schema} /> : null}
 
