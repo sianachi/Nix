@@ -18,7 +18,7 @@ import { readDevicePreference, readPetPosition, writePetPosition } from './devic
 import { chatOpensAsPage, launcherFloats, pageIsAvailable } from './pet-surface';
 import { useZenActive } from '../lib/zen-mode';
 import { usePetSurface } from './use-pet-surface';
-import { PetWorkTools } from './pet-work-tools';
+import { PetWorkTools } from './work-tools/pet-work-tools';
 import { Conversation } from './conversation/conversation';
 
 /** The shell and note dock publish their bottom clearance so every launcher position stays

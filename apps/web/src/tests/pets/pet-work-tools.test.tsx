@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { petConnectionSchema, type NixClient } from '@nix/api-client';
 import type * as Companion from '@nix/companion';
-import { PetWorkTools } from '../../pets/pet-work-tools';
+import { PetWorkTools } from '../../pets/work-tools/pet-work-tools';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { MemoryRouter } from 'react-router';
 import { useState, type ReactElement } from 'react';
@@ -722,7 +722,7 @@ describe('companion work approvals', () => {
     expect(resultBody.toolResult).toMatch(/^Declined: the design has problems\./);
     // `onChange` is a no-op here (as elsewhere in this file), so the rendered `tool` never
     // reflects the persisted result - only the receipt this component tracks itself does. The
-    // richer "Sent N problems back to {pet}" wording (`WriteReceiptRow` in pet-work-tools.tsx)
+    // richer "Sent N problems back to {pet}" wording (`WriteReceiptRow` in work-tools/activity-rows.tsx)
     // needs that persisted `tool.result`, which the live app supplies through `setRuntime`.
     expect(await screen.findByText('Declined')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();

@@ -4,7 +4,7 @@ import { petCatalog } from './catalog';
 import { PetAvatar, petAnimationStates, type PetAnimationState } from './pet-avatar';
 import type { NixClient, PetProfile, Workspace } from '@nix/api-client';
 import { PetSettingsEditor } from './pet-settings-section';
-import { PetWorkTools } from './pet-work-tools';
+import { PetWorkTools } from './work-tools/pet-work-tools';
 import { writeActionReceipt } from './action-receipts';
 import { createNixClient, petConnectionSchema } from '@nix/api-client';
 import { MemoryRouter, Route, Routes } from 'react-router';

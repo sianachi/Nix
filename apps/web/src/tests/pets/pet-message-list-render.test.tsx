@@ -7,7 +7,7 @@ import { MessageList } from '../../pets/conversation/messages/message-list';
 import { useReplyAnnouncer } from '../../pets/conversation/state/use-reply-announcer';
 import { useStablePieces } from '../../pets/conversation/state/use-stable-pieces';
 
-vi.mock('../../pets/pet-work-tools', () => ({ PetWorkTools: () => null }));
+vi.mock('../../pets/work-tools/pet-work-tools', () => ({ PetWorkTools: () => null }));
 
 const pet = { id: 'p', name: 'Cat', appearance: 'cat' } as never;
 const settings = { motion: 'reduced' } as never;

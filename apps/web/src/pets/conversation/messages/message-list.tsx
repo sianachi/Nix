@@ -5,7 +5,7 @@ import { type NixClient } from '@nix/api-client';
 import { type ProgramPiece } from '../../../openui/fence';
 import { PetAvatar } from '../../pet-avatar';
 import { PetChatViewport } from '../../pet-chat-viewport';
-import { PetWorkTools } from '../../pet-work-tools';
+import { PetWorkTools } from '../../work-tools/pet-work-tools';
 import { PetEmptyState } from './empty-state';
 import { PetMessageEditor } from './message-editor';
 import { PetMessageRow } from './message-row';
