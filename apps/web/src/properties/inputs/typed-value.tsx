@@ -33,6 +33,9 @@ export function TypedValue(
       return;
     }
 
+    // Past the badInput check the box holds something readable (or nothing), so the old complaint is stale.
+    setInvalid(null);
+
     // A blur that changed nothing is not an edit. Without this, tabbing through the panel would
     // write every property on the way past, and Enter followed by Tab would write twice.
     if (draft === sent) {
@@ -93,6 +96,8 @@ export function TypedValue(
               if (event.key === 'Escape') {
                 setInvalid(null);
                 setDraft(sent);
+                // An unparseable number leaves the draft at '' so React sees no change; reset the box itself.
+                event.currentTarget.value = sent;
               }
 
               // Enter is the explicit action for somebody who types and does not move on.

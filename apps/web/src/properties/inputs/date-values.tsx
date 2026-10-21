@@ -137,6 +137,9 @@ export function DateTimeValue(props: PropertyInputProps): ReactNode {
             onBlur={() => {
               commit(draftDate, draftTime);
             }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commit(draftDate, draftTime);
+            }}
           />
 
           <Input
@@ -150,10 +153,15 @@ export function DateTimeValue(props: PropertyInputProps): ReactNode {
             onChange={(event) => {
               const next = event.target.value;
               setDraftTime(next);
-              commit(draftDate, next);
+              // A half-cleared time reports '' too; committing it would flip the event to all-day
+              // mid-edit. The blur commits the bare date if that was meant.
+              if (next.length > 0) commit(draftDate, next);
             }}
             onBlur={() => {
               commit(draftDate, draftTime);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commit(draftDate, draftTime);
             }}
           />
 
@@ -274,6 +282,9 @@ export function DateValue(props: PropertyInputProps): ReactNode {
                 setDraft(sent);
                 setIncomplete(false);
               }
+
+              // Enter is the explicit "done", as in the text fields.
+              if (event.key === 'Enter') commit();
             }}
           />
           {stored.length === 0 ? null : (

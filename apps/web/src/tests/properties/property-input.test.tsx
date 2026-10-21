@@ -109,6 +109,53 @@ describe('a property input', () => {
     expect(box).toHaveAccessibleDescription('Enter a number.');
   });
 
+  it('drops the number complaint once the box no longer holds unparseable text', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ points: 5 })}
+        property={propertyOf({ key: 'points', label: 'Points', type: 'number' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const box = screen.getByRole('spinbutton', { name: 'Points' });
+    await person.click(box);
+    Object.defineProperty(box, 'validity', { value: { badInput: true }, configurable: true });
+    fireEvent.change(box, { target: { value: '' } });
+    await person.tab();
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+
+    // Select all and delete: the box is empty and valid, and no change event fires.
+    Object.defineProperty(box, 'validity', { value: { badInput: false }, configurable: true });
+    await person.click(box);
+    await person.tab();
+
+    expect(onCommit).toHaveBeenCalledWith(null);
+    expect(box).not.toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('does not flip a timed event to all-day while the time is half cleared', () => {
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ starts: '2026-03-17T09:00:00-10:00[Pacific/Honolulu]' })}
+        property={propertyOf({ key: 'starts', label: 'Starts', type: 'datetime' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const time = screen.getByLabelText('Time');
+    fireEvent.change(time, { target: { value: '' } });
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.blur(time);
+    expect(onCommit).toHaveBeenCalledWith('2026-03-17');
+  });
+
   it('still clears a number when the box is emptied on purpose', async () => {
     const person = userEvent.setup();
     const onCommit = vi.fn();

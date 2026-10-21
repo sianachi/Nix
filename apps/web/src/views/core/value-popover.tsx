@@ -20,6 +20,8 @@ const DISCRETE_TYPES: ReadonlySet<string> = new Set([
   'assignee',
 ]);
 
+const TYPED_INPUTS: ReadonlySet<string> = new Set(['text', 'number', 'url', 'date', 'time']);
+
 const CommitStoredContext = createContext<() => void>(() => undefined);
 
 /**
@@ -90,7 +92,25 @@ export function ValuePopover(props: {
         <CommitStoredContext value={DISCRETE_TYPES.has(property.type) ? close : () => undefined}>
           {/* The panel is a DOM child of a card or row that has a long-press menu: without this, holding
               a finger in the editor would open that menu instead of selecting text. */}
-          <div data-context-menu-ignore>{children}</div>
+          {/* Enter in a typed field is "done": the field commits on Enter itself, then this closes. */}
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+          <div
+            data-context-menu-ignore
+            onKeyDown={(event) => {
+              const field = event.target;
+              if (
+                event.key === 'Enter' &&
+                field instanceof HTMLInputElement &&
+                TYPED_INPUTS.has(field.type)
+              ) {
+                // Otherwise the Enter's keypress lands on the trigger focus returns to and reopens it.
+                event.preventDefault();
+                close();
+              }
+            }}
+          >
+            {children}
+          </div>
         </CommitStoredContext>
       )}
     </Popover>
