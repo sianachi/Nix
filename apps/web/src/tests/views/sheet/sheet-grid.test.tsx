@@ -389,4 +389,14 @@ describe('reaching an edit by pointer alone', () => {
     fireEvent.mouseDown(cell);
     expect(screen.getByRole('textbox', { name: 'Edit cell A1' })).toBeInTheDocument();
   });
+
+  it('announces what a copy did, and clears it on the next key', () => {
+    const doc = new Y.Doc();
+    renderGrid(doc);
+    const grid = screen.getByRole('grid');
+    fireEvent.copy(grid, { clipboardData: { setData: vi.fn() } });
+    expect(screen.getByText('Copied A1')).toBeInTheDocument();
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect(screen.queryByText('Copied A1')).toBeNull();
+  });
 });

@@ -85,6 +85,8 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   // restores it - blurring on Escape, which this replaced, sent focus to <body>, so the promised
   // "Escape, then Tab" resumed from the top of the document instead of from after the grid.
   const [trapsTab, setTrapsTab] = useState(true);
+  // What the last copy, cut or paste did, announced politely; cleared by the next key or tap.
+  const [notice, setNotice] = useState('');
   const scrollerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
   const menuCellRef = useRef<CellRef | null>(null);
@@ -185,6 +187,9 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const activeRaw = sheet.cells.get(activeKey) ?? '';
   const range = selectedRange(selection);
   const rangeIsCell = range.startRow === range.endRow && range.startCol === range.endCol;
+  const rangeLabel = rangeIsCell
+    ? activeKey
+    : `${cellKey({ row: range.startRow, col: range.startCol })}:${cellKey({ row: range.endRow, col: range.endCol })}`;
 
   function commitDraft(then: 'down' | 'right' | 'stay'): void {
     if (selection.mode !== 'edit' || editSettledRef.current) {
@@ -222,6 +227,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   }
 
   function onGridKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    setNotice('');
     if (selection.mode === 'edit') {
       return;
     }
@@ -293,6 +299,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
     event: ReactMouseEvent<HTMLDivElement>,
   ): void {
     if (event.button !== 0) return;
+    setNotice('');
     // Mouse down rather than click, so a drag begins a range from the right corner;
     // shift-click extends.
     //
@@ -409,6 +416,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
             {visibleRows.map((row) => (
               <div
                 key={row}
+                aria-hidden="true"
                 className="absolute left-0 flex w-12 items-center justify-center border-b border-divider text-xs text-muted"
                 style={{ top: `${String(row * ROW_HEIGHT)}px`, height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: a row's place is grid geometry computed at runtime
               >
@@ -483,6 +491,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                 }
                 event.preventDefault();
                 event.clipboardData.setData('text/plain', rangeToTsv(sheet.cells, range));
+                setNotice(`Copied ${rangeLabel}`);
               }}
               onCut={(event) => {
                 if (selection.mode === 'edit') {
@@ -491,6 +500,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                 event.preventDefault();
                 event.clipboardData.setData('text/plain', rangeToTsv(sheet.cells, range));
                 sheet.clearRange(range);
+                setNotice(`Cut ${rangeLabel}`);
               }}
               onPaste={(event) => {
                 if (selection.mode === 'edit') {
@@ -500,6 +510,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                 const text = event.clipboardData.getData('text/plain');
                 if (text.length > 0) {
                   sheet.pasteBlock({ row: range.startRow, col: range.startCol }, parseTsv(text));
+                  setNotice(`Pasted at ${cellKey({ row: range.startRow, col: range.startCol })}`);
                 }
               }}
               className={`absolute bottom-0 left-12 right-0 top-8 overflow-auto overscroll-contain outline-none ${focusRingInset}`}
@@ -589,7 +600,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
         {(() => {
           const value = sheet.values.get(activeKey);
           if (value === undefined || !isSheetError(value)) {
-            return null;
+            return notice;
           }
           return `${activeKey}: ${value.error} — ${SHEET_ERROR_HELP[value.error]}`;
         })()}

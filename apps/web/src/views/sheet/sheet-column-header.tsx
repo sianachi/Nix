@@ -135,6 +135,7 @@ export function SheetColumnHeader({
           return (
             <Fragment key={col}>
               <div
+                aria-hidden="true"
                 className={cn(
                   'absolute top-0 flex h-8 items-center justify-center border-r border-divider',
                   fieldLabel,
@@ -171,7 +172,7 @@ export function SheetColumnHeader({
                 onKeyDown={(event) => {
                   onHandleKeyDown(col, event);
                 }}
-                className={`group absolute top-0 z-10 h-8 w-3 -translate-x-1/2 cursor-col-resize touch-none ${focusRingInset}`}
+                className={`group absolute top-0 z-10 h-8 w-3 any-pointer-coarse:w-(--control-lg) -translate-x-1/2 cursor-col-resize touch-none ${focusRingInset}`}
                 style={handleStyle}
               >
                 <span
