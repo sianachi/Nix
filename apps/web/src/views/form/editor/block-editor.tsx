@@ -96,7 +96,7 @@ export function BlockEditor({
               <Text variant="note" tone="muted" as="span">
                 More options
                 {block.visibleWhen.length > 0
-                  ? ` (${String(block.visibleWhen.length)} condition)`
+                  ? ` (${String(block.visibleWhen.length)} ${block.visibleWhen.length === 1 ? 'condition' : 'conditions'})`
                   : ''}
               </Text>
             </summary>

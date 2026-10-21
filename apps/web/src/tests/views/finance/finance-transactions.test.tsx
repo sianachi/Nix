@@ -427,6 +427,27 @@ describe('closed-month transaction correction', () => {
 });
 
 describe('restoring changes from this visit', () => {
+  it('shows no changes disclosure before anything was edited', async () => {
+    queries.transactions = { transactions: [transactionA], total: 1, truncated: false };
+    const client = {
+      ...createNixClient({
+        baseUrl: 'http://nix.invalid',
+        tokens: {
+          getAccessToken: () => Promise.resolve(null),
+          refreshAccessToken: () => Promise.resolve(null),
+        },
+      }),
+      query: vi.fn(),
+    };
+    render(
+      <ApiClientOverrideProvider client={client}>
+        <FinanceTransactions state={state} finance={finance} month="2026-09" />
+      </ApiClientOverrideProvider>,
+    );
+    await screen.findByRole('button', { name: 'Corner shop' });
+    expect(screen.queryByText(/Changes in this visit/)).not.toBeInTheDocument();
+  });
+
   it('checks latest values and refuses to overwrite a later change', async () => {
     queries.transactions = { transactions: [transactionA], total: 1, truncated: false };
     const setTransaction = vi.fn<FinanceViewState['setTransaction']>().mockResolvedValue(null);

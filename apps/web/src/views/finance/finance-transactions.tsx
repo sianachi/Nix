@@ -374,15 +374,17 @@ export function FinanceTransactions({
           </div>
         </>
       )}
-      <SessionChanges
-        changes={changes}
-        lines={lines}
-        currency={currency}
-        onReview={(change) => {
-          setUndoError(null);
-          setRestoring(change);
-        }}
-      />
+      {changes.length === 0 ? null : (
+        <SessionChanges
+          changes={changes}
+          lines={lines}
+          currency={currency}
+          onReview={(change) => {
+            setUndoError(null);
+            setRestoring(change);
+          }}
+        />
+      )}
       <WriteError message={undoError} />
       {restoring === null ? null : (
         <TransactionDialog

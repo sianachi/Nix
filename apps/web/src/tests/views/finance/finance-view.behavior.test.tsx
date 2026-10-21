@@ -295,6 +295,11 @@ describe('the finance view', () => {
     expect(screen.getByRole('combobox', { name: 'Month' })).toHaveValue('2026-09');
   });
 
+  it('keeps the This month button, disabled, while already on the current month', () => {
+    mount();
+    expect(screen.getByRole('button', { name: 'This month' })).toBeDisabled();
+  });
+
   it('keeps the selected month inside a shortened plan horizon', () => {
     const result = mount();
     fireEvent.click(screen.getByRole('button', { name: 'Next month' }));

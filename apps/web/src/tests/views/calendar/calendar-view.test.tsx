@@ -1043,6 +1043,18 @@ describe('adding an item without a hover or a drag', () => {
       expect(screen.queryByRole('table')).not.toBeInTheDocument();
     });
 
+    it('drops the picked day when the grain changes', async () => {
+      const person = user();
+      renderCalendar({ children: [KICKOFF] });
+
+      await person.click(screen.getByRole('button', { name: 'Monday 16 March 2026' }));
+      expect(screen.getByRole('heading', { name: 'Mon 16 Mar', level: 3 })).toBeVisible();
+      await person.click(screen.getByRole('button', { name: 'week' }));
+      await person.click(screen.getByRole('button', { name: 'month' }));
+
+      expect(screen.getByRole('heading', { name: 'Tue 17 Mar', level: 3 })).toBeVisible();
+    });
+
     it('shows only the chosen day below the strip, empty or not, and goes back on a second tap', async () => {
       const person = user();
       renderCalendar({ children: [KICKOFF] });

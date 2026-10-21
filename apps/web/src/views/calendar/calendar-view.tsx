@@ -373,7 +373,10 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         mode={mode}
         month={month}
         anchor={anchor}
-        onMode={setMode}
+        onMode={(grain) => {
+          setPicked(null);
+          setMode(grain);
+        }}
         onCreate={container.create}
         onStep={step}
         onToday={() => {
