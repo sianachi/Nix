@@ -157,11 +157,10 @@ export function MonthNav({
       >
         <ChevronRight size={18} aria-hidden="true" />
       </Button>
-      {current === undefined ? null : (
+      {current === undefined || month === current ? null : (
         <Button
           variant="ghost"
           className="col-span-3 @lg:col-span-1"
-          disabled={month === current}
           onClick={() => {
             onChange(current);
           }}

@@ -269,7 +269,7 @@ describe('the finance view', () => {
 
   it('closes the month from the checklist', async () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Close selected month' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close month' }));
     const dialog = screen.getByRole('dialog', { name: 'Close September 2026?' });
     expect(within(dialog).getByText(/1 scheduled line not posted yet/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close month' }));

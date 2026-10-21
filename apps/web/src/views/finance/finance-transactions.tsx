@@ -1,18 +1,4 @@
-import {
-  Button,
-  Checkbox,
-  Dialog,
-  Field,
-  Input,
-  Select,
-  Table,
-  Segmented,
-  Tag,
-  Text,
-  cn,
-  focusRing,
-  type TableColumn,
-} from '@nix/ui';
+import { Button, Checkbox, Dialog, Field, Input, Select, Segmented, Text } from '@nix/ui';
 import {
   finance as financeApi,
   type Finance,
@@ -22,9 +8,10 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useOptionalApiClient } from '../../api/api-client-provider';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
-import { Money, SectionHeading, WriteError, editableTextButton } from './finance-shared';
-import { formatDay, monthOf, parseAmount, shiftMonth } from './money';
+import { Money, SectionHeading, WriteError } from './finance-shared';
+import { monthOf, parseAmount, shiftMonth } from './money';
 import { useFinanceQuery, type FinanceState } from './use-finance';
+import { TransactionTable } from './transaction-table';
 import { ImportDialog } from './finance-import-dialog';
 import { QuickAddDialog, TransactionDialog, linesBySection } from './transaction-dialog';
 
@@ -241,81 +228,12 @@ export function FinanceTransactions({
       );
     }
   };
-  const columns: readonly TableColumn<FinanceTransaction>[] = [
-    {
-      key: 'select',
-      header: 'Select',
-      cell: (row) => (
-        <Checkbox
-          aria-label={`Select ${row.description}`}
-          checked={selected.has(row.id)}
-          disabled={query.status !== 'ready' || assigning}
-          onChange={(event) => {
-            toggleRow(row.id, event.target.checked);
-          }}
-        />
-      ),
-    },
-    {
-      key: 'date',
-      header: 'Date',
-      cell: (row) => `${formatDay(row.date)} ${row.date.slice(0, 4)}`,
-    },
-    {
-      key: 'description',
-      header: 'Description',
-      rowHeader: true,
-      cell: (row) => (
-        <button
-          type="button"
-          className={editableTextButton}
-          disabled={query.status !== 'ready' || assigning}
-          onClick={() => {
-            setEditing(row);
-          }}
-        >
-          {row.description}
-        </button>
-      ),
-    },
-    {
-      key: 'line',
-      header: 'Category',
-      cell: (row) =>
-        row.lineId === null ? (
-          <Tag tone="accent">Unassigned</Tag>
-        ) : (
-          (lines.get(row.lineId)?.name ?? 'Unknown line')
-        ),
-    },
-    {
-      key: 'account',
-      header: 'Account',
-      cell: (row) => accounts.get(row.accountId)?.name ?? 'Unknown account',
-    },
-    {
-      key: 'source',
-      header: 'Recorded',
-      cell: (row) =>
-        row.source === 'scheduled'
-          ? 'Posted from plan'
-          : row.source === 'import'
-            ? 'Imported'
-            : 'By hand',
-    },
-    {
-      key: 'amount',
-      header: 'Amount',
-      align: 'end',
-      cell: (row) => <Money amount={row.amount} currency={currency} signed />,
-    },
-  ];
   return (
     <div className="@container flex min-w-0 flex-col gap-4">
       <SectionHeading
         id="finance-transactions-title"
         title="Transaction history"
-        detail="Find past payments and correct them. Select a description to edit; money out is negative."
+        detail="Select a transaction to edit it. Money out is negative."
         actions={
           <>
             <Button
@@ -632,31 +550,16 @@ export function FinanceTransactions({
             </div>
           )}
           <WriteError message={assignError} />
-          <div
-            role="region"
-            aria-label="Transaction history"
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to reach horizontally clipped transaction columns.
-            tabIndex={0}
-            className={cn('min-w-0 overflow-x-auto', focusRing)}
-          >
-            <Table<FinanceTransaction>
-              caption="Matching transactions, newest first"
-              columns={columns}
-              rows={query.data.transactions}
-              rowKey={(row) => row.id}
-              rowContextMenuLabel={(row) => `Actions for ${row.description}`}
-              rowContextMenu={(row) => [
-                {
-                  label: 'Edit transaction',
-                  disabled: query.status !== 'ready' || assigning,
-                  onSelect: () => {
-                    setEditing(row);
-                  },
-                },
-              ]}
-              emptyMessage="No matching transactions. Try another date range or clear your filters."
-            />
-          </div>
+          <TransactionTable
+            rows={query.data.transactions}
+            lines={lines}
+            accounts={accounts}
+            currency={currency}
+            selected={selected}
+            disabled={query.status !== 'ready' || assigning}
+            onToggle={toggleRow}
+            onEdit={setEditing}
+          />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Text variant="bodySmall" tone="muted">
               Showing {query.data.total === 0 ? '0' : String((query.data.offset ?? 0) + 1)}–

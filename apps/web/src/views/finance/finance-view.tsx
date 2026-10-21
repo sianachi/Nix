@@ -123,55 +123,50 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
           </Button>
         </div>
       )}
-      <header className="flex min-w-0 flex-col gap-4 border-b border-divider pb-4 @3xl:flex-row @3xl:items-end @3xl:justify-between">
-        <div className="min-w-0">
-          <Text as="h2" variant="h4" id="finance-title">
-            Finances
-          </Text>
-          <Text variant="bodySmall" tone="muted">
-            {finance.settings.currency}.{' '}
-            {closed
-              ? 'Closed month. Reopen it to make a correction.'
-              : 'Open month. Record spending as you go.'}
-          </Text>
-        </div>
-        <div className="flex min-w-0 flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center">
-          <MonthNav
-            month={month}
-            min={finance.settings.startMonth}
-            max={finance.settings.endMonth}
-            onChange={setMonth}
-            current={finance.currentMonth}
-          />
-          <div className="grid min-w-0 grid-cols-1 gap-2 @sm:grid-cols-2 @3xl:flex @3xl:flex-wrap">
-            {section === 'transactions' ? null : (
-              <Button
-                onClick={() => {
-                  setQuickAdd(true);
-                }}
-              >
-                Add transaction
-              </Button>
-            )}
+      <header className="flex min-w-0 flex-col gap-3 @3xl:flex-row @3xl:items-center @3xl:justify-between">
+        <Text as="h2" variant="h4" id="finance-title" className="sr-only">
+          Finances
+        </Text>
+        <MonthNav
+          month={month}
+          min={finance.settings.startMonth}
+          max={finance.settings.endMonth}
+          onChange={setMonth}
+          current={finance.currentMonth}
+        />
+        <div className="flex min-w-0 flex-wrap gap-2">
+          {section === 'transactions' ? null : (
             <Button
-              variant="secondary"
               onClick={() => {
-                setClosing(true);
+                setQuickAdd(true);
               }}
             >
-              {closed ? 'Reopen selected month' : 'Close selected month'}
+              Add transaction
             </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setSettings(true);
-              }}
-            >
-              Settings
-            </Button>
-          </div>
+          )}
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setClosing(true);
+            }}
+          >
+            {closed ? 'Reopen month' : 'Close month'}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setSettings(true);
+            }}
+          >
+            Settings
+          </Button>
         </div>
       </header>
+      {closed ? (
+        <Text variant="bodySmall" tone="muted" role="status">
+          Closed month. Reopen it to make a correction.
+        </Text>
+      ) : null}
       {finance.problems.length === 0 ? null : (
         <div role="alert" className="rounded-lg border border-divider bg-surface-raised p-3">
           <Text as="p" variant="bodySmall">
@@ -188,7 +183,7 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
       )}
       <nav
         aria-label="Finance section"
-        className="flex flex-wrap gap-2 border-b border-divider pb-3"
+        className="flex gap-2 overflow-x-auto border-b border-divider pb-3"
       >
         {SECTIONS.map((option) => (
           <Button
