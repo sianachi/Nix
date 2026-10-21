@@ -986,6 +986,11 @@ describe('companion workflow', () => {
 
     await chooseFromPlus(user, 'Apply without asking');
     expect(within(dialog).getByText('Applying changes without asking')).toBeVisible();
+    // Which writes still ask is said beside the switch, and the menu entry carries the state.
+    expect(within(dialog).getByText(/Moves, trash, template saves and external links still ask/)).toBeVisible();
+    await user.click(plus);
+    expect(screen.getByRole('menuitem', { name: 'Apply without asking (on)' })).toBeVisible();
+    await user.keyboard('{Escape}');
 
     // Turning it off from the banner hands focus back to the "+" that turns it on.
     await user.click(within(dialog).getByRole('button', { name: 'Turn off' }));

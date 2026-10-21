@@ -98,7 +98,8 @@ export function Composer({
     ...(workspaceAccess && !noteReadOnly
       ? [
           {
-            label: 'Apply without asking',
+            // The menu has no checkable item, so the state is in the name a screen reader reads.
+            label: applyWithoutAsking ? 'Apply without asking (on)' : 'Apply without asking',
             ...(applyWithoutAsking ? { icon: Check } : {}),
             onSelect: () => {
               onApplyChange(!applyWithoutAsking);
@@ -163,7 +164,12 @@ export function Composer({
         // Not a live region: the menu item's own check already shows the state, and a region that
         // appears with its text already in it is read unreliably.
         <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-divider bg-accent/15 px-3 py-2">
-          <Text variant="note">Applying changes without asking</Text>
+          <div className="flex min-w-0 flex-col">
+            <Text variant="note">Applying changes without asking</Text>
+            <Text variant="note" tone="muted">
+              Moves, trash, template saves and external links still ask.
+            </Text>
+          </div>
           <Button
             variant="secondary"
             onClick={() => {
