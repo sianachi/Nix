@@ -692,6 +692,7 @@ INGRESS_CLASS=nginx NIX_INGRESS_CLOUDFLARE_ONLY=false STORAGE_CLASS=standard STO
 grep -Fq 'ingressClassName: nginx' "$RENDERED_INGRESS"
 grep -Fq 'ssl-redirect: "true"' "$RENDERED_INGRESS"
 grep -Fq 'value: "https://nix.example.test"' "$RENDERED_API"
+grep -Fq 'https://nix.example.test|http://nix-api:8080/public/v1/auth/jwks' "$RENDERED_ALL"
 grep -Fq 'router.middlewares: ""' "$RENDERED_INGRESS"
 grep -Fq 'value: "X-Forwarded-For"' "$RENDERED_WEB"
 grep -Fq 'ZITADEL_EXTERNALSECURE: "false"' "$RENDERED_ZITADEL"
