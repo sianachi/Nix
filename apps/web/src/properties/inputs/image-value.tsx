@@ -27,7 +27,7 @@ import {
   fileImageReferenceItemId,
   isDisplayableImageValue,
 } from './image-reference';
-import { ImageShell, type ImageControlProps } from './image-shell';
+import { ValueShell, type ControlProps } from './shell';
 import type { PropertyInputProps } from './types';
 import { useFileImagePreview } from './use-file-image-preview';
 import { useImageDrop } from './use-image-drop';
@@ -113,6 +113,8 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
   const addressRef = useRef<HTMLButtonElement>(null);
   const fieldRef = useRef<HTMLInputElement>(null);
   const returnFocus = useRef(false);
+  // Remove and Undo unmount the button that had focus; the control that replaces it gets it.
+  const focusNext = useRef<'field' | 'address' | null>(null);
 
   // The same discipline as `create-item-control.tsx`, for the same reasons: the address box is
   // focused when it appears because it was asked for - `autoFocus` is forbidden by the
@@ -130,6 +132,14 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
       fieldRef.current?.focus();
     }
   }, [editing]);
+
+  useEffect(() => {
+    const target = focusNext.current === 'field' ? fieldRef.current : addressRef.current;
+    if (focusNext.current !== null && target !== null) {
+      focusNext.current = null;
+      target.focus();
+    }
+  }, [stored]);
 
   // Replaced whenever the stored value moves, during render rather than in an effect, so no render
   // ever shows a draft - or an open editor, or a refusal - belonging to a value that is gone.
@@ -163,10 +173,6 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
   function tryCommit(text: string): void {
     const trimmed = text.trim();
 
-    // Any edit at all ends the undo window: the value the person is putting in is the one they
-    // want, and an Undo still offering the address they removed two edits ago is a trap.
-    setRemoved(null);
-
     // The same edit is never written twice: Enter followed by the blur it causes is one edit, and
     // an editor closed over an unchanged address is not an edit at all.
     if (trimmed === sent) {
@@ -177,6 +183,10 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
       }
       return;
     }
+
+    // Any edit at all ends the undo window: an Undo still offering the address removed two edits
+    // ago is a trap. An unchanged blur is not an edit, so it leaves Undo alone.
+    setRemoved(null);
 
     if (trimmed.length === 0) {
       setDraft('');
@@ -211,26 +221,14 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
     },
   });
 
-  // The quiet word beside the picture - Remove, and the Undo that replaces it - drawn the same way
-  // so the swap is a change of word rather than a change of control.
-  //
-  // Hit target: the word is 12px type at the 1.45 line height that step carries, so 17.4px tall.
-  // `before:-inset-y-2` adds 8px above and below (33.4px, past WCAG 2.5.8's 24px floor) and
-  // `before:-inset-x-1` adds 4px each side. It used to be `before:-inset-2` - 8px each side - in a
-  // `gap-2` row, which put Remove's hit area flush against the address button's right edge, so a
-  // click at the end of a truncated URL deleted the picture instead of opening the editor. At 4px
-  // against the `gap-3` rows below, 12 - 4 = 8px of dead space now separates the two.
-  const quietControl =
-    'relative shrink-0 font-body text-sm text-muted before:absolute before:-inset-x-1 before:-inset-y-2 hover:text-foreground';
-
   const undoButton =
     removed === null ? null : (
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         aria-label={`Undo removing ${name}`}
         disabled={disabled}
-        className={cn(quietControl, focusRing, disabledState)}
         onClick={() => {
+          focusNext.current = 'address';
           setRemoved(null);
           setDraft(removed);
           setSent(removed);
@@ -239,7 +237,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
         }}
       >
         Undo
-      </button>
+      </Button>
     );
 
   // The address box: nothing stored yet, a stored value that is not an address (shown prefilled
@@ -251,11 +249,9 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
       (!storedIsDisplayable && stored.length > 0 ? refusalSentence(property.label) : null);
 
     return (
-      <ImageShell
+      <ValueShell
+        {...props}
         density={density}
-        label={property.label}
-        name={name}
-        required={property.required}
         error={shownError}
         hint={
           canUpload
@@ -266,7 +262,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
         {(control) => (
           // `gap-3` rather than the shell's own `gap-1`: the undo below carries an 8px vertical
           // hit-area extension, and a 12px gap leaves 4px of it clear of the address box above.
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             <Input
               {...control}
               type="url"
@@ -352,7 +348,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
             {undoButton === null ? null : <div className="flex">{undoButton}</div>}
           </div>
         )}
-      </ImageShell>
+      </ValueShell>
     );
   }
 
@@ -402,21 +398,15 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
   // blank.
   const addressLabel = isFileRef ? 'Uploaded picture' : stored;
 
-  const addressButton = (control: ImageControlProps): ReactElement => (
+  const addressButton = (control: ControlProps): ReactElement => (
     <button
       {...control}
       type="button"
       ref={addressRef}
       title={addressLabel}
       disabled={disabled}
-      // This is the control that opens the editor, so it has to clear WCAG 2.5.8 like everything
-      // else in the row: 12px type at the step's 1.45 line height is 17.4px, and
-      // `before:-inset-y-1` adds 4px above and below for 25.4px. `before:inset-x-0` leaves the
-      // width alone - the button already spans the row, and widening it would push into the gap
-      // this change just opened between it and Remove.
       className={cn(
-        'relative min-w-0 flex-1 truncate text-left font-body text-sm text-foreground',
-        'before:absolute before:inset-x-0 before:-inset-y-1',
+        'min-h-(--control-md) any-pointer-coarse:min-h-(--control-lg) min-w-0 flex-1 truncate text-left font-body text-sm text-foreground',
         focusRing,
         disabledState,
       )}
@@ -429,12 +419,12 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
   );
 
   const removeButton = (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       aria-label={`Remove ${name}`}
       disabled={disabled}
-      className={cn(quietControl, focusRing, disabledState)}
       onClick={() => {
+        focusNext.current = 'field';
         // Kept so the click has a way back - see `removed`. Held before the write, because the
         // write is what takes the address off the screen.
         setRemoved(stored);
@@ -444,18 +434,12 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
       }}
     >
       Remove
-    </button>
+    </Button>
   );
 
   if (density === 'cell') {
     return (
-      <ImageShell
-        density={density}
-        label={property.label}
-        name={name}
-        required={property.required}
-        error={error ?? refusal}
-      >
+      <ValueShell {...props} density={density} error={error ?? refusal}>
         {(control) => (
           <div {...dropZone} className={cn('flex items-center gap-3 px-2 py-1', droppingFrame)}>
             {failed ? (
@@ -473,18 +457,12 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
             {undoButton ?? removeButton}
           </div>
         )}
-      </ImageShell>
+      </ValueShell>
     );
   }
 
   return (
-    <ImageShell
-      density={density}
-      label={property.label}
-      name={name}
-      required={property.required}
-      error={error ?? refusal}
-    >
+    <ValueShell {...props} density={density} error={error ?? refusal}>
       {(control) => (
         <div {...dropZone} className={cn('flex flex-col gap-2', droppingFrame)}>
           {/* One picture-shaped box for the thumbnail and for the words about it, so nothing
@@ -506,6 +484,6 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
           </div>
         </div>
       )}
-    </ImageShell>
+    </ValueShell>
   );
 }
