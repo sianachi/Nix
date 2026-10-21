@@ -1390,6 +1390,29 @@ export const StreamingReply = {
 };
 export const DarkStreamingReply = { ...StreamingReply, globals: { ground: 'dark' } };
 
+const turnErrorConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'connected',
+  reason: 'The response did not finish. Try again.',
+  canConnect: false,
+  state: 'error',
+  messages: [{ id: 'user-1', role: 'user', text: 'Summarize my reading notes.' }],
+});
+
+/** A failed turn: the error sits after the last message with its retry, not above the log. */
+export const ConversationTurnError = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={turnErrorConnection}>
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('button', { name: 'Try again' }, { timeout: 10_000 });
+  },
+};
+export const DarkConversationTurnError = { ...ConversationTurnError, globals: { ground: 'dark' } };
+
 const launcherBadgeConnection = petConnectionSchema.parse({
   provider: 'chatgpt',
   status: 'connected',
