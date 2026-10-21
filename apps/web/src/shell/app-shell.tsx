@@ -255,6 +255,8 @@ export function AppShell(): ReactNode {
           shellToasts.push({
             key: `notification-${notification.id}`,
             message: notification.title,
+            autoFocus: false,
+            persistent: true,
             ...(itemId === null
               ? {}
               : {
@@ -868,6 +870,9 @@ export function AppShell(): ReactNode {
         toasts={shellToasts.toasts}
         treeRegionRef={treeRegionRef}
         onDismiss={shellToasts.dismiss}
+        onViewReminders={() => {
+          setInboxOpen(true);
+        }}
       />
     </div>
   );

@@ -69,6 +69,32 @@ export const PressingUndo: Story = {
   },
 };
 
+/**
+ * Phone: the shell shows at most one toast, collapsing several reminders into this summary. A
+ * persistent toast never times out, so it waits until the reader opens or dismisses it.
+ */
+export const PhoneReminders: Story = {
+  args: {
+    message: '3 reminders',
+    action: { label: 'View', onAction: fn() },
+    persistent: true,
+    autoFocus: false,
+  },
+  render: (args) => (
+    <div className="w-[24rem] max-w-full">
+      <Toast {...args} />
+    </div>
+  ),
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByRole('status')).toHaveTextContent('3 reminders');
+    await userEvent.click(canvas.getByRole('button', { name: 'View' }));
+    await expect(args.action?.onAction).toHaveBeenCalledTimes(1);
+    await expect(args.onDismiss).toHaveBeenCalledTimes(1);
+  },
+};
+
 /** Focus lands on Undo as soon as the toast appears, since the row that triggered it is gone. */
 export const FocusesItsAction: Story = {
   args: {

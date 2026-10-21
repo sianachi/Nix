@@ -109,6 +109,15 @@ describe('Toast', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it('never times out when persistent, so a reminder waits until acted on or dismissed', () => {
+    const onDismiss = vi.fn();
+    render(<Toast message="Review the draft." onDismiss={onDismiss} persistent />);
+
+    vi.advanceTimersByTime(10 * 60 * 1000);
+
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
   it('honors a caller-supplied duration instead of the default', () => {
     const onDismiss = vi.fn();
     render(<Toast message="Deleted." onDismiss={onDismiss} duration={3000} />);

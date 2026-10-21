@@ -136,6 +136,12 @@ export interface ToastProps {
    * notice - where landing focus here would drag it away from wherever they are now.
    */
   readonly autoFocus?: boolean;
+
+  /**
+   * Never time out: for something the reader must see (a reminder), which stays until acted on or
+   * dismissed. Hover/focus pause is moot then. Routine notices leave this off.
+   */
+  readonly persistent?: boolean;
 }
 
 export function Toast(props: ToastProps): ReactNode {
@@ -146,6 +152,7 @@ export function Toast(props: ToastProps): ReactNode {
     duration = DEFAULT_DURATION_MS,
     returnFocusRef,
     autoFocus = true,
+    persistent = false,
   } = props;
 
   const messageId = useId();
@@ -223,7 +230,7 @@ export function Toast(props: ToastProps): ReactNode {
   }, [returnFocusRef]);
 
   useEffect(() => {
-    if (paused) {
+    if (paused || persistent) {
       return;
     }
 
@@ -235,7 +242,7 @@ export function Toast(props: ToastProps): ReactNode {
     };
     // `onDismissRef` is deliberately not a dependency (it never changes identity) and `onDismiss`
     // itself is read only through it - see the ref's own comment for why.
-  }, [paused, duration]);
+  }, [paused, persistent, duration]);
 
   // Escape dismisses, matching the visible dismiss control it stands in for - but only while focus
   // is actually inside this toast, gated on the same `hasFocusWithinRef` the pause feature and the
