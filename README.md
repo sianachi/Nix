@@ -23,6 +23,58 @@ calendar and numbers in one item tree, on a laptop and on a phone. Everything st
 
 The full list is in [docs/features.md](docs/features.md).
 
+## Run it for real
+
+Try it on your own machine with one line; all it needs is Docker:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash
+```
+
+Then open <http://nix.localhost> in Chrome or Firefox and sign in with the details it prints.
+(Safari does not resolve `.localhost` names: add `127.0.0.1 nix.localhost auth.nix.localhost` to
+`/etc/hosts` first.)
+
+The same line with a public origin is a real install, from the CI-built multi-architecture
+images at `ghcr.io/sianachi/nix`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash -s -- https://nix.example.org
+```
+
+**Before you run it:** point `nix.example.org` and `auth.nix.example.org` at the machine and leave
+ports 80 and 443 free. Docker with the Compose plugin, `curl`, `openssl` and `jq` must be installed.
+
+**What it does:** generates every secret into `~/nix/nix.env`, starts Postgres, RabbitMQ, the
+object store and a bundled identity provider (Zitadel) behind Caddy, which fetches the TLS
+certificates itself; registers the web application with the identity provider; runs the database
+migrations; starts every service; prints the administrator sign-in (`admin@nix.auth.<host>` and
+a one-time password you must change at first sign-in).
+
+**Options**
+
+| Flag | Meaning |
+| --- | --- |
+| `--version vX.Y.Z` | Install that release instead of the latest; the same flag upgrades a running install |
+| `--dir <path>` | State directory (default `~/nix`) |
+| `--kubernetes` | Install into the current `kubectl` context (namespace `nix`) instead of Docker |
+
+**Upgrade:** run the same line again with `--version <newer release>`. The env file is kept,
+migrations run, and services restart on the new images. Back up `~/nix/nix.env` together with the
+Docker volumes (`nix-*`); the env file holds every secret and cannot be regenerated.
+
+**Kubernetes:** the cluster needs an ingress controller listening on the origin's port and a
+default StorageClass; the installer reads the IngressClass, StorageClass and pod CIDR from the
+cluster (`--ingress-class`, `--storage-class`, `--pod-cidr` override). Certificates: pass
+`--tls-cert`/`--tls-key` with a PEM pair covering `<host>` and `*.<host>`, or
+`--cluster-issuer <name>` for cert-manager (no wildcard then, so published sites need DNS-01),
+or let it make a self-signed pair for a try-out. State is `~/nix/kubernetes.env` plus the
+secrets in the namespace. The manifests are in `deploy/k8s`.
+
+**Images and tags:** every commit on `main` is published as `ghcr.io/sianachi/nix/<image>:<sha>`;
+pushing a `vX.Y.Z` tag names that commit's images `vX.Y.Z` and `latest`, which the installer
+uses by default. `--version` also accepts a full commit SHA.
+
 ## Screenshots
 
 One tree of items, shown the way each job needs. All data here is made up.
@@ -58,50 +110,6 @@ These are local development credentials only.
 
 Working in JetBrains Rider? `node --experimental-strip-types scripts/rider-run-configs.mts` writes
 Run/Debug configurations for each service.
-
-## Run it for real
-
-One line installs Nix from the CI-built multi-architecture images at `ghcr.io/sianachi/nix`:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash -s -- https://nix.example.org
-```
-
-**Before you run it:** point `nix.example.org` and `auth.nix.example.org` at the machine and leave
-ports 80 and 443 free. Docker with the Compose plugin, `curl`, `openssl` and `jq` must be installed.
-
-**What it does:** generates every secret into `~/nix/nix.env`, starts Postgres, RabbitMQ, the
-object store and a bundled identity provider (Zitadel) behind Caddy, which fetches the TLS
-certificates itself; registers the web application with the identity provider; runs the database
-migrations; starts every service; prints the administrator sign-in (`admin@nix.auth.<host>` and
-a one-time password you must change at first sign-in).
-
-**Options**
-
-| Flag | Meaning |
-| --- | --- |
-| `--version vX.Y.Z` | Install that release instead of the latest; the same flag upgrades a running install |
-| `--dir <path>` | State directory (default `~/nix`) |
-| `--kubernetes` | Install into the current `kubectl` context (namespace `nix`) instead of Docker |
-
-**Upgrade:** run the same line again with `--version <newer release>`. The env file is kept,
-migrations run, and services restart on the new images. Back up `~/nix/nix.env` together with the
-Docker volumes (`nix-*`); the env file holds every secret and cannot be regenerated.
-
-**Try it without DNS:** pass `http://nix.localhost`. Chrome and Firefox resolve `.localhost`
-names on their own; Safari needs `nix.localhost` and `auth.nix.localhost` in `/etc/hosts`.
-
-**Kubernetes:** the cluster needs an ingress controller listening on the origin's port and a
-default StorageClass; the installer reads the IngressClass, StorageClass and pod CIDR from the
-cluster (`--ingress-class`, `--storage-class`, `--pod-cidr` override). Certificates: pass
-`--tls-cert`/`--tls-key` with a PEM pair covering `<host>` and `*.<host>`, or
-`--cluster-issuer <name>` for cert-manager (no wildcard then, so published sites need DNS-01),
-or let it make a self-signed pair for a try-out. State is `~/nix/kubernetes.env` plus the
-secrets in the namespace. The manifests are in `deploy/k8s`.
-
-**Images and tags:** every commit on `main` is published as `ghcr.io/sianachi/nix/<image>:<sha>`;
-pushing a `vX.Y.Z` tag names that commit's images `vX.Y.Z` and `latest`, which the installer
-uses by default. `--version` also accepts a full commit SHA.
 
 ## Stack
 
