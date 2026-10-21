@@ -1,8 +1,9 @@
-import { Blueprint, Button, Text } from '@nix/ui';
+import { Button, Text } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 import type { Administration, Confirmation, CurrentWorkspace } from './shared';
 
+/** Leaving and archiving end everyday use of the workspace, so they sit apart, last, behind a rule. */
 export function LeaveArchiveSection(props: {
   readonly workspace: CurrentWorkspace;
   readonly administration: Administration;
@@ -10,20 +11,29 @@ export function LeaveArchiveSection(props: {
 }): ReactNode {
   const { workspace, administration } = props;
   return (
-    <>
-      <Blueprint className="flex flex-col gap-3 border border-divider p-4">
-        <div>
-          <Text variant="h4" as="h3">
-            Workspace access
-          </Text>
-          <Text variant="note" tone="muted" className="mt-1 max-w-xl">
-            Leaving removes your access and takes this workspace out of your workspace switcher. The
-            workspace and its content stay available to its other members.
-          </Text>
-        </div>
+    <section
+      aria-labelledby="workspace-leave-archive-heading"
+      className="flex max-w-2xl flex-col gap-4 border-t border-divider pt-6"
+    >
+      <div className="flex flex-col gap-1">
+        <Text id="workspace-leave-archive-heading" variant="h3" as="h2">
+          Leave or archive
+        </Text>
+        <Text variant="note" tone="muted">
+          Both ask you to confirm first.
+        </Text>
+      </div>
+      <div className="flex flex-col gap-2">
+        <Text variant="h4" as="h3">
+          Workspace access
+        </Text>
+        <Text variant="note" tone="muted">
+          Leaving takes this workspace out of your switcher; others keep it.
+        </Text>
         {workspace.canLeave ? (
           <Button
             variant="secondary"
+            className="self-start"
             disabled={administration.working}
             onClick={() => {
               props.onConfirm({ kind: 'leave' });
@@ -36,21 +46,18 @@ export function LeaveArchiveSection(props: {
             You cannot leave this workspace.
           </Text>
         )}
-      </Blueprint>
-
+      </div>
       {workspace.canRename ? (
-        <Blueprint className="flex flex-col gap-3 border border-divider p-4">
-          <div>
-            <Text variant="h4" as="h3">
-              Archive workspace
-            </Text>
-            <Text variant="note" tone="muted" className="mt-1 max-w-xl">
-              Archiving hides this workspace from everyday navigation without removing its members
-              or content. You can restore it from Archived workspaces.
-            </Text>
-          </div>
+        <div className="flex flex-col gap-2">
+          <Text variant="h4" as="h3">
+            Archive workspace
+          </Text>
+          <Text variant="note" tone="muted">
+            Hides it from everyday navigation; restore it from Archived workspaces.
+          </Text>
           <Button
             variant="secondary"
+            className="self-start"
             disabled={administration.working}
             onClick={() => {
               props.onConfirm({ kind: 'archive' });
@@ -58,8 +65,8 @@ export function LeaveArchiveSection(props: {
           >
             Archive workspace
           </Button>
-        </Blueprint>
+        </div>
       ) : null}
-    </>
+    </section>
   );
 }

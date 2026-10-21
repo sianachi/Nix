@@ -42,7 +42,7 @@ export function MembersList(props: {
         administration.members.map((member) => (
           <div
             key={`${member.subjectType}:${member.subjectId}`}
-            className="flex flex-wrap items-center gap-2 bg-surface p-3 shadow-sm"
+            className="flex flex-col gap-2 bg-surface p-3 shadow-sm sm:flex-row sm:items-center"
           >
             <Text className="min-w-0 flex-1 break-words">{member.subjectDisplayName}</Text>
             <Select
@@ -80,7 +80,7 @@ export function MembersList(props: {
             </Select>
             {member.canRemove ? (
               <Button
-                variant="ghost"
+                variant="secondary"
                 aria-label={`Remove ${member.subjectDisplayName}`}
                 disabled={administration.working}
                 onClick={() => {

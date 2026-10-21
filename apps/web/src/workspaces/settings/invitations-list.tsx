@@ -40,14 +40,16 @@ export function InvitationsList(props: { readonly administration: Administration
         administration.invitations.map((invitation) => (
           <div
             key={invitation.id}
-            className="flex flex-wrap items-center gap-2 bg-surface p-3 shadow-sm"
+            className="flex flex-col gap-2 bg-surface p-3 shadow-sm sm:flex-row sm:items-center"
           >
             <Text className="min-w-0 flex-1 break-all">{invitation.emailNormalized}</Text>
-            <Tag>{invitation.role}</Tag>
-            <Tag tone="muted">{invitation.status}</Tag>
+            <div className="flex flex-wrap items-center gap-2">
+              <Tag>{invitation.role}</Tag>
+              <Tag tone="muted">{invitation.status}</Tag>
+            </div>
             {invitation.status === 'pending' ? (
               <Button
-                variant="ghost"
+                variant="secondary"
                 aria-label={`Revoke invitation for ${invitation.emailNormalized}`}
                 disabled={administration.working}
                 onClick={() => void administration.revokeInvitation(invitation.id)}

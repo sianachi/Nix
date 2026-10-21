@@ -25,10 +25,17 @@ export function InviteSection(props: {
         Invite someone
       </Text>
       <Text variant="note" tone="muted">
-        Find anyone who has signed in to Nix in this organization. People with a verified email who
-        do not already have access can be invited. They receive provisional access immediately and
-        decide whether to accept or decline the invitation.
+        People who have signed in to Nix here can be invited.
       </Text>
+      <details>
+        <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+          More<span className="sr-only"> about invitations</span>
+        </summary>
+        <Text variant="note" tone="muted">
+          People with a verified email who do not already have access can be invited. They receive
+          provisional access immediately and decide whether to accept or decline.
+        </Text>
+      </details>
       <Field label="Search people by name or email">
         {(control) => (
           <Input
