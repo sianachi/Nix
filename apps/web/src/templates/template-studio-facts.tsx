@@ -134,7 +134,7 @@ export function Review({
       )}
       {mode === 'edit' ? (
         <Text variant="caption" tone="muted">
-          The active template stays unchanged until Save completes every draft change together.
+          The template changes only when you save.
         </Text>
       ) : null}
     </section>

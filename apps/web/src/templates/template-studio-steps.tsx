@@ -38,9 +38,8 @@ export function Basics({
           Apply to {targetTitle ?? 'this item'}
         </Text>
         <Text tone="muted">
-          Existing fields, views, content, and children stay in place. The server checks additions
-          and conflicts before anything changes. Starting content is used only when creating a new
-          item; it is never appended to this item.
+          Existing fields, views, content and children stay. Conflicts are checked before anything
+          changes.
         </Text>
         <TemplateInputFields
           initialization={initialization}
@@ -60,9 +59,7 @@ export function Basics({
           {mode === 'create' ? 'Name the new item' : 'Name the template'}
         </Text>
         <Text variant="bodySmall" tone="muted">
-          {mode === 'create'
-            ? `Creating in ${destination}`
-            : 'Use a name your team will recognize in New.'}
+          {mode === 'create' ? `Creating in ${destination}` : 'Shown in the New menu.'}
         </Text>
       </div>
       <Field label="Name">
@@ -129,7 +126,7 @@ function TemplateInputFields({
           Set up this template
         </Text>
         <Text variant="caption" tone="muted">
-          These answers personalize the item. Required answers are checked before preview.
+          Answers personalize the item.
         </Text>
       </div>
       {inputs.map((input) => {
@@ -310,15 +307,14 @@ export function Contents({
           Choose what to capture
         </Text>
         <Text variant="bodySmall" tone="muted">
-          Fields and views are always included. Content and children start off to protect real
-          workspace data.
+          Fields and views are always included.
         </Text>
       </div>
       <Blueprint className="flex flex-col gap-3 p-4">
         <TemplateFact label="Fields and views" value="Included" />
         <label
           aria-label="Include document content"
-          className="flex cursor-default items-start gap-3"
+          className="flex min-h-(--control-lg) cursor-default items-start gap-3 py-1"
         >
           <input
             type="checkbox"
@@ -333,13 +329,13 @@ export function Contents({
               Include document content
             </Text>
             <Text variant="caption" as="span" tone="muted" className="block">
-              Copies the note, canvas, or sheet body as starting content.
+              Copies the note, canvas or sheet body.
             </Text>
           </span>
         </label>
         <label
           aria-label="Include everything inside"
-          className="flex cursor-default items-start gap-3"
+          className="flex min-h-(--control-lg) cursor-default items-start gap-3 py-1"
         >
           <input
             type="checkbox"
@@ -354,7 +350,7 @@ export function Contents({
               Include everything inside
             </Text>
             <Text variant="caption" as="span" tone="muted" className="block">
-              Copies the readable child subtree and its property values.
+              Copies readable child items and their values.
             </Text>
           </span>
         </label>

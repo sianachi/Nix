@@ -117,6 +117,20 @@ describe('the template studio', () => {
     expect(name.parentElement).not.toHaveClass('hidden');
   });
 
+  it('asks before discarding on Escape and keeps the action row outside the scroller', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [SOURCE] });
+    renderAt(<App />, `/w/${STUB_WORKSPACE.id}/templates/new?sourceItem=${SOURCE.id}`);
+
+    await screen.findByRole('heading', { name: 'Save as template' });
+    const setup = screen.getByRole('region', { name: 'Template setup' });
+    expect(within(setup).queryByRole('button', { name: 'Continue' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeVisible();
+
+    await user.keyboard('{Escape}');
+    expect(await screen.findByRole('dialog', { name: 'Discard this setup?' })).toBeVisible();
+  });
+
   it('recovers an unfinished draft for the same source item', async () => {
     sessionStorage.setItem(
       `nix:template-studio:${STUB_WORKSPACE.id}:capture:source:${SOURCE.id}`,

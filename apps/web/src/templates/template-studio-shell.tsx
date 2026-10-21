@@ -1,6 +1,6 @@
 import { Button, Dialog, Icon, Text, cn, focusRing } from '@nix/ui';
 import { ArrowLeft, ArrowRight, Check, Eye } from 'lucide-react';
-import type { ReactNode, RefObject } from 'react';
+import { useEffect, type ReactNode, type RefObject } from 'react';
 import { useZenActive } from '../lib/zen-mode';
 
 import { TemplateBlueprint } from './template-studio-facts';
@@ -66,6 +66,16 @@ export function TemplateStudioShell({
   readonly finishDisabled: boolean;
 }): ReactNode {
   const zen = useZenActive();
+  useEffect(() => {
+    if (discarding) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !event.defaultPrevented) onRequestDiscard();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [discarding, onRequestDiscard]);
   return (
     <div className="@container/studio flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <header
@@ -152,33 +162,7 @@ export function TemplateStudioShell({
             previewing ? 'hidden @4xl/studio:block' : '',
           )}
         >
-          <div className="mx-auto flex min-w-0 max-w-2xl flex-col gap-4">
-            {children}
-            {statusMessage === null ? null : (
-              <Text variant="bodySmall" role="status" className="bg-surface px-3 py-2">
-                {statusMessage}
-              </Text>
-            )}
-            {error === null ? null : (
-              <Text variant="bodySmall" role="alert" className="bg-surface px-3 py-2">
-                {error}
-              </Text>
-            )}
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider pt-3">
-              <Button variant="secondary" disabled={step === 0 || working} onClick={onBack}>
-                Back
-              </Button>
-              {step < TEMPLATE_STUDIO_STEPS.length - 1 ? (
-                <Button disabled={working} onClick={onNext}>
-                  {working ? 'Checking…' : 'Continue'} <Icon icon={ArrowRight} size="sm" />
-                </Button>
-              ) : (
-                <Button disabled={working || finishDisabled} onClick={onFinish}>
-                  {working ? 'Saving…' : finishLabel}
-                </Button>
-              )}
-            </div>
-          </div>
+          <div className="mx-auto flex min-w-0 max-w-2xl flex-col gap-4">{children}</div>
         </section>
 
         <aside
@@ -201,6 +185,39 @@ export function TemplateStudioShell({
         </aside>
       </div>
 
+      <footer className="shrink-0 border-t border-divider bg-background px-3 py-2">
+        <div className="mx-auto flex max-w-2xl min-w-0 flex-col gap-2">
+          {statusMessage === null ? null : (
+            <Text variant="bodySmall" role="status" className="bg-surface px-3 py-2">
+              {statusMessage}
+            </Text>
+          )}
+          {error === null ? null : (
+            <Text variant="bodySmall" role="alert" className="bg-surface px-3 py-2">
+              {error}
+            </Text>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            {step > 0 ? (
+              <Button variant="secondary" disabled={working} onClick={onBack}>
+                Back
+              </Button>
+            ) : (
+              <span />
+            )}
+            {step < TEMPLATE_STUDIO_STEPS.length - 1 ? (
+              <Button disabled={working} onClick={onNext}>
+                {working ? 'Checking…' : 'Continue'} <Icon icon={ArrowRight} size="sm" />
+              </Button>
+            ) : (
+              <Button disabled={working || finishDisabled} onClick={onFinish}>
+                {working ? 'Saving…' : finishLabel}
+              </Button>
+            )}
+          </div>
+        </div>
+      </footer>
+
       <Dialog
         open={discarding}
         title="Discard this setup?"
@@ -216,7 +233,7 @@ export function TemplateStudioShell({
           </>
         }
       >
-        <Text variant="bodySmall">Discarding removes this tab&rsquo;s saved draft.</Text>
+        <Text variant="bodySmall">Nothing is saved. This tab&rsquo;s draft is removed.</Text>
       </Dialog>
     </div>
   );
