@@ -3,7 +3,6 @@ import { useEffect, useState, type Dispatch, type RefObject, type SetStateAction
 import { type CellRef } from '@nix/sheet';
 import { useColumnWidths } from '../core/column-widths';
 import { columnOffsets, columnWindow, rowWindow } from '../sheet/windowing';
-import { ROW_HEIGHT } from './grid-geometry';
 import { columnWidth, type SpreadsheetColumn } from './grid-model';
 
 export interface GridViewport {
@@ -26,10 +25,11 @@ export function useGridViewport(args: {
   readonly viewId: string;
   readonly columns: readonly SpreadsheetColumn[];
   readonly rowCount: number;
+  readonly rowHeight: number;
   readonly active: CellRef;
   readonly scrollerRef: RefObject<HTMLDivElement | null>;
 }): GridViewport {
-  const { viewId, columns, rowCount, active, scrollerRef } = args;
+  const { viewId, columns, rowCount, rowHeight, active, scrollerRef } = args;
   const storedWidths = useColumnWidths(viewId);
 
   // Scroll and viewport state live HERE, in the grid, not in SpreadsheetView above. This is
@@ -45,12 +45,12 @@ export function useGridViewport(args: {
   const widths = columns.map((column) => storedWidths[column.key] ?? columnWidth(column));
   const offsets = columnOffsets(widths);
   const totalWidth = offsets[columns.length] ?? 0;
-  const totalHeight = rowCount * ROW_HEIGHT;
+  const totalHeight = rowCount * rowHeight;
 
   const rows = rowWindow({
     scrollTop: scroll.top,
     viewportHeight: viewport.height,
-    rowHeight: ROW_HEIGHT,
+    rowHeight: rowHeight,
     totalRows: rowCount,
   });
   const cols = columnWindow({
@@ -60,7 +60,7 @@ export function useGridViewport(args: {
   });
 
   // The active cell is kept on screen the way a caret is, keyed on its own geometry as scalars.
-  const activeTop = active.row * ROW_HEIGHT;
+  const activeTop = active.row * rowHeight;
   const activeLeft = offsets[active.col] ?? 0;
   const activeWidth = widths[active.col] ?? 0;
 
@@ -90,15 +90,15 @@ export function useGridViewport(args: {
     }
     if (activeTop < scroller.scrollTop) {
       scroller.scrollTop = activeTop;
-    } else if (activeTop + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight) {
-      scroller.scrollTop = activeTop + ROW_HEIGHT - scroller.clientHeight;
+    } else if (activeTop + rowHeight > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = activeTop + rowHeight - scroller.clientHeight;
     }
     if (activeLeft < scroller.scrollLeft) {
       scroller.scrollLeft = activeLeft;
     } else if (activeLeft + activeWidth > scroller.scrollLeft + scroller.clientWidth) {
       scroller.scrollLeft = activeLeft + activeWidth - scroller.clientWidth;
     }
-  }, [scrollerRef, activeTop, activeLeft, activeWidth]);
+  }, [scrollerRef, rowHeight, activeTop, activeLeft, activeWidth]);
 
   const visibleRows: number[] = [];
   for (let row = rows.first; row <= rows.last; row += 1) {

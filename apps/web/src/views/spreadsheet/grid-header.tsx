@@ -4,7 +4,6 @@ import { Fragment, useRef, type CSSProperties, type ReactNode } from 'react';
 
 import { COLUMN_WIDTH, clampWidth, resetColumnWidth, setColumnWidth } from '../core/column-widths';
 import { type SortDirection } from '../core/view-state';
-import { ROW_HEIGHT } from './grid-geometry';
 import { type SpreadsheetColumn } from './grid-model';
 
 interface GridHeaderProps {
@@ -17,6 +16,7 @@ interface GridHeaderProps {
   readonly direction: SortDirection;
   readonly onSort: (key: string, direction: SortDirection) => void;
   readonly viewId: string;
+  readonly rowHeight: number;
 }
 
 export function GridHeader(props: GridHeaderProps): ReactNode {
@@ -30,6 +30,7 @@ export function GridHeader(props: GridHeaderProps): ReactNode {
     direction,
     onSort,
     viewId,
+    rowHeight,
   } = props;
   const resizeDrag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
 
@@ -52,7 +53,7 @@ export function GridHeader(props: GridHeaderProps): ReactNode {
           const style = {
             left: `${String(offsets[col] ?? 0)}px`,
             width: `${String(widths[col] ?? 0)}px`,
-            height: `${String(ROW_HEIGHT)}px`,
+            height: `${String(rowHeight)}px`,
           };
           const width = widths[col] ?? 0;
           // design-token-exempt: the handle sits on the column's right edge, grid geometry
@@ -102,7 +103,7 @@ export function GridHeader(props: GridHeaderProps): ReactNode {
                 // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a window-splitter separator is focusable by its ARIA definition
                 tabIndex={0}
                 className={cn(
-                  'absolute top-0 z-10 h-8 w-3 -translate-x-1/2 cursor-col-resize touch-none',
+                  'absolute top-0 z-10 h-full w-3 -translate-x-1/2 any-pointer-coarse:w-6 cursor-col-resize touch-none',
                   focusRingInset,
                 )}
                 style={handleStyle}

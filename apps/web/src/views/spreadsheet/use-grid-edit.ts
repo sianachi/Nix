@@ -164,7 +164,11 @@ export function useGridEdit(args: GridEditArgs): GridEdit {
           );
         }
 
-        setNotice(parts.length === 0 ? null : parts.join(' '));
+        const pasted =
+          verb === 'taken' && writes.length > 0
+            ? `Pasted into ${String(writes.length)} ${writes.length === 1 ? 'row' : 'rows'}.`
+            : null;
+        setNotice(parts.length === 0 ? pasted : parts.join(' '));
       })
       .catch(() => {
         setNotice('Those changes could not be sent. Check the connection and try again.');

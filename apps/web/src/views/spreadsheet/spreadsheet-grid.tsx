@@ -27,7 +27,7 @@ import {
 } from '../sheet/selection';
 import { FillSeriesOffer } from './fill-series-offer';
 import { GridCell } from './grid-cell';
-import { ROW_HEIGHT, SCROLLER_HEIGHT_CLASS, cellId } from './grid-geometry';
+import { SCROLLER_HEIGHT_CLASS, cellId, pickRowHeight } from './grid-geometry';
 import { GridHeader } from './grid-header';
 import {
   TITLE_COLUMN_KEY,
@@ -80,6 +80,8 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
 
   const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
 
+  // Fixed for this mount: a window moved between a mouse and a touch screen re-opens the view.
+  const [rowHeight] = useState(pickRowHeight);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
   const menuCellRef = useRef<CellRef | null>(null);
@@ -162,7 +164,7 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
     activeTop,
     activeLeft,
     activeWidth,
-  } = useGridViewport({ viewId, columns, rowCount: items.length, active, scrollerRef });
+  } = useGridViewport({ viewId, columns, rowCount: items.length, rowHeight, active, scrollerRef });
 
   const range = selectedRange(selection);
   const rangeIsCell = range.startRow === range.endRow && range.startCol === range.endCol;
@@ -201,6 +203,7 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
     active,
     range,
     viewportHeight: viewport.height,
+    rowHeight,
     applyPlan,
     beginEdit,
     setNotice,
@@ -283,11 +286,11 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
     top: `${String(activeTop)}px`,
     left: `${String(activeLeft)}px`,
     width: `${String(activeWidth)}px`,
-    height: `${String(ROW_HEIGHT)}px`,
+    height: `${String(rowHeight)}px`,
   };
   const headerStripStyle = {
     width: `${String(totalWidth)}px`,
-    height: `${String(ROW_HEIGHT)}px`,
+    height: `${String(rowHeight)}px`,
     transform: `translateX(-${String(scroll.left)}px)`,
   };
   const canvasStyle = { width: `${String(totalWidth)}px`, height: `${String(totalHeight)}px` };
@@ -353,6 +356,7 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
         direction={direction}
         onSort={onSort}
         viewId={viewId}
+        rowHeight={rowHeight}
       />
 
       {/* The body: the one real scroller, and the keyboard's home. */}
@@ -446,6 +450,9 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                 'text/plain',
                 rangeToTsv(rangeTextMap(range, items, columns), range),
               );
+              const copied =
+                (range.endRow - range.startRow + 1) * (range.endCol - range.startCol + 1);
+              setNotice(copied === 1 ? 'Copied 1 cell.' : `Copied ${String(copied)} cells.`);
             }}
             onPaste={(event) => {
               if (selection.mode === 'edit') {
@@ -492,6 +499,7 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                           column={column}
                           row={row}
                           col={col}
+                          rowHeight={rowHeight}
                           left={offsets[col] ?? 0}
                           width={widths[col] ?? 0}
                           isActive={row === active.row && col === active.col}

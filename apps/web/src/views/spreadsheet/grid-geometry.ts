@@ -1,7 +1,13 @@
+import { isPointerCoarse } from '../../lib/pointer';
 import { type CellRef, cellKey } from '@nix/sheet';
 
-/** Cell geometry is a fixed 32px of runtime arithmetic, shared by rows, header and overlay. */
-export const ROW_HEIGHT = 32;
+/**
+ * Cell geometry is fixed runtime arithmetic, shared by rows, header and overlay. A coarse pointer
+ * gets the 44px touch target; the choice is made once per grid mount.
+ */
+export function pickRowHeight(): number {
+  return isPointerCoarse() ? 44 : 32;
+}
 
 /**
  * The scroller's own viewport. The pane scrolls vertically, so the grid needs a bounded height for

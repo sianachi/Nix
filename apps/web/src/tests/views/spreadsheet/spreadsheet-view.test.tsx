@@ -398,6 +398,7 @@ describe('ranges and the clipboard', () => {
     fireEvent.copy(grid(), { clipboardData: { setData } });
 
     expect(setData).toHaveBeenCalledWith('text/plain', 'Alpha\topen\nBeta\tdone');
+    expect(screen.getByRole('status')).toHaveTextContent('Copied 4 cells.');
   });
 
   it('pastes a block as one write per row, coerced per column', () => {

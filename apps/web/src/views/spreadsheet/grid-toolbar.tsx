@@ -47,7 +47,7 @@ export function GridToolbar(props: GridToolbarProps): ReactNode {
           and opening - a second tap on the already-active cell edits it, and this button opens
           it - so the keyboard ladder below is a shortcut, not the only door. */}
       <div className="mb-1 flex min-w-0 flex-wrap items-start justify-between gap-2">
-        <details className="min-w-0 flex-1">
+        <details className="min-w-0 flex-1 pointer-coarse:hidden">
           <summary
             className={cn(
               'inline-flex min-h-(--control-md) cursor-default items-center any-pointer-coarse:min-h-(--control-lg)',

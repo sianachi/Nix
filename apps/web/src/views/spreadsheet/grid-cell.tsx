@@ -4,7 +4,7 @@ import { Check, ChevronDown, Square } from 'lucide-react';
 import { type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 
 import { type Item } from '../core/container-model';
-import { ROW_HEIGHT, cellId } from './grid-geometry';
+import { cellId } from './grid-geometry';
 import { TITLE_COLUMN_KEY, cellDisplay, cellText, type SpreadsheetColumn } from './grid-model';
 
 interface GridCellProps {
@@ -13,6 +13,7 @@ interface GridCellProps {
   readonly column: SpreadsheetColumn;
   readonly row: number;
   readonly col: number;
+  readonly rowHeight: number;
   readonly left: number;
   readonly width: number;
   readonly isActive: boolean;
@@ -22,15 +23,26 @@ interface GridCellProps {
 }
 
 export function GridCell(props: GridCellProps): ReactNode {
-  const { gridId, item, column, row, col, isActive, inRange, onMouseDown, onDoubleClick } = props;
+  const {
+    gridId,
+    item,
+    column,
+    row,
+    col,
+    rowHeight,
+    isActive,
+    inRange,
+    onMouseDown,
+    onDoubleClick,
+  } = props;
   const shown = cellDisplay(item, column);
   const isTitle = column.key === TITLE_COLUMN_KEY;
   // design-token-exempt: a cell's place and size are grid geometry computed at runtime
   const cellStyle = {
-    top: `${String(row * ROW_HEIGHT)}px`,
+    top: `${String(row * rowHeight)}px`,
     left: `${String(props.left)}px`,
     width: `${String(props.width)}px`,
-    height: `${String(ROW_HEIGHT)}px`,
+    height: `${String(rowHeight)}px`,
   };
 
   // Justification: this grid uses aria-activedescendant, where focus stays on the

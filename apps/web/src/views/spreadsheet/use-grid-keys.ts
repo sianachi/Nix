@@ -4,7 +4,7 @@ import { useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent } fro
 import { type Item } from '../core/container-model';
 import { gridKeyAction } from '../sheet/grid-keys';
 import { type GridBounds, type SelectionAction, type SelectionState } from '../sheet/selection';
-import { ROW_HEIGHT, type PlanVerb } from './grid-geometry';
+import { type PlanVerb } from './grid-geometry';
 import {
   cellText,
   clearPlan,
@@ -23,6 +23,7 @@ interface GridKeysArgs {
   readonly active: CellRef;
   readonly range: CellRange;
   readonly viewportHeight: number;
+  readonly rowHeight: number;
   readonly applyPlan: (plan: WritePlan, verb: PlanVerb) => void;
   readonly beginEdit: (source: 'typing' | 'open', draft: string) => void;
   readonly setNotice: (notice: string | null) => void;
@@ -42,6 +43,7 @@ export function useGridKeys(args: GridKeysArgs): {
     active,
     range,
     viewportHeight,
+    rowHeight,
     applyPlan,
     beginEdit,
     setNotice,
@@ -129,7 +131,7 @@ export function useGridKeys(args: GridKeysArgs): {
       {
         active,
         bounds,
-        pageRows: Math.max(1, Math.floor(viewportHeight / ROW_HEIGHT) - 1),
+        pageRows: Math.max(1, Math.floor(viewportHeight / rowHeight) - 1),
         isOccupied,
       },
     );
