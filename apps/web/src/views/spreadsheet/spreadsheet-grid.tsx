@@ -1,0 +1,589 @@
+import { type CellRef, parseCellKey, rangeContains } from '@nix/sheet';
+import { ContextMenu, Text, cn, focusRingInset } from '@nix/ui';
+import {
+  useEffect,
+  useId,
+  useReducer,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
+
+import { FILL_SERIES_SHORTCUT } from '../../keyboard/shortcut-registry';
+import { formatShortcut } from '../../lib/shortcuts';
+import { useViewSuggestionPreference } from '../../settings/editor/suggestion-preferences';
+import { type Item, type PropertyDefinition } from '../core/container-model';
+import type { PlanOutcome, PlanWrite } from '../core/use-container';
+import { type SortDirection } from '../core/view-state';
+import { CellEditor } from '../sheet/cell-editor';
+import { parseTsv, rangeToTsv } from '../sheet/clipboard';
+import {
+  INITIAL_SELECTION,
+  clamp,
+  selectedRange,
+  selectionReducer,
+  type GridBounds,
+} from '../sheet/selection';
+import { FillSeriesOffer } from './fill-series-offer';
+import { GridCell } from './grid-cell';
+import { ROW_HEIGHT, SCROLLER_HEIGHT_CLASS, cellId } from './grid-geometry';
+import { GridHeader } from './grid-header';
+import {
+  TITLE_COLUMN_KEY,
+  cellText,
+  clearPlan,
+  pastePlan,
+  rangeTextMap,
+  seriesFillOffer,
+  type SpreadsheetColumn,
+} from './grid-model';
+import { GridPropertyPanel } from './grid-property-panel';
+import { GridToolbar } from './grid-toolbar';
+import { canEditProperty, useGridEdit, usesPicker } from './use-grid-edit';
+import { useGridKeys } from './use-grid-keys';
+import { useGridViewport } from './use-grid-viewport';
+
+interface SpreadsheetGridProps {
+  readonly items: readonly Item[];
+  readonly columns: readonly SpreadsheetColumn[];
+  readonly properties: readonly PropertyDefinition[];
+  readonly sortBy: string | null;
+  readonly direction: SortDirection;
+  readonly onSort: (key: string, direction: SortDirection) => void;
+
+  /** Writes one cell's edit and answers with the refusal, or null when stored. */
+  readonly onWrite: (itemId: string, bag: Record<string, unknown>) => Promise<string | null>;
+
+  /** Writes one gesture's worth of rows - paste, fill, clear - and answers for all of them. */
+  readonly onWriteMany: (writes: readonly PlanWrite[]) => Promise<PlanOutcome>;
+
+  readonly onOpen: (itemId: string) => void;
+
+  /** The view whose dragged column widths are kept per device (column-widths.ts). */
+  readonly viewId: string;
+}
+
+export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
+  const {
+    items,
+    columns,
+    properties,
+    sortBy,
+    direction,
+    onSort,
+    onWrite,
+    onWriteMany,
+    onOpen,
+    viewId,
+  } = props;
+
+  const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
+
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLInputElement>(null);
+  const menuCellRef = useRef<CellRef | null>(null);
+
+  const bounds: GridBounds = { rows: items.length, cols: columns.length };
+  const active = clamp(selection.active, bounds);
+  const {
+    notice,
+    setNotice,
+    propertyEdit,
+    propertyRefusal,
+    propertyPanelRef,
+    editedItem,
+    editedProperty,
+    closePropertyEdit,
+    commitProperty,
+    applyPlan,
+    commitDraft,
+    cancelEdit,
+    beginEdit,
+  } = useGridEdit({
+    items,
+    columns,
+    properties,
+    selection,
+    dispatch,
+    bounds,
+    active,
+    scrollerRef,
+    onWrite,
+    onWriteMany,
+    onOpen,
+  });
+  const activeColumn = columns[active.col];
+  const activeItem = items[active.row];
+  const activeProperty = properties.find((property) => property.key === activeColumn?.key);
+
+  /**
+   * The selection follows the item, not the index. Recorded and reconciled during render (the
+   * `useDraft` pattern): when `items` reorders under the grid, the active cell is moved to where
+   * its item went, so the next Delete or fill acts on the row somebody selected rather than on
+   * whichever row slid into its place. The anchor is deliberately dropped - a range of indexes
+   * over a reordered list no longer means anything.
+   */
+  const [tracked, setTracked] = useState<{
+    items: readonly Item[];
+    activeId: string | null;
+  }>({ items, activeId: activeItem?.id ?? null });
+
+  if (items !== tracked.items) {
+    const followedIndex =
+      tracked.activeId === null ? -1 : items.findIndex((item) => item.id === tracked.activeId);
+    setTracked({ items, activeId: tracked.activeId });
+
+    if (followedIndex !== -1 && followedIndex !== active.row && selection.mode === 'nav') {
+      dispatch({
+        type: 'moveTo',
+        ref: clamp({ row: followedIndex, col: active.col }, bounds),
+        extend: false,
+      });
+    }
+  } else if ((activeItem?.id ?? null) !== tracked.activeId) {
+    // The person moved the selection: record where it is, and retire whatever sentence the last
+    // cell earned - a stale notice under the grid describes an edit that is no longer where they
+    // are. Render-time adjustment, the same pattern as the block above.
+    setTracked({ items, activeId: activeItem?.id ?? null });
+    setNotice(null);
+  }
+
+  const {
+    scroll,
+    setScroll,
+    viewport,
+    widths,
+    offsets,
+    totalWidth,
+    totalHeight,
+    visibleRows,
+    visibleCols,
+    activeTop,
+    activeLeft,
+    activeWidth,
+  } = useGridViewport({ viewId, columns, rowCount: items.length, active, scrollerRef });
+
+  const range = selectedRange(selection);
+  const rangeIsCell = range.startRow === range.endRow && range.startCol === range.endCol;
+
+  /**
+   * The unprompted offer to continue a pattern: detection only - the seed, its step and a short
+   * preview - and only when every target cell is empty, so the button can never overwrite. Cheap
+   * enough to derive on each render (a walk down the selected columns that stops at the first
+   * filled target), so it carries no memo and no dependency on the item list's identity; the plan
+   * itself is built only when somebody asks for it, in `fillSeries`.
+   */
+  const viewSuggestions = useViewSuggestionPreference((state) => state.setting);
+  const rangeKey = `${String(range.startRow)}:${String(range.startCol)}:${String(range.endRow)}:${String(range.endCol)}`;
+
+  // Which selection's offer was dismissed. Keyed by the range so selecting somewhere else offers
+  // again; a dismissal is about this guess, not about the feature.
+  const [dismissedFill, setDismissedFill] = useState<string | null>(null);
+  const fillOffer =
+    viewSuggestions === 'on' &&
+    selection.mode === 'nav' &&
+    range.endRow > range.startRow &&
+    dismissedFill !== rangeKey
+      ? seriesFillOffer(range, items, columns)
+      : null;
+  const patternedColumn =
+    fillOffer?.patterned === true
+      ? (fillOffer.columns.find((fill) => fill.kind !== 'repeat') ?? null)
+      : null;
+
+  const { onGridKeyDown, fillSeries } = useGridKeys({
+    items,
+    columns,
+    selection,
+    dispatch,
+    bounds,
+    active,
+    range,
+    viewportHeight: viewport.height,
+    applyPlan,
+    beginEdit,
+    setNotice,
+  });
+
+  const gridId = useId();
+  const hintId = `${gridId}-hint`;
+
+  // The editor overlay takes focus when an edit begins; focus returns to the scroller on commit.
+  useEffect(() => {
+    if (selection.mode === 'edit') {
+      editorRef.current?.focus();
+      editorRef.current?.select();
+    }
+  }, [selection.mode]);
+
+  function captureMenuCell(target: EventTarget | null): void {
+    menuCellRef.current =
+      target instanceof Element
+        ? parseCellKey(target.closest('[data-sheet-cell]')?.getAttribute('data-sheet-cell') ?? '')
+        : null;
+  }
+
+  /**
+   * Mouse down rather than click so a shift-click extends the range from the pressed corner (there
+   * is no drag-selection; Shift with the arrows or a shift-click is the range gesture).
+   *
+   * Whether the grid already held focus, checked before we take it below, is what tells a tap that
+   * lands on the already-active cell apart from the tap that first brought that cell to life: the
+   * former is a person asking to edit or open what they can already see is selected, the latter is
+   * the ordinary first touch that only selects. Without this, a touch or mouse user could select a
+   * cell but never edit or open one without a double-click or the keyboard.
+   */
+  function pressCell(
+    event: ReactMouseEvent<HTMLDivElement>,
+    item: Item,
+    column: SpreadsheetColumn,
+    row: number,
+    col: number,
+  ): void {
+    if (event.button !== 0) return;
+    const isActive = row === active.row && col === active.col;
+    const isTitle = column.key === TITLE_COLUMN_KEY;
+    const alreadyFocused =
+      scrollerRef.current !== null && document.activeElement === scrollerRef.current;
+    event.preventDefault();
+    scrollerRef.current?.focus({ preventScroll: true });
+    // A draft that fails coercion keeps its editor open: moving the selection
+    // out from under it would throw away the typed text with the notice still
+    // claiming it can be corrected.
+    if (selection.mode === 'edit' && !commitDraft('stay')) {
+      return;
+    }
+    if (alreadyFocused && isActive && !event.shiftKey) {
+      if (isTitle) {
+        onOpen(item.id);
+      } else {
+        beginEdit('open', cellText(item, column));
+      }
+      return;
+    }
+    dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
+    const property = properties.find((entry) => entry.key === column.key);
+    if (!event.shiftKey && canEditProperty(property) && usesPicker(property)) {
+      beginEdit('open', cellText(item, column), { row, col });
+    }
+  }
+
+  function openCell(item: Item, column: SpreadsheetColumn): void {
+    if (column.key === TITLE_COLUMN_KEY) {
+      onOpen(item.id);
+    } else {
+      beginEdit('open', cellText(item, column));
+    }
+  }
+
+  // design-token-exempt: the editor overlay, header strip and scrollable canvas sit at grid
+  // geometry computed at runtime.
+  const editorStyle = {
+    top: `${String(activeTop)}px`,
+    left: `${String(activeLeft)}px`,
+    width: `${String(activeWidth)}px`,
+    height: `${String(ROW_HEIGHT)}px`,
+  };
+  const headerStripStyle = {
+    width: `${String(totalWidth)}px`,
+    height: `${String(ROW_HEIGHT)}px`,
+    transform: `translateX(-${String(scroll.left)}px)`,
+  };
+  const canvasStyle = { width: `${String(totalWidth)}px`, height: `${String(totalHeight)}px` };
+
+  return (
+    <div className="min-w-0 max-w-full">
+      <GridToolbar
+        hintId={hintId}
+        editing={selection.mode === 'edit'}
+        onApply={() => {
+          commitDraft('stay');
+        }}
+        onCancel={cancelEdit}
+        activeColumnLabel={activeColumn?.label}
+        activeItemTitle={activeItem?.title}
+        canEdit={canEditProperty(activeProperty)}
+        usesPopover={usesPicker(activeProperty) || propertyEdit !== null}
+        popoverOpen={
+          propertyEdit !== null && editedItem !== undefined && editedProperty !== undefined
+        }
+        popoverLabel={`Edit ${editedProperty?.label ?? activeColumn?.label ?? 'property'} for ${(editedItem?.title ?? activeItem?.title ?? '') || 'Untitled'}`}
+        onPopoverOpenChange={(open) => {
+          if (!open) closePropertyEdit();
+          else if (activeColumn !== undefined && activeItem !== undefined) {
+            beginEdit('open', cellText(activeItem, activeColumn));
+          }
+        }}
+        popoverContent={({ close }) => (
+          <GridPropertyPanel
+            panelRef={propertyPanelRef}
+            item={editedItem}
+            property={editedProperty}
+            refusal={propertyRefusal}
+            onCommit={commitProperty}
+            onEscape={() => {
+              closePropertyEdit(false);
+              requestAnimationFrame(() => scrollerRef.current?.focus({ preventScroll: true }));
+            }}
+            onDone={() => {
+              close();
+              requestAnimationFrame(() => scrollerRef.current?.focus({ preventScroll: true }));
+            }}
+          />
+        )}
+        onEdit={() => {
+          if (activeColumn !== undefined && activeItem !== undefined)
+            beginEdit('open', cellText(activeItem, activeColumn));
+        }}
+        onOpenActive={() => {
+          if (activeItem !== undefined) {
+            onOpen(activeItem.id);
+          }
+        }}
+      />
+
+      <GridHeader
+        columns={columns}
+        visibleCols={visibleCols}
+        offsets={offsets}
+        widths={widths}
+        headerStripStyle={headerStripStyle}
+        sortBy={sortBy}
+        direction={direction}
+        onSort={onSort}
+        viewId={viewId}
+      />
+
+      {/* The body: the one real scroller, and the keyboard's home. */}
+      <ContextMenu
+        label="Spreadsheet cell actions"
+        items={() => {
+          const ref = menuCellRef.current ?? active;
+          const item = items[ref.row];
+          const column = columns[ref.col];
+          if (item === undefined || column === undefined) return [];
+          return [
+            {
+              label: `Open ${item.title || 'Untitled'}`,
+              onSelect: () => {
+                onOpen(item.id);
+              },
+            },
+            {
+              label: `Edit ${column.label}`,
+              disabled: !canEditProperty(
+                properties.find((property) => property.key === column.key),
+              ),
+              onSelect: () => {
+                if (!commitDraft('stay')) return;
+                dispatch({ type: 'moveTo', ref, extend: false });
+                beginEdit('open', cellText(item, column), ref);
+              },
+            },
+            {
+              label: `Clear ${column.label}`,
+              disabled: !column.editable || cellText(item, column).length === 0,
+              onSelect: () => {
+                if (!commitDraft('stay')) return;
+                dispatch({ type: 'moveTo', ref, extend: false });
+                applyPlan(
+                  clearPlan(
+                    {
+                      startRow: ref.row,
+                      endRow: ref.row,
+                      startCol: ref.col,
+                      endCol: ref.col,
+                    },
+                    items,
+                    columns,
+                  ),
+                  'cleared',
+                );
+              },
+            },
+          ];
+        }}
+      >
+        {(target) => (
+          <div
+            {...target}
+            ref={scrollerRef}
+            role="grid"
+            aria-label="Spreadsheet of items"
+            aria-describedby={hintId}
+            aria-rowcount={bounds.rows}
+            aria-colcount={bounds.cols}
+            aria-activedescendant={selection.mode === 'edit' ? undefined : cellId(gridId, active)}
+            aria-multiselectable="true"
+            tabIndex={0}
+            onContextMenuCapture={(event) => {
+              captureMenuCell(event.target);
+            }}
+            onPointerDownCapture={(event) => {
+              captureMenuCell(event.target);
+            }}
+            onKeyDownCapture={() => {
+              menuCellRef.current = null;
+            }}
+            onKeyDown={onGridKeyDown}
+            onScroll={(event) => {
+              // Identity-guarded: scroll events between window boundaries, overscroll bounce and
+              // single-axis wheels must not re-render a few hundred cells to change nothing.
+              const { scrollTop, scrollLeft } = event.currentTarget;
+              setScroll((current) =>
+                current.top === scrollTop && current.left === scrollLeft
+                  ? current
+                  : { top: scrollTop, left: scrollLeft },
+              );
+            }}
+            onCopy={(event) => {
+              if (selection.mode === 'edit') {
+                return;
+              }
+              event.preventDefault();
+              event.clipboardData.setData(
+                'text/plain',
+                rangeToTsv(rangeTextMap(range, items, columns), range),
+              );
+            }}
+            onPaste={(event) => {
+              if (selection.mode === 'edit') {
+                return;
+              }
+              event.preventDefault();
+              const text = event.clipboardData.getData('text/plain');
+              if (text.length > 0) {
+                applyPlan(
+                  pastePlan(
+                    { row: range.startRow, col: range.startCol },
+                    parseTsv(text),
+                    items,
+                    columns,
+                  ),
+                  'taken',
+                );
+              }
+            }}
+            className={cn(
+              'relative min-w-0 max-w-full overflow-auto overscroll-contain outline-none',
+              SCROLLER_HEIGHT_CLASS,
+              focusRingInset,
+            )}
+          >
+            <div className="relative" role="presentation" style={canvasStyle}>
+              {visibleRows.map((row) => {
+                const item = items[row];
+                if (item === undefined) {
+                  return null;
+                }
+                return (
+                  <div key={item.id} role="row" aria-rowindex={row + 1} className="contents">
+                    {visibleCols.map((col) => {
+                      const column = columns[col];
+                      if (column === undefined) {
+                        return null;
+                      }
+                      return (
+                        <GridCell
+                          key={column.key}
+                          gridId={gridId}
+                          item={item}
+                          column={column}
+                          row={row}
+                          col={col}
+                          left={offsets[col] ?? 0}
+                          width={widths[col] ?? 0}
+                          isActive={row === active.row && col === active.col}
+                          inRange={!rangeIsCell && rangeContains(range, { row, col })}
+                          onMouseDown={(event) => {
+                            pressCell(event, item, column, row, col);
+                          }}
+                          onDoubleClick={() => {
+                            openCell(item, column);
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })}
+
+              {selection.mode === 'edit' &&
+              activeColumn !== undefined &&
+              activeItem !== undefined ? (
+                <CellEditor
+                  ref={editorRef}
+                  ariaLabel={`Edit ${activeColumn.label} for ${activeItem.title || 'Untitled'}`}
+                  value={selection.draft}
+                  onChange={(event) => {
+                    dispatch({ type: 'setDraft', draft: event.target.value });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      commitDraft('down');
+                    } else if (event.key === 'Tab') {
+                      event.preventDefault();
+                      commitDraft('right');
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      cancelEdit();
+                    }
+                  }}
+                  onBlur={() => {
+                    // A genuine click-away commits, as in every spreadsheet. This blur fires
+                    // synchronously inside the cell handler's focus() call, BEFORE that handler's own
+                    // commitDraft - so this is the call that commits on a click-away, and the settled
+                    // flag is what keeps the cell handler's later call from committing twice.
+                    if (selection.mode === 'edit') {
+                      commitDraft('stay');
+                    }
+                  }}
+                  position={editorStyle}
+                  // Chosen from the stored value, so the editor never swaps element mid-edit.
+                  multiline={
+                    activeColumn.type === 'long_text' ||
+                    /[\r\n]/.test(cellText(activeItem, activeColumn))
+                  }
+                />
+              ) : null}
+            </div>
+          </div>
+        )}
+      </ContextMenu>
+
+      {fillOffer === null || patternedColumn === null ? null : (
+        <FillSeriesOffer
+          columnLabel={patternedColumn.column.label}
+          describe={patternedColumn.describe}
+          preview={patternedColumn.preview}
+          rows={fillOffer.rows}
+          otherColumns={fillOffer.columns.length - 1}
+          shortcut={formatShortcut(FILL_SERIES_SHORTCUT)}
+          onFill={() => {
+            fillSeries();
+            setDismissedFill(rangeKey);
+            scrollerRef.current?.focus({ preventScroll: true });
+          }}
+          onDismiss={() => {
+            setDismissedFill(rangeKey);
+            scrollerRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
+
+      {/* Always mounted so the announcement fires the moment a sentence appears; the visible
+          chrome only draws when there is something to read, so an empty region is not a stray
+          rule under the grid. */}
+      <Text
+        variant="note"
+        as="p"
+        role="status"
+        className={notice === null ? '' : 'border-t border-divider px-3 py-1'}
+      >
+        {notice}
+      </Text>
+    </div>
+  );
+}
