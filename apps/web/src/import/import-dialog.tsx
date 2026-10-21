@@ -351,14 +351,6 @@ export function ImportDialog({
             {phase.name === 'preview' ? (
               <>
                 <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setPhase({ name: 'pick', reading: false, error: null });
-                  }}
-                >
-                  Choose different files
-                </Button>
-                <Button
                   onClick={() => {
                     void run(phase.plan, phase.losses);
                   }}
@@ -370,15 +362,6 @@ export function ImportDialog({
             ) : null}
             {phase.name === 'document-preview' ? (
               <>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    discardDocument(phase.operation.id);
-                    setPhase({ name: 'pick', reading: false, error: null });
-                  }}
-                >
-                  Choose a different file
-                </Button>
                 <Button
                   onClick={() => {
                     void runDocument(phase);
@@ -409,20 +392,47 @@ export function ImportDialog({
           />
         ) : null}
 
-        {phase.name === 'preview' ? <Preview plan={phase.plan} losses={phase.losses} /> : null}
+        {phase.name === 'preview' ? (
+          <Preview
+            plan={phase.plan}
+            losses={phase.losses}
+            onChooseAgain={() => {
+              setPhase({ name: 'pick', reading: false, error: null });
+            }}
+          />
+        ) : null}
 
         {phase.name === 'document-preview' ? (
-          <DocumentPreview operation={phase.operation} plan={phase.plan} />
+          <DocumentPreview
+            operation={phase.operation}
+            plan={phase.plan}
+            onChooseAgain={() => {
+              discardDocument(phase.operation.id);
+              setPhase({ name: 'pick', reading: false, error: null });
+            }}
+          />
         ) : null}
 
         {phase.name === 'working' ? (
-          <Text tone="muted">
-            Importing… {String(phase.done)} of {String(phase.total)} items.
-          </Text>
+          <div className="flex flex-col gap-2">
+            <Text tone="muted">
+              Importing… {String(phase.done)} of {String(phase.total)} items.
+            </Text>
+            {/* Native element: the name and value reach assistive tech without ARIA. */}
+            <progress
+              aria-label="Import progress"
+              max={phase.total}
+              value={phase.done}
+              className="h-2 w-full accent-accent"
+            />
+          </div>
         ) : null}
 
         {phase.name === 'document-working' ? (
-          <Text tone="muted">Publishing {String(phase.total)} imported items atomically…</Text>
+          <div className="flex flex-col gap-2">
+            <Text tone="muted">Adding {String(phase.total)} items…</Text>
+            <progress aria-label="Import progress" className="h-2 w-full accent-accent" />
+          </div>
         ) : null}
 
         {phase.name === 'report' ? (

@@ -92,25 +92,7 @@ export function Report({
           pending={`${String(group.paths.length)} ${group.paths.length === 1 ? 'item was' : 'items were'} not attempted - ${withoutDot(group.reason)}: ${pathsClause(group.paths)}.`}
         />
       ))}
-      {report.rootItemId !== null ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="secondary" onClick={onUndo} disabled={undo.name !== 'available'}>
-            {undo.name === 'working' ? 'Undoing…' : undo.name === 'done' ? 'Undone' : 'Undo import'}
-          </Button>
-          {undo.name === 'done' ? (
-            <Text tone="muted" variant="note" as="span">
-              The imported items were moved to deleted; they can be restored.
-            </Text>
-          ) : null}
-          {undo.name === 'failed' ? (
-            <div role="alert">
-              <Text tone="muted" variant="note" as="span">
-                {undo.error}
-              </Text>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      {report.rootItemId !== null ? <UndoRow undo={undo} onUndo={onUndo} /> : null}
     </>
   );
 }
@@ -131,7 +113,7 @@ export function DocumentReport({
     <>
       <FocusOnMount>
         <Text variant="body">
-          {String(count)} {count === 1 ? 'item was' : 'items were'} created atomically.
+          {String(count)} {count === 1 ? 'item was' : 'items were'} created.
         </Text>
       </FocusOnMount>
       {(operation.loss ?? plan.loss).map((loss) => (
@@ -140,23 +122,35 @@ export function DocumentReport({
       {(operation.omissions ?? plan.omissions).map((omission) => (
         <PartialNotice key={`receipt-omission-${omission}`} pending={`Omitted: ${omission}`} />
       ))}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="secondary" onClick={onUndo} disabled={undo.name !== 'available'}>
-          {undo.name === 'working' ? 'Undoing…' : undo.name === 'done' ? 'Undone' : 'Undo import'}
-        </Button>
-        {undo.name === 'done' ? (
-          <Text tone="muted" variant="note" as="span">
-            The imported items were moved to deleted; they can be restored.
-          </Text>
-        ) : null}
-        {undo.name === 'failed' ? (
-          <div role="alert">
-            <Text tone="muted" variant="note" as="span">
-              {undo.error}
-            </Text>
-          </div>
-        ) : null}
-      </div>
+      <UndoRow undo={undo} onUndo={onUndo} />
     </>
+  );
+}
+
+function UndoRow({
+  undo,
+  onUndo,
+}: {
+  readonly undo: UndoState;
+  readonly onUndo: () => void;
+}): ReactNode {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="secondary" onClick={onUndo} disabled={undo.name !== 'available'}>
+        {undo.name === 'working' ? 'Undoing…' : undo.name === 'done' ? 'Undone' : 'Undo import'}
+      </Button>
+      {undo.name === 'done' ? (
+        <Text tone="muted" variant="note" as="span">
+          The imported items were moved to deleted; they can be restored.
+        </Text>
+      ) : null}
+      {undo.name === 'failed' ? (
+        <div role="alert">
+          <Text tone="accent" variant="note" as="span">
+            {undo.error}
+          </Text>
+        </div>
+      ) : null}
+    </div>
   );
 }

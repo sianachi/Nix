@@ -15,7 +15,7 @@ export function liveText(phase: Phase): string {
     case 'working':
       return `Importing ${String(phase.total)} items.`;
     case 'document-working':
-      return `Publishing ${String(phase.total)} imported items.`;
+      return `Adding ${String(phase.total)} items.`;
     case 'report':
       return reportHeadline(phase.report);
     case 'document-report':

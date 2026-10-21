@@ -1,4 +1,4 @@
-import { Text } from '@nix/ui';
+import { Button, Text } from '@nix/ui';
 import type { DocumentImport, DocumentImportPlan } from '@nix/api-client';
 import type { ReactNode } from 'react';
 
@@ -11,9 +11,11 @@ import type { ImportPlan } from './import-plan';
 export function Preview({
   plan,
   losses,
+  onChooseAgain,
 }: {
   readonly plan: ImportPlan;
   readonly losses: readonly string[];
+  readonly onChooseAgain: () => void;
 }): ReactNode {
   const root = plan.root;
   if (root === null) {
@@ -26,9 +28,8 @@ export function Preview({
     <>
       <FocusOnMount>
         <Text variant="body">
-          {String(contentItems)} {contentItems === 1 ? 'file or note' : 'files and notes'} from the
-          chosen files will be created under a new item called &ldquo;{root.title}&rdquo; -{' '}
-          {String(plan.totalItems)} items in all, counting folders. Nothing is created until you
+          {String(contentItems)} {contentItems === 1 ? 'file or note' : 'files and notes'} will be
+          created under a new item called &ldquo;{root.title}&rdquo;. Nothing is created until you
           press Import.
         </Text>
       </FocusOnMount>
@@ -48,6 +49,7 @@ export function Preview({
         />
       ))}
       <ContentChanges sources={sources} mode="preview" />
+      <ChooseAgain label="Choose different files" onClick={onChooseAgain} />
     </>
   );
 }
@@ -55,9 +57,11 @@ export function Preview({
 export function DocumentPreview({
   operation,
   plan,
+  onChooseAgain,
 }: {
   readonly operation: DocumentImport;
   readonly plan: DocumentImportPlan;
+  readonly onChooseAgain: () => void;
 }): ReactNode {
   const titles = new Map(plan.items.map((item) => [item.sourceId, item.title]));
   const shown = plan.items.slice(0, 100);
@@ -69,9 +73,8 @@ export function DocumentPreview({
     <>
       <FocusOnMount>
         <Text variant="body">
-          {String(operation.itemCount ?? plan.items.length)} items will be published together under
-          &ldquo;{operation.title}&rdquo;. Nothing is visible until every note body and retained
-          file is ready.
+          {String(operation.itemCount ?? plan.items.length)} items will be added together under
+          &ldquo;{operation.title}&rdquo;. Nothing shows until all of them are ready.
         </Text>
       </FocusOnMount>
       {losses.map((loss) => (
@@ -80,10 +83,12 @@ export function DocumentPreview({
       {omissions.map((omission) => (
         <PartialNotice key={`omission-${omission}`} pending={`Omitted: ${omission}`} />
       ))}
-      <div>
-        <Text variant="h5" as="h2">
-          Item mapping
-        </Text>
+      <details className="flex flex-col gap-2">
+        <summary className="min-h-(--control-md) cursor-pointer any-pointer-coarse:min-h-(--control-lg)">
+          <Text variant="h5" as="h2" className="inline">
+            Item mapping
+          </Text>
+        </summary>
         <ul className="mt-2 space-y-2">
           {shown.map((item) => (
             <li key={item.sourceId} className="rounded-md bg-surface p-3 shadow-sm">
@@ -99,10 +104,28 @@ export function DocumentPreview({
         </ul>
         {remaining > 0 ? (
           <Text tone="muted" variant="note" className="mt-2">
-            {String(remaining)} more mapped items are included in the atomic import.
+            {String(remaining)} more mapped items are included in the import.
           </Text>
         ) : null}
-      </div>
+      </details>
+      <ChooseAgain label="Choose a different file" onClick={onChooseAgain} />
     </>
+  );
+}
+
+/** Kept out of the sticky action row so it holds only Cancel and the one primary action. */
+function ChooseAgain({
+  label,
+  onClick,
+}: {
+  readonly label: string;
+  readonly onClick: () => void;
+}): ReactNode {
+  return (
+    <div>
+      <Button variant="ghost" onClick={onClick}>
+        {label}
+      </Button>
+    </div>
   );
 }
