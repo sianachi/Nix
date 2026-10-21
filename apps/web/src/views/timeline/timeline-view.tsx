@@ -4,11 +4,8 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
-import { CalendarEntryMenu } from '../calendar/calendar-entry-menu';
 import { ShownItems } from '../core/item-selection-context';
-import { SelectCheckbox } from '../core/select-checkbox';
 import { dayText, type CalendarDay } from '../core/calendar-dates';
-import { readPropertyText } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
 import { buildWindow, readScale, stepAnchor, type TimelineScale } from './timeline-scale';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
@@ -27,10 +24,10 @@ import {
   todayDay,
   type AsideContext,
 } from './timeline-model';
+import { TimelineAgenda } from './timeline-agenda';
 import { OffAxisList } from './timeline-off-axis';
 import { RescheduleFields } from './timeline-reschedule';
 import { TimelineTable } from './timeline-table';
-import { useTimelineOpenProps } from './use-timeline-open-props';
 
 /**
  * A container's children as bars across a time axis, placed by a start date and an optional end.
@@ -86,7 +83,6 @@ import { useTimelineOpenProps } from './use-timeline-open-props';
 
 export function TimelineView(props: ViewRendererProps): ReactNode {
   const { container, view, onOpen } = props;
-  const openProps = useTimelineOpenProps(onOpen);
   const viewState = useViewState();
   const { mode: urlMode, setMode } = viewState;
 
@@ -101,7 +97,6 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
    * for the opposite reason: "look at this quarter" is a decision worth sending.
    */
   const narrow = useNarrowViewport();
-  const [showGrid, setShowGrid] = useState(false);
   const [anchor, setAnchor] = useState<CalendarDay>(todayDay);
   const [rescheduling, setRescheduling] = useState<string | null>(null);
   const panelId = useId();
@@ -190,6 +185,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
   // holding something that is not a date.
   const undated = placed.filter((entry) => entry.placement.kind === 'undated' && !entry.unreadable);
   const unreadable = placed.filter((entry) => entry.unreadable);
+  const dated = placed.filter((entry) => entry.start !== null);
 
   const todayText = dayText(todayDay());
   const lostEnd = describeLostEndProperty(view, container.schema);
@@ -212,73 +208,75 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
     // owned by the track below, and a second vertical scroller here would compete with the pane's.
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <ShownItems ids={placed.map((entry) => entry.item.id)} />
-      <div className="flex flex-wrap items-center gap-2">
-        <Text variant="h6" as="h2" className="min-w-0 break-words">
-          {axis.label}
-        </Text>
+      {narrow ? null : (
+        <div className="flex flex-wrap items-center gap-2">
+          <Text variant="h6" as="h2" className="min-w-0 break-words">
+            {axis.label}
+          </Text>
 
-        {/* aria-current rather than a tablist, following the calendar and the view switcher: these
+          {/* aria-current rather than a tablist, following the calendar and the view switcher: these
             are three ways of looking at one thing, and claiming to be tabs would owe arrow-key
             navigation nobody asked for. */}
-        <nav aria-label="Timeline scale" className="flex items-center gap-0.5">
-          {SCALES.map((grain) => (
-            <button
-              key={grain}
-              type="button"
-              aria-current={scale === grain ? 'page' : undefined}
+          <nav aria-label="Timeline scale" className="flex items-center gap-0.5">
+            {SCALES.map((grain) => (
+              <button
+                key={grain}
+                type="button"
+                aria-current={scale === grain ? 'page' : undefined}
+                onClick={() => {
+                  setMode(grain);
+                }}
+                className={cn(
+                  // `relative before:*`: the drawn pill is about 22px tall (`text-xs` at its 1.4
+                  // line height plus `py-1`), just under WCAG 2.5.8's 24px floor - the same fix,
+                  // for the same control, as the calendar's grain switcher.
+                  'relative rounded-sm px-2 py-1 text-xs capitalize before:absolute before:inset-x-0 before:-inset-y-0.5 pointer-coarse:min-h-(--control-lg)',
+                  focusRing,
+                  scale === grain
+                    ? 'bg-foreground/7 text-foreground'
+                    : 'text-muted hover:bg-foreground/7 hover:text-foreground',
+                )}
+              >
+                {grain}
+              </button>
+            ))}
+          </nav>
+
+          <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              aria-label={`Previous ${scale}`}
+              className="px-2"
               onClick={() => {
-                setMode(grain);
+                setAnchor((current) => stepAnchor(scale, current, -1));
               }}
-              className={cn(
-                // `relative before:*`: the drawn pill is about 22px tall (`text-xs` at its 1.4
-                // line height plus `py-1`), just under WCAG 2.5.8's 24px floor - the same fix,
-                // for the same control, as the calendar's grain switcher.
-                'relative rounded-sm px-2 py-1 text-xs capitalize before:absolute before:inset-x-0 before:-inset-y-0.5 pointer-coarse:min-h-(--control-lg)',
-                focusRing,
-                scale === grain
-                  ? 'bg-foreground/7 text-foreground'
-                  : 'text-muted hover:bg-foreground/7 hover:text-foreground',
-              )}
             >
-              {grain}
-            </button>
-          ))}
-        </nav>
+              <Icon icon={ChevronLeft} size="sm" />
+            </Button>
 
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            aria-label={`Previous ${scale}`}
-            className="px-2"
-            onClick={() => {
-              setAnchor((current) => stepAnchor(scale, current, -1));
-            }}
-          >
-            <Icon icon={ChevronLeft} size="sm" />
-          </Button>
+            <Button
+              variant="secondary"
+              className="py-1"
+              onClick={() => {
+                setAnchor(todayDay());
+              }}
+            >
+              Today
+            </Button>
 
-          <Button
-            variant="secondary"
-            className="py-1"
-            onClick={() => {
-              setAnchor(todayDay());
-            }}
-          >
-            Today
-          </Button>
-
-          <Button
-            variant="ghost"
-            aria-label={`Next ${scale}`}
-            className="px-2"
-            onClick={() => {
-              setAnchor((current) => stepAnchor(scale, current, 1));
-            }}
-          >
-            <Icon icon={ChevronRight} size="sm" />
-          </Button>
+            <Button
+              variant="ghost"
+              aria-label={`Next ${scale}`}
+              className="px-2"
+              onClick={() => {
+                setAnchor((current) => stepAnchor(scale, current, 1));
+              }}
+            >
+              <Icon icon={ChevronRight} size="sm" />
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* What the address is hiding, said separately from what the window is: one is a filter
           somebody set, the other is a stretch of time somebody paged away from. */}
@@ -286,7 +284,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
 
       {lostEnd === null ? null : <PartialNotice pending={lostEnd} />}
 
-      {outside.length === 0 ? null : (
+      {narrow || outside.length === 0 ? null : (
         // A window can only show a window. Saying how much is off it is the difference between a
         // timeline and a timeline that appears to have lost things - and the list further down is
         // what keeps them reachable rather than merely counted.
@@ -300,58 +298,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
       )}
 
       {narrow ? (
-        <Button
-          variant="ghost"
-          aria-pressed={showGrid}
-          onClick={() => {
-            setShowGrid(!showGrid);
-          }}
-        >
-          {showGrid ? 'Show schedule' : 'Show timeline grid'}
-        </Button>
-      ) : null}
-      {narrow && !showGrid ? (
-        <section aria-label="Timeline schedule">
-          <ul className="divide-y divide-divider">
-            {rows.map((entry) => (
-              <CalendarEntryMenu
-                key={entry.item.id}
-                itemId={entry.item.id}
-                title={titleOf(entry.item)}
-                onOpen={onOpen}
-                onReschedule={setRescheduling}
-              >
-                {(contextTarget) => (
-                  <li {...contextTarget} className="group flex min-w-0 flex-col gap-2 py-3">
-                    <SelectCheckbox item={entry.item} />
-                    <Button
-                      variant="ghost"
-                      className="min-w-0 max-w-full justify-start whitespace-normal text-left wrap-anywhere"
-                      {...openProps(entry.item.id)}
-                    >
-                      {entry.item.title || 'Untitled'}
-                    </Button>
-                    <Text as="p" variant="caption" className="wrap-anywhere">
-                      {readPropertyText(entry.item, startKey)}
-                      {endKey ? ` – ${readPropertyText(entry.item, endKey)}` : ''}
-                    </Text>
-                    <Button
-                      variant="secondary"
-                      className="self-start"
-                      aria-label={`Reschedule ${titleOf(entry.item)}`}
-                      onClick={() => {
-                        setRescheduling(entry.item.id);
-                      }}
-                    >
-                      Reschedule
-                    </Button>
-                  </li>
-                )}
-              </CalendarEntryMenu>
-            ))}
-          </ul>
-          {rows.length === 0 ? <Text as="p">No items scheduled in this window.</Text> : null}
-        </section>
+        <TimelineAgenda dated={dated} undated={undated} aside={aside} />
       ) : (
         <Blueprint className="p-3">
           {/* The track owns the wide axis, which is this view's to own - the pane's scroller is
@@ -436,23 +383,27 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
         </section>
       )}
 
-      <OffAxisList
-        heading={
-          reversed.length === 1
-            ? '1 item has an end date before its start date'
-            : `${String(reversed.length)} items have an end date before their start date`
-        }
-        detail="Both dates are shown as they are stored. Nothing has been changed - correct whichever one is wrong."
-        placed={reversed}
-        aside={aside}
-      />
+      {narrow ? null : (
+        <>
+          <OffAxisList
+            heading={
+              reversed.length === 1
+                ? '1 item has an end date before its start date'
+                : `${String(reversed.length)} items have an end date before their start date`
+            }
+            detail="Both dates are shown as they are stored. Nothing has been changed - correct whichever one is wrong."
+            placed={reversed}
+            aside={aside}
+          />
 
-      <OffAxisList
-        heading={`Outside this window (${String(outside.length)})`}
-        detail={`These are dated, and their dates fall outside ${axis.label}.`}
-        placed={outside}
-        aside={aside}
-      />
+          <OffAxisList
+            heading={`Outside this window (${String(outside.length)})`}
+            detail={`These are dated, and their dates fall outside ${axis.label}.`}
+            placed={outside}
+            aside={aside}
+          />
+        </>
+      )}
 
       <OffAxisList
         heading={`Dates that could not be read (${String(unreadable.length)})`}
@@ -461,16 +412,18 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
         aside={aside}
       />
 
-      <OffAxisList
-        heading={`Unscheduled (${String(undated.length)})`}
-        detail={`Nothing has been lost: these have no ${propertyWord(container.schema, startKey, 'start date')} yet, so there is no day to draw them on.`}
-        placed={undated}
-        aside={aside}
-        // Always drawn, even at zero, so "everything here is scheduled" is a statement the view
-        // makes rather than an absence a reader has to infer from a missing heading.
-        showWhenEmpty
-        empty="Every item here has a start date."
-      />
+      {narrow ? null : (
+        <OffAxisList
+          heading={`Unscheduled (${String(undated.length)})`}
+          detail={`Nothing has been lost: these have no ${propertyWord(container.schema, startKey, 'start date')} yet, so there is no day to draw them on.`}
+          placed={undated}
+          aside={aside}
+          // Always drawn, even at zero, so "everything here is scheduled" is a statement the view
+          // makes rather than an absence a reader has to infer from a missing heading.
+          showWhenEmpty
+          empty="Every item here has a start date."
+        />
+      )}
 
       <CreateItemControl
         label="Add an item"

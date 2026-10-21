@@ -52,7 +52,7 @@ export function Bar({ placed, onOpen, continuesBefore, continuesAfter }: BarProp
       // meet in the middle of that and never overlap. A row that ever loses its cell padding has
       // to shrink this to `-inset-y-0.5` in the same edit.
       className={cn(
-        'relative flex h-6 w-full items-center gap-1 rounded-sm px-2 text-left',
+        'relative flex h-6 pointer-coarse:h-(--control-lg) w-full items-center gap-1 rounded-sm px-2 text-left',
         'before:absolute before:inset-x-0 before:-inset-y-1',
         barStates,
         focusRing,
@@ -97,7 +97,7 @@ export function Milestone({
       // The same hit-area extension as `Bar`, for the same 20.4px height, in the same `td p-1`
       // row space - so no two of these overlap either.
       className={cn(
-        'relative flex h-6 items-center gap-1 rounded-sm bg-transparent px-1 text-left',
+        'relative flex h-6 pointer-coarse:h-(--control-lg) items-center gap-1 rounded-sm bg-transparent px-1 text-left',
         'before:absolute before:inset-x-0 before:-inset-y-1',
         'hover:bg-accent/18 active:bg-accent/25 transition-colors',
         focusRing,

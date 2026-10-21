@@ -63,7 +63,7 @@ it('shows dated calendar items in an agenda and keeps undated items available', 
   expect(screen.queryByRole('region', { name: 'Calendar agenda' })).not.toBeInTheDocument();
 });
 
-it('offers timeline rescheduling without requiring a horizontal grid', async () => {
+it('offers timeline date editing in place without a horizontal grid', async () => {
   const user = userEvent.setup();
   renderAt(
     <ContainerView
@@ -73,13 +73,9 @@ it('offers timeline rescheduling without requiring a horizontal grid', async () 
     />,
   );
   const schedule = screen.getByRole('region', { name: 'Timeline schedule' });
-  expect(within(schedule).getByText(today)).toBeInTheDocument();
-  await user.click(within(schedule).getByRole('button', { name: 'Reschedule Release plan' }));
-  expect(
-    within(screen.getByRole('region', { name: 'Reschedule Release plan' })).getByRole('button', {
-      name: 'Done',
-    }),
-  ).toBeInTheDocument();
+  expect(within(schedule).getByRole('button', { name: 'Release plan' })).toBeInTheDocument();
+  await user.click(within(schedule).getByRole('button', { name: /^Edit dates: Release plan/ }));
+  expect(screen.getByLabelText('Start date')).toBeInTheDocument();
 });
 
 it('browses board columns individually and keeps unassigned cards reachable', async () => {

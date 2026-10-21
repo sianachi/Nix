@@ -581,30 +581,30 @@ describe('when the configuration has drifted', () => {
 });
 
 describe('the timeline at a phone width', () => {
-  it('caps the no-end-property note only from sm up, where the cap is narrower than the screen', async () => {
+  it('lists every dated item under its day, whatever window the grid would show, with no grid chrome', () => {
     stubViewport(false);
-    const user = person();
-    render({ children: [ROLLOUT] }, viewOf({ endDateProperty: null }));
+    render({ children: [ROLLOUT, LEGACY, IDEA] });
 
-    await user.click(screen.getByRole('button', { name: 'Reschedule Rollout' }));
-
-    expect(screen.getByText(/names no end date property/)).toHaveClass(
-      'max-w-full',
-      'sm:max-w-[16rem]',
-    );
+    expect(screen.queryByRole('navigation', { name: 'Timeline scale' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /timeline grid/i })).toBeNull();
+    const schedule = screen.getByRole('region', { name: 'Timeline schedule' });
+    expect(within(schedule).getByRole('button', { name: 'Legacy' })).toBeVisible();
+    expect(within(schedule).getByRole('heading', { name: 'Unscheduled' })).toBeVisible();
+    expect(within(schedule).getByRole('button', { name: /^Edit dates: Idea/ })).toBeVisible();
   });
 
-  it('moves focus to the reschedule panel when it opens, rather than leaving it looking dead below the whole agenda list', async () => {
-    // At this width the panel is drawn after the whole agenda (~318 above the grid it replaces,
-    // versus ~374 where the one panel actually lives), with no visual connection to the row that
-    // opened it. Without a focus move, pressing the toggle would appear to do nothing.
+  it('edits both dates in place from the row, without a separate panel', async () => {
     stubViewport(false);
     const user = person();
-    render({ children: [ROLLOUT] });
+    const { setProperties } = render({ children: [ROLLOUT] });
 
-    await user.click(screen.getByRole('button', { name: 'Reschedule Rollout' }));
+    await user.click(screen.getByRole('button', { name: /^Edit dates: Rollout/ }));
+    const start = screen.getByLabelText('Starts');
+    await user.clear(start);
+    await user.keyboard('2026-03-20');
 
-    expect(screen.getByRole('region', { name: 'Reschedule Rollout' })).toHaveFocus();
+    expect(setProperties).toHaveBeenCalledWith('item-rollout', { starts: '2026-03-20' });
+    expect(screen.queryByRole('region', { name: 'Reschedule Rollout' })).toBeNull();
   });
 });
 
