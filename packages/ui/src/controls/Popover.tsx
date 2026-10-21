@@ -79,9 +79,15 @@ export function Popover(props: PopoverProps): ReactNode {
     onOpenChange?.(next);
   };
 
+  // A close that resolves late (an async write) must not steal focus from wherever the person went.
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  });
+
   const close = (returnFocus: boolean): void => {
     setOpen(false);
-    if (returnFocus) setFocusReturnToken((token) => token + 1);
+    if (returnFocus && openRef.current) setFocusReturnToken((token) => token + 1);
   };
 
   return (
@@ -163,6 +169,11 @@ function PopoverPanel(props: PopoverPanelProps): ReactNode {
       const target = event.target as Node;
       if (triggerRef.current?.contains(target) === true) return;
       if (panelRef.current?.contains(target) === true) return;
+      // Blur first: unmounting a focused field fires no reliable blur, and fields commit on blur.
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && panelRef.current?.contains(active) === true) {
+        active.blur();
+      }
       latest.current(false);
     }
 

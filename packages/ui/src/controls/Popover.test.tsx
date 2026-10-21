@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -114,5 +114,45 @@ describe('Popover', () => {
     });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(trigger).not.toHaveFocus();
+  });
+
+  it('lets a focused field blur, and so commit, before an outside press unmounts it', () => {
+    const onBlur = vi.fn();
+    render(
+      <>
+        <Popover label="Edit" trigger={(trigger) => <button {...trigger}>Edit</button>}>
+          <input aria-label="Name" onBlur={onBlur} />
+        </Popover>
+        <button type="button">Elsewhere</button>
+      </>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveFocus();
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Elsewhere' }));
+    expect(onBlur).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('does not pull focus back to the trigger when a late close arrives after it closed', async () => {
+    const user = userEvent.setup();
+    let late: () => void = () => undefined;
+    render(
+      <>
+        <Popover label="One" trigger={(trigger) => <button {...trigger}>One</button>}>
+          {({ close }) => {
+            late = close;
+            return <button type="button">Inside</button>;
+          }}
+        </Popover>
+        <button type="button">Elsewhere</button>
+      </>,
+    );
+    await user.click(screen.getByRole('button', { name: 'One' }));
+    await user.click(screen.getByRole('button', { name: 'Elsewhere' }));
+    expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus();
+    act(() => {
+      late();
+    });
+    expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus();
   });
 });

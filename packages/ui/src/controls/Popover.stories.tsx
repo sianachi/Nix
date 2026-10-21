@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { type Meta, type StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, within } from 'storybook/test';
 
@@ -58,5 +59,34 @@ export const InsideModal: Story = {
     await expect(trigger).toHaveFocus();
     await expect(canvas.getByRole('dialog', { name: 'Item settings' })).toBeVisible();
     await userEvent.click(trigger);
+  },
+};
+
+/** A field that commits on blur keeps what was typed when the panel is dismissed by a press outside. */
+export const KeepsTypedTextOnOutsidePress: Story = {
+  render: (args) => {
+    const [saved, setSaved] = useState('none');
+    return (
+      <>
+        <Popover {...args} label="Name">
+          <Input
+            aria-label="Name"
+            onBlur={(event) => {
+              setSaved(event.currentTarget.value);
+            }}
+          />
+        </Popover>
+        <p data-testid="saved">{saved}</p>
+        <button type="button">Elsewhere</button>
+      </>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Filter' }));
+    await userEvent.type(canvas.getByRole('textbox', { name: 'Name' }), 'Q3 plan');
+    await userEvent.click(canvas.getByRole('button', { name: 'Elsewhere' }));
+    await expect(canvas.queryByRole('dialog')).toBeNull();
+    await expect(canvas.getByTestId('saved')).toHaveTextContent('Q3 plan');
   },
 };
