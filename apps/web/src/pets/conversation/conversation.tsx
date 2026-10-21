@@ -145,7 +145,7 @@ export function Conversation({
     savedDefault: pet.applyWithoutAsking,
     readOnly: noteScope?.readOnly ?? false,
     needsDecisionIds,
-    loaded: runtime !== null && runtime !== undefined,
+    loaded: runtime !== null,
     pendingToolIds: (runtime?.tools ?? [])
       .filter((tool) => tool.status === 'pending')
       .map((tool) => tool.id),

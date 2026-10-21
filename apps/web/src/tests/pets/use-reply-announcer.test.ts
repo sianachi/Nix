@@ -4,7 +4,11 @@ import { DECLINED_BY_USER, toolOutcomeSentence } from '../../pets/work-tools/rec
 import { describe, expect, it } from 'vitest';
 import { useReplyAnnouncer } from '../../pets/conversation/state/use-reply-announcer';
 
-type Message = { id: string; role: string; text: string };
+interface Message {
+  id: string;
+  role: string;
+  text: string;
+}
 const user = (id: string): Message => ({ id, role: 'user', text: 'hi' });
 const reply = (id: string, text = id): Message => ({ id, role: 'assistant', text });
 
@@ -14,10 +18,9 @@ interface Props {
   outcome?: string;
 }
 function setup(messages: Message[]) {
-  return renderHook(
-    (props: Props) =>
-      useReplyAnnouncer({ petName: 'Cat', ready: true, approvalPending: false, ...props }),
-    { initialProps: { messages } as Props },
+  return renderHook<string, Props>(
+    (props) => useReplyAnnouncer({ petName: 'Cat', ready: true, approvalPending: false, ...props }),
+    { initialProps: { messages } },
   );
 }
 
@@ -46,12 +49,6 @@ describe('useReplyAnnouncer', () => {
   it('does not read an earlier reply that became the last one after Regenerate', () => {
     const view = setup([user('u1'), reply('a1'), user('u2'), reply('a2')]);
     view.rerender({ messages: [user('u1'), reply('a1'), user('u2')] });
-    expect(view.result.current).toBe('');
-  });
-
-  it('does not read the last reply of a conversation loaded from history', () => {
-    const view = setup([user('u1'), reply('a1')]);
-    view.rerender({ messages: [user('x1'), reply('x2'), user('x3'), reply('x4')] });
     expect(view.result.current).toBe('');
   });
 

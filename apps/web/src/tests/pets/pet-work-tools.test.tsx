@@ -386,7 +386,8 @@ describe('companion work approvals', () => {
     // A click whose decision did not start (`onResolve` answers false, the lock being held
     // elsewhere) is not an owner decision, so a receipt that settles later in another tab must
     // leave the owner's place alone.
-    const tool = runtime.tools?.[0] as NonNullable<typeof runtime.tools>[number];
+    const tool = runtime.tools?.[0];
+    if (!tool) throw new Error('fixture has a tool');
     const props = {
       client: client as unknown as NixClient,
       workspaceId: '11111111-1111-4111-8111-111111111111',

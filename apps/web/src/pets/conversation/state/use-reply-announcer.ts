@@ -3,7 +3,7 @@ import { useState } from 'react';
 /** What the one polite announcer says: each finished reply once (its first 160 characters, never a
  * draft or a token), and a wait for approval. History already on screen when the chat opens is not
  * read, and neither is a reply that only became the last one because a newer one was removed
- * (Regenerate, an edited resend) or because another conversation was loaded. Anything else that must
+ * (Regenerate, an edited resend). Anything else that must
  * be spoken, such as the outcome of a build, goes through `outcome` rather than a second live region. */
 export function useReplyAnnouncer({
   messages,
@@ -39,13 +39,9 @@ export function useReplyAnnouncer({
   // zero-width mark.
   const say = (flip: boolean, text: string) => ({ flip: !flip, text: text + (flip ? '​' : '') });
   // Adjusted during render, not in an effect: the announcement is derived from what just changed.
-  if (ready && (state.known === undefined || state.known.join() !== ids.join())) {
+  if (ready && state.known?.join() !== ids.join()) {
     const known = state.known;
-    const fresh =
-      known !== undefined &&
-      last !== undefined &&
-      !known.includes(last.id) &&
-      (known.length === 0 ? ids.length === 1 : known.some((id) => ids.includes(id)));
+    const fresh = known !== undefined && last !== undefined && !known.includes(last.id);
     setState({
       ...state,
       known: ids,

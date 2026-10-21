@@ -44,7 +44,7 @@ export function ChatView({
   const pending = useRef<{ text: string; requestId: string } | null>(null);
   const tail = useRef<string | undefined>(undefined);
   const running = chat?.turn?.status === 'running';
-  const streamedText = running ? (chat?.turn?.text ?? '') : '';
+  const streamedText = running ? (chat.turn?.text ?? '') : '';
   const streaming = streamedText !== '';
   useEffect(() => {
     const controller = new AbortController();
