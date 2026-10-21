@@ -1,5 +1,5 @@
 import { SHEET_COLUMN_WIDTH, readCells, readMeta, setColumnWidth, writeCell } from '@nix/sheet';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -62,6 +62,24 @@ beforeEach(() => {
       disconnect = vi.fn();
     },
   );
+});
+
+describe('row height', () => {
+  const rowHeightOf = (): string => screen.getByRole('gridcell', { name: 'A2' }).style.height;
+
+  it('is 32px for a fine pointer and 44px for a coarse one', () => {
+    renderGrid(new Y.Doc());
+    expect(rowHeightOf()).toBe('32px');
+    cleanup();
+
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)' }));
+    try {
+      renderGrid(new Y.Doc());
+      expect(rowHeightOf()).toBe('44px');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('touch cell actions', () => {

@@ -20,6 +20,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { pickRowHeight } from '../spreadsheet/grid-geometry';
 import { CellEditor } from './cell-editor';
 import { parseTsv, rangeToTsv } from './clipboard';
 import { gridKeyAction } from './grid-keys';
@@ -56,11 +57,10 @@ export interface SheetGridProps {
   readonly sheet: SheetData;
 }
 
-// The cell geometry is a fixed 32px of runtime arithmetic. The h-8/w-12
-// chrome strips beside it are on the token spacing scale (which is not 4px -
+// The cell geometry is runtime arithmetic: 32px, or 44px on a coarse pointer (`pickRowHeight`). The
+// h-8/w-12 chrome strips beside it are on the token spacing scale (which is not 4px -
 // theme.css sets --spacing to 3.4px, so h-8 is 27.2px); the strips and the
 // cells never need to agree on a number, only each on its own.
-const ROW_HEIGHT = 32;
 const DEFAULT_COLUMN_WIDTH = SHEET_COLUMN_WIDTH.default;
 /** Blank rows and columns past the used extent, so there is room to type. */
 const SPARE_ROWS = 40;
@@ -70,6 +70,7 @@ const GRID_HINT_ID = 'sheet-grid-keyboard-hint';
 
 export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
+  const [rowHeight] = useState(pickRowHeight);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const {
@@ -112,12 +113,12 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   }
   const offsets = columnOffsets(widths);
   const totalWidth = offsets[bounds.cols] ?? 0;
-  const totalHeight = bounds.rows * ROW_HEIGHT;
+  const totalHeight = bounds.rows * rowHeight;
 
   const rows = rowWindow({
     scrollTop: scroll.top,
     viewportHeight: viewport.height,
-    rowHeight: ROW_HEIGHT,
+    rowHeight: rowHeight,
     totalRows: bounds.rows,
   });
   const cols = columnWindow({
@@ -146,7 +147,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   // column's change - and suspended while a resize drag is live, or every
   // pointermove that pushes the active cell's edge past the viewport would
   // scroll the grid out from under the column being held.
-  const activeTop = selection.active.row * ROW_HEIGHT;
+  const activeTop = selection.active.row * rowHeight;
   const activeLeft = offsets[selection.active.col] ?? 0;
   const activeWidth = widths[selection.active.col] ?? DEFAULT_COLUMN_WIDTH;
   const resizing = resize !== null;
@@ -157,15 +158,15 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
     }
     if (activeTop < scroller.scrollTop) {
       scroller.scrollTop = activeTop;
-    } else if (activeTop + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight) {
-      scroller.scrollTop = activeTop + ROW_HEIGHT - scroller.clientHeight;
+    } else if (activeTop + rowHeight > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = activeTop + rowHeight - scroller.clientHeight;
     }
     if (activeLeft < scroller.scrollLeft) {
       scroller.scrollLeft = activeLeft;
     } else if (activeLeft + activeWidth > scroller.scrollLeft + scroller.clientWidth) {
       scroller.scrollLeft = activeLeft + activeWidth - scroller.clientWidth;
     }
-  }, [activeTop, activeLeft, activeWidth, resizing]);
+  }, [activeTop, activeLeft, activeWidth, resizing, rowHeight]);
 
   useEffect(() => {
     // Editing via the formula bar keeps focus there; the overlay only takes
@@ -270,7 +271,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
       {
         active: selection.active,
         bounds,
-        pageRows: Math.max(1, Math.floor(viewport.height / ROW_HEIGHT) - 1),
+        pageRows: Math.max(1, Math.floor(viewport.height / rowHeight) - 1),
         isOccupied,
       },
     );
@@ -341,10 +342,10 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   };
   // design-token-exempt: the editor overlays the active cell, whose place is runtime geometry
   const editorStyle = {
-    top: `${String(selection.active.row * ROW_HEIGHT)}px`,
+    top: `${String(selection.active.row * rowHeight)}px`,
     left: `${String(offsets[selection.active.col] ?? 0)}px`,
     width: `${String(widths[selection.active.col] ?? DEFAULT_COLUMN_WIDTH)}px`,
-    height: `${String(ROW_HEIGHT)}px`,
+    height: `${String(rowHeight)}px`,
   };
 
   return (
@@ -418,7 +419,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                 key={row}
                 aria-hidden="true"
                 className="absolute left-0 flex w-12 items-center justify-center border-b border-divider text-xs text-muted"
-                style={{ top: `${String(row * ROW_HEIGHT)}px`, height: `${String(ROW_HEIGHT)}px` }} // design-token-exempt: a row's place is grid geometry computed at runtime
+                style={{ top: `${String(row * rowHeight)}px`, height: `${String(rowHeight)}px` }} // design-token-exempt: a row's place is grid geometry computed at runtime
               >
                 {row + 1}
               </div>
@@ -532,10 +533,10 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                           col={col}
                           value={sheet.values.get(key)}
                           raw={raw}
-                          top={row * ROW_HEIGHT}
+                          top={row * rowHeight}
                           left={offsets[col] ?? 0}
                           width={widths[col] ?? DEFAULT_COLUMN_WIDTH}
-                          height={ROW_HEIGHT}
+                          height={rowHeight}
                           inRange={!rangeIsCell && rangeContains(range, { row, col })}
                           isActive={row === selection.active.row && col === selection.active.col}
                           onMouseDown={(event) => {
