@@ -8,23 +8,23 @@ import {
 } from '../../properties/property-value-display';
 import type { PropertyDefinition, PropertyOwner } from './container-model';
 
-/** Single-choice fields: picking the value is the whole edit, so the popover closes once it is stored. */
+/**
+ * Single-choice fields: picking the value is the whole edit, so the popover closes once it is stored.
+ * Dates are left out: a native date input fires a complete `change` while digits are still being typed.
+ */
 const DISCRETE_TYPES: ReadonlySet<string> = new Set([
   'select',
   'priority',
   'checkbox',
   'completion',
   'assignee',
-  'date',
-  'due_date',
-  'start_date',
 ]);
 
 const CommitStoredContext = createContext<() => void>(() => undefined);
 
 /**
  * For the editor inside a `ValuePopover`: call this after a write was stored. It closes the popover
- * (focus back on the trigger) for single-choice fields and does nothing for text, number or
+ * (focus back on the trigger) for single-choice fields and does nothing for text, number, dates or
  * multi-select, which stay open until Escape, an outside click or Enter.
  */
 export function useCommitStored(): () => void {
