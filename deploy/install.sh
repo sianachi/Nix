@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# One line installs or upgrades Nix:
+# One line installs or upgrades Nix. With no argument it is a try-out on this machine at
+# http://nix.localhost, which needs only Docker (Chrome and Firefox resolve .localhost names
+# themselves; Safari needs them in /etc/hosts):
+#
+#   curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash
+#
+# For a real install the argument is the public origin, with DNS for it and for auth.<host>
+# pointing at the machine (or the cluster's ingress):
 #
 #   curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh \
 #     | bash -s -- https://nix.example.org
-#
-# The argument is the public origin. An https origin needs DNS for it and for auth.<host>
-# pointing at the machine (or the cluster's ingress). A try-out needs no DNS: http://nix.localhost
-# (Chrome and Firefox resolve .localhost names themselves; Safari needs them in /etc/hosts).
 #
 # Docker (default): Caddy is the public listener on ports 80 and 443 and fetches the certificates;
 # everything lands under --dir (default ~/nix), where nix.env holds every generated secret and is
@@ -37,7 +40,7 @@ dir=$HOME/nix
 target=compose
 origin=
 ingress_class= ingress_service= storage_class= pod_cidr= tls_cert= tls_key= cluster_issuer=
-usage='usage: install.sh [--version <tag|sha>] [--dir <path>] [--kubernetes ...] <origin>'
+usage='usage: install.sh [--version <tag|sha>] [--dir <path>] [--kubernetes ...] [origin]'
 die() { printf 'install: %s\n' "$*" >&2; exit 2; }
 say() { printf '\ninstall: %s\n' "$*"; }
 
@@ -58,7 +61,7 @@ while [ $# -gt 0 ]; do
     *) [ -z "$origin" ] || die "$usage"; origin=$1; shift ;;
   esac
 done
-[ -n "$origin" ] || die "$usage"
+origin=${origin:-http://nix.localhost}
 
 # ── Origin ─────────────────────────────────────────────────────────────────────
 [[ "$origin" =~ ^(https?)://([a-z0-9.-]+)(:([0-9]+))?/?$ ]] || die "origin must be http(s)://host[:port], got $origin"

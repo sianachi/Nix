@@ -61,7 +61,18 @@ Run/Debug configurations for each service.
 
 ## Run it for real
 
-One line installs Nix from the CI-built multi-architecture images at `ghcr.io/sianachi/nix`:
+Try it on your own machine with one line; all it needs is Docker:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash
+```
+
+Then open <http://nix.localhost> in Chrome or Firefox and sign in with the details it prints.
+(Safari does not resolve `.localhost` names: add `127.0.0.1 nix.localhost auth.nix.localhost` to
+`/etc/hosts` first.)
+
+The same line with a public origin is a real install, from the CI-built multi-architecture
+images at `ghcr.io/sianachi/nix`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash -s -- https://nix.example.org
@@ -87,9 +98,6 @@ a one-time password you must change at first sign-in).
 **Upgrade:** run the same line again with `--version <newer release>`. The env file is kept,
 migrations run, and services restart on the new images. Back up `~/nix/nix.env` together with the
 Docker volumes (`nix-*`); the env file holds every secret and cannot be regenerated.
-
-**Try it without DNS:** pass `http://nix.localhost`. Chrome and Firefox resolve `.localhost`
-names on their own; Safari needs `nix.localhost` and `auth.nix.localhost` in `/etc/hosts`.
 
 **Kubernetes:** the cluster needs an ingress controller listening on the origin's port and a
 default StorageClass; the installer reads the IngressClass, StorageClass and pod CIDR from the

@@ -11,8 +11,9 @@ follows semantic versioning (`0.x` pre-1.0).
 
 - `deploy/install.sh` installs or upgrades Nix on one machine from a single command: it generates
   every secret, bundles the identity provider behind Caddy with automatic HTTPS, migrates the
-  database and prints the administrator sign-in. Re-running upgrades. `http://nix.localhost`
-  gives a try-out without DNS; `--kubernetes` installs into the current `kubectl` context.
+  database and prints the administrator sign-in. Re-running upgrades. With no argument it is
+  a try-out at `http://nix.localhost` needing only Docker; `--kubernetes` installs into the
+  current `kubectl` context.
 - Pushing a `vX.Y.Z` tag names that commit's images `vX.Y.Z` and `latest`, which the installer
   uses by default.
 
