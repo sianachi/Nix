@@ -473,4 +473,23 @@ describe('Menu', () => {
 
     expect(screen.getByRole('menu')).toHaveClass('max-sm:rounded-b-none');
   });
+
+  it('exposes checkable items with their state, and toggles through the keyboard', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const items: MenuEntry[] = [
+      { label: 'Auto-apply', role: 'menuitemcheckbox', checked: true, onSelect },
+      { label: 'Read only', role: 'menuitemradio', checked: false, onSelect: vi.fn() },
+      { label: 'Plain', onSelect: vi.fn() },
+    ];
+    render(<Menu label="Options" items={items} children={trigger()} />);
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
+
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Auto-apply' })).toBeChecked();
+    expect(screen.getByRole('menuitemradio', { name: 'Read only' })).not.toBeChecked();
+    expect(screen.getByRole('menuitem', { name: 'Plain' })).not.toHaveAttribute('aria-checked');
+
+    await user.keyboard('{Enter}');
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
 });

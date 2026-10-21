@@ -62,9 +62,13 @@ function OpenedPetPage() {
 }
 
 /** Opens the composer's "+" menu and chooses `name`. */
-async function chooseFromPlus(user: ReturnType<typeof userEvent.setup>, name: string) {
+async function chooseFromPlus(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string,
+  role: 'menuitem' | 'menuitemcheckbox' = 'menuitem',
+) {
   await user.click(await screen.findByRole('button', { name: 'Add to message' }));
-  await user.click(await screen.findByRole('menuitem', { name }));
+  await user.click(await screen.findByRole(role, { name }));
 }
 
 describe('companion workflow', () => {
@@ -979,19 +983,21 @@ describe('companion workflow', () => {
     const plus = within(dialog).getByRole('button', { name: 'Add to message' });
     // Nothing can be applied without workspace tools, so the switch only exists with access on.
     await user.click(plus);
-    expect(screen.queryByRole('menuitem', { name: 'Apply without asking' })).toBeNull();
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Apply without asking' })).toBeNull();
     await user.keyboard('{Escape}');
     await chooseFromPlus(user, 'Use workspace');
     expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
 
-    await chooseFromPlus(user, 'Apply without asking');
+    await chooseFromPlus(user, 'Apply without asking', 'menuitemcheckbox');
     expect(within(dialog).getByText('Applying changes without asking')).toBeVisible();
     // Which writes still ask is said beside the switch, and the menu entry carries the state.
     expect(
       within(dialog).getByText(/Moves, trash, template saves and external links still ask/),
     ).toBeVisible();
     await user.click(plus);
-    expect(screen.getByRole('menuitem', { name: 'Apply without asking (on)' })).toBeVisible();
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: 'Apply without asking', checked: true }),
+    ).toBeVisible();
     await user.keyboard('{Escape}');
 
     // Turning it off from the banner hands focus back to the "+" that turns it on.
@@ -1000,12 +1006,12 @@ describe('companion workflow', () => {
     expect(plus).toHaveFocus();
 
     // Removing the workspace chip turns access off and takes the switch with it.
-    await chooseFromPlus(user, 'Apply without asking');
+    await chooseFromPlus(user, 'Apply without asking', 'menuitemcheckbox');
     expect(within(dialog).getByRole('button', { name: 'Turn off' })).toBeVisible();
     await user.click(within(dialog).getByRole('button', { name: 'Remove Workspace' }));
     expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
     await user.click(plus);
-    expect(screen.queryByRole('menuitem', { name: 'Apply without asking' })).toBeNull();
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Apply without asking' })).toBeNull();
     expect(screen.getByRole('menuitem', { name: 'Use workspace' })).toBeVisible();
   });
 });

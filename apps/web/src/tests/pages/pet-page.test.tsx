@@ -110,7 +110,7 @@ describe('note chat page', () => {
     // A read-only note chat offers neither the workspace nor applying changes.
     await user.click(screen.getByRole('button', { name: 'Add to message' }));
     expect(screen.queryByRole('menuitem', { name: 'Use workspace' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: 'Apply without asking' })).toBeNull();
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Apply without asking' })).toBeNull();
     await user.keyboard('{Escape}');
     expect(access).toHaveAccessibleDescription(/Search and results can be partial/);
     await user.type(
@@ -123,11 +123,11 @@ describe('note chat page', () => {
     );
     expect(mock.send.mock.calls.at(-1)?.[0]).not.toHaveProperty('workspaceMap');
     await user.click(access);
-    await user.click(screen.getByRole('menuitem', { name: 'Approved edits' }));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Approved edits' }));
     expect(screen.getByRole('button', { name: 'Note access: Can edit' })).toBeVisible();
     // An editable note offers the same Apply without asking switch as the workspace chat.
     await user.click(screen.getByRole('button', { name: 'Add to message' }));
-    expect(screen.getByRole('menuitem', { name: 'Apply without asking' })).toBeVisible();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Apply without asking' })).toBeVisible();
     await user.keyboard('{Escape}');
     await user.type(screen.getByRole('textbox', { name: 'Message Pip' }), 'Append a summary');
     await user.click(screen.getByRole('button', { name: 'Send' }));

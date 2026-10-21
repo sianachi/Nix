@@ -376,6 +376,26 @@ export const WithDisabledItem: Story = {
   },
 };
 
+/** Checkable items: a toggle and an exclusive pair, with their state in `aria-checked`. */
+export const WithCheckableItems: Story = {
+  args: {
+    items: [
+      { label: 'Apply without asking', role: 'menuitemcheckbox', checked: true, onSelect: fn() },
+      { kind: 'separator' },
+      { label: 'Read only', role: 'menuitemradio', checked: true, onSelect: fn() },
+      { label: 'Can edit', role: 'menuitemradio', checked: false, onSelect: fn() },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
+    await expect(
+      canvas.getByRole('menuitemcheckbox', { name: 'Apply without asking' }),
+    ).toBeChecked();
+    await expect(canvas.getByRole('menuitemradio', { name: 'Can edit' })).not.toBeChecked();
+  },
+};
+
 /**
  * Below `sm`, the panel drops the anchored position and becomes a full-width bottom sheet, and
  * every item is 44px tall under `pointer-coarse:` - the same `--control-lg` step `Button.tsx`

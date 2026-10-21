@@ -1,5 +1,5 @@
 import { Button, Icon, Listbox, Menu, Text, Textarea, type MenuEntry } from '@nix/ui';
-import { ArrowUp, Check, FilePlus, Layers, Plus, Square, TextQuote } from 'lucide-react';
+import { ArrowUp, FilePlus, Layers, Plus, Square, TextQuote } from 'lucide-react';
 import {
   useLayoutEffect,
   useRef,
@@ -98,9 +98,9 @@ export function Composer({
     ...(workspaceAccess && !noteReadOnly
       ? [
           {
-            // The menu has no checkable item, so the state is in the name a screen reader reads.
-            label: applyWithoutAsking ? 'Apply without asking (on)' : 'Apply without asking',
-            ...(applyWithoutAsking ? { icon: Check } : {}),
+            label: 'Apply without asking',
+            role: 'menuitemcheckbox' as const,
+            checked: applyWithoutAsking,
             onSelect: () => {
               onApplyChange(!applyWithoutAsking);
             },

@@ -1,6 +1,6 @@
 import { type PetProfile, type PetSettings } from '@nix/api-client';
 import { Button, ContextMenu, Icon, Menu, Text, type MenuEntry } from '@nix/ui';
-import { Check, ChevronDown, MoreHorizontal, X } from 'lucide-react';
+import { ChevronDown, MoreHorizontal, X } from 'lucide-react';
 import { type ReactElement, type RefObject } from 'react';
 import { Link } from 'react-router';
 import { PetAvatar, type PetAnimationState } from '../../pet-avatar';
@@ -43,14 +43,16 @@ function NoteAccessChip({
         items={[
           {
             label: 'Read only',
-            ...(noteScope.readOnly ? { icon: Check } : {}),
+            role: 'menuitemradio',
+            checked: noteScope.readOnly,
             onSelect: () => {
               noteScope.onReadOnlyChange(true);
             },
           },
           {
             label: 'Approved edits',
-            ...(noteScope.readOnly ? {} : { icon: Check }),
+            role: 'menuitemradio',
+            checked: !noteScope.readOnly,
             onSelect: () => {
               noteScope.onReadOnlyChange(false);
             },

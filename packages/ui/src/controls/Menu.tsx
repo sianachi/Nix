@@ -1,4 +1,4 @@
-import { ArrowUpRight, type LucideIcon } from 'lucide-react';
+import { ArrowUpRight, Check, type LucideIcon } from 'lucide-react';
 import {
   Fragment,
   useEffect,
@@ -77,6 +77,13 @@ export interface MenuAction {
   readonly disabled?: boolean;
   /** The keyboard shortcut that does the same thing, shown after the label - display only. */
   readonly shortcut?: string;
+  /**
+   * Makes the item a toggle (`menuitemcheckbox`) or one of a set of exclusive choices
+   * (`menuitemradio`); `checked` is then required and drawn as a check mark. Selecting still closes
+   * the menu, which the menu pattern allows.
+   */
+  readonly role?: 'menuitemcheckbox' | 'menuitemradio';
+  readonly checked?: boolean;
   readonly onSelect: () => void;
 }
 
@@ -618,7 +625,8 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
           <button
             key={key}
             type="button"
-            role={role === 'menu' ? 'menuitem' : undefined}
+            role={role === 'menu' ? (entry.role ?? 'menuitem') : undefined}
+            aria-checked={role === 'menu' && entry.role ? entry.checked === true : undefined}
             tabIndex={tabIndex}
             disabled={entry.disabled}
             data-menu-item-index={index}
@@ -627,6 +635,12 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
               select(entry);
             }}
           >
+            {entry.role ? (
+              // Reserved even when unchecked, so labels stay aligned; the state is aria-checked.
+              <span aria-hidden className={entry.checked === true ? undefined : 'invisible'}>
+                <Icon icon={Check} size="sm" />
+              </span>
+            ) : null}
             {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
             <span className="min-w-0 flex-1 break-words">{entry.label}</span>
             {entry.shortcut ? (
