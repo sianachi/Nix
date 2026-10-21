@@ -1,4 +1,3 @@
-import { Text } from '@nix/ui';
 import { useState, type ReactNode } from 'react';
 
 import { readPropertyText } from '../views/core/container-model';
@@ -86,9 +85,12 @@ function SourcedValue(props: PropertyInputProps): ReactNode {
     ...props.property,
     options: [...new Set([...props.property.options, ...source.values])],
   };
+  // The source's hint is the field's own hint, so it is wired to the control and shown only while
+  // somebody is in the field, not under every sourced value in a table.
+  const hint = enabled && source.hint.length > 0 ? { hint: source.hint } : {};
   return (
     <div
-      className="flex min-w-0 flex-col gap-1"
+      className="min-w-0"
       onFocusCapture={() => {
         setEnabled(true);
       }}
@@ -97,13 +99,10 @@ function SourcedValue(props: PropertyInputProps): ReactNode {
       }}
     >
       {property.type === 'multi_select' ? (
-        <MultiSelectValue {...props} property={property} custom />
+        <MultiSelectValue {...props} {...hint} property={property} custom />
       ) : (
-        <TypedValue {...props} kind="text" suggestions={property.options} />
+        <TypedValue {...props} {...hint} kind="text" suggestions={property.options} />
       )}
-      <Text variant="note" tone="muted" role="status">
-        {source.hint}
-      </Text>
     </div>
   );
 }

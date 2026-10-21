@@ -10,7 +10,7 @@ import {
 import { isComputedType, valueShapeOf } from '../views/core/property-types';
 import { readTimestampValue, readerToday, readerZone } from '../views/core/timestamps';
 import { useMember } from './member-directory';
-import { priorityWord } from './priority-levels';
+import { priorityLabel } from './priority-levels';
 
 /**
  * One property value, read rather than edited: a chip for a choice, a glyph for a checkbox, a date
@@ -76,9 +76,7 @@ export function PropertyValueDisplay(props: PropertyValueDisplayProps): ReactNod
   switch (property.type) {
     case 'priority':
       return typeof value === 'number' ? (
-        <Tag tone={value === 1 ? 'accent' : 'neutral'}>
-          {`P${String(value)} ${priorityWord(value) ?? ''}`.trim()}
-        </Tag>
+        <Tag tone={value === 1 ? 'accent' : 'neutral'}>{priorityLabel(value)}</Tag>
       ) : null;
     case 'assignee':
       return typeof value === 'string' ? <AssigneeDisplay id={value} density={density} /> : null;

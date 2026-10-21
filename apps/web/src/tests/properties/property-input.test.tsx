@@ -396,8 +396,8 @@ describe('a property input', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Starts')).toHaveValue('2026-03-17');
-    expect(screen.getByLabelText('Time for Starts')).toHaveValue('');
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-03-17');
+    expect(screen.getByLabelText('Time')).toHaveValue('');
   });
 
   it('shows a date-or-time property holding a moment as its date and time in the reader zone', () => {
@@ -409,8 +409,8 @@ describe('a property input', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Starts')).toHaveValue('2026-03-17');
-    expect(screen.getByLabelText('Time for Starts')).toHaveValue('09:00');
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-03-17');
+    expect(screen.getByLabelText('Time')).toHaveValue('09:00');
   });
 
   it('commits a bare date when no time is given, exactly as a date property would', async () => {
@@ -425,7 +425,7 @@ describe('a property input', () => {
       />,
     );
 
-    await person.type(screen.getByLabelText('Starts'), '2026-03-17');
+    await person.type(screen.getByLabelText('Date'), '2026-03-17');
 
     expect(onCommit).toHaveBeenCalledWith('2026-03-17');
   });
@@ -442,7 +442,7 @@ describe('a property input', () => {
       />,
     );
 
-    await person.type(screen.getByLabelText('Time for Starts'), '0900AM');
+    await person.type(screen.getByLabelText('Time'), '0900AM');
 
     expect(onCommit).toHaveBeenCalledWith('2026-03-17T09:00:00-10:00[Pacific/Honolulu]');
   });
@@ -459,7 +459,7 @@ describe('a property input', () => {
       />,
     );
 
-    await person.clear(screen.getByLabelText('Time for Starts'));
+    await person.clear(screen.getByLabelText('Time'));
     await person.tab();
 
     expect(onCommit).toHaveBeenCalledWith('2026-03-17');
@@ -945,7 +945,7 @@ describe('a rollup property', () => {
       />,
     );
 
-    const control = screen.getByLabelText('Reminder');
+    const control = screen.getByLabelText('Date and time');
     fireEvent.change(control, { target: { value: '2099-03-17T09:30' } });
     fireEvent.blur(control);
 
@@ -963,7 +963,7 @@ describe('a rollup property', () => {
         onCommit={onCommit}
       />,
     );
-    const control = screen.getByLabelText('Starts');
+    const control = screen.getByLabelText('Date and time');
     fireEvent.change(control, { target: { value: '2099-03-17T10:45' } });
     rerender(
       <PropertyInput
@@ -973,9 +973,7 @@ describe('a rollup property', () => {
       />,
     );
     expect(control).toHaveValue('2099-03-17T10:45');
-    expect(screen.getByRole('combobox', { name: 'Time zone for Starts' })).toHaveValue(
-      'Europe/London',
-    );
+    expect(screen.getByRole('combobox', { name: 'Time zone' })).toHaveValue('Europe/London');
     expect(onCommit).not.toHaveBeenCalled();
     fireEvent.blur(control);
     expect(onCommit).toHaveBeenCalledExactlyOnceWith('2099-03-17T10:45:00+00:00[Europe/London]');
@@ -988,9 +986,7 @@ describe('a rollup property', () => {
       />,
     );
     expect(control).toHaveValue('2099-03-19T16:15');
-    expect(screen.getByRole('combobox', { name: 'Time zone for Starts' })).toHaveValue(
-      'Europe/Berlin',
-    );
+    expect(screen.getByRole('combobox', { name: 'Time zone' })).toHaveValue('Europe/Berlin');
     expect(onCommit).toHaveBeenCalledTimes(1);
   });
 
@@ -1004,7 +1000,7 @@ describe('a rollup property', () => {
         onCommit={onCommit}
       />,
     );
-    const control = screen.getByLabelText('Reminder');
+    const control = screen.getByLabelText('Date and time');
     fireEvent.change(control, { target: { value: '2099-03-17T10:45' } });
     rerender(
       <PropertyInput
@@ -1050,7 +1046,7 @@ describe('a rollup property', () => {
       const { rerender } = render(
         <PropertyInput item={stored} property={property} onCommit={onCommit} />,
       );
-      const control = screen.getByLabelText('Moment');
+      const control = screen.getByLabelText('Date and time');
       fireEvent.change(control, { target: { value: '2099-03-17T10:45' } });
       fireEvent.blur(control);
       expect(onCommit).toHaveBeenCalledExactlyOnceWith(expected);
@@ -1081,8 +1077,8 @@ describe('a rollup property', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Reminder')).toHaveValue('2099-03-17T09:30');
-    await person.click(screen.getByRole('button', { name: 'Clear reminder for Reminder' }));
+    expect(screen.getByLabelText('Date and time')).toHaveValue('2099-03-17T09:30');
+    await person.click(screen.getByRole('button', { name: 'Clear Reminder' }));
     expect(onCommit).toHaveBeenCalledWith(null);
   });
 

@@ -200,7 +200,7 @@ describe('list cell navigation', () => {
     expect(document.activeElement).toBe(owner);
   });
 
-  it('lands on a real control moving into a multi-select cell, from any of its own controls out', async () => {
+  it('lands on the trigger moving into a multi-select cell, and leaves from it', async () => {
     const user = userEvent.setup();
     renderAt(
       <ListView
@@ -217,19 +217,16 @@ describe('list cell navigation', () => {
     await user.click(title);
     await altArrow(user, 'ArrowRight');
 
-    // The first option in DOM order - arriving focuses the cell's first focusable control.
-    const firstOption = screen.getByRole('checkbox', { name: 'Urgent' });
-    expect(document.activeElement).toBe(firstOption);
+    // The cell is one line that opens its checkboxes in a popover, so the trigger is its control.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Tags for Zeta/ }));
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
 
-    // Leaving works from whichever control inside the cell actually has focus, not only the first.
-    const secondOption = screen.getByRole('checkbox', { name: 'Blocked' });
-    await user.click(secondOption);
     await altArrow(user, 'ArrowLeft');
 
     expect(document.activeElement).toBe(title);
   });
 
-  it('lands on a real control moving into a timestamp cell, from any of its own controls out', async () => {
+  it('lands on a real control moving into a timestamp cell, and leaves from it', async () => {
     const user = userEvent.setup();
     renderAt(
       <ListView
@@ -246,13 +243,10 @@ describe('list cell navigation', () => {
     await user.click(title);
     await altArrow(user, 'ArrowRight');
 
-    // The moment field comes before the zone picker in DOM order - the destination's first control.
-    const moment = screen.getByLabelText('Scheduled for Zeta');
-    expect(document.activeElement).toBe(moment);
+    // A cell carries the moment alone; the zone is edited in the panel.
+    expect(document.activeElement).toBe(screen.getByLabelText('Scheduled for Zeta'));
+    expect(screen.queryByRole('combobox', { name: /Time zone/ })).toBeNull();
 
-    // Leaving from the second control (the zone picker) still lands back on the title.
-    const zone = screen.getByRole('combobox', { name: 'Time zone for Scheduled for Zeta' });
-    await user.click(zone);
     await altArrow(user, 'ArrowLeft');
 
     expect(document.activeElement).toBe(title);

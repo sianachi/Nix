@@ -1,4 +1,4 @@
-import { cn, disabledState, focusRing } from '@nix/ui';
+import { Checkbox } from '@nix/ui';
 import { type ReactNode } from 'react';
 
 import { type PropertyInputProps } from './types';
@@ -14,13 +14,12 @@ export function CheckboxValue(props: PropertyInputProps): ReactNode {
   return (
     <ValueShell {...props}>
       {(control) => (
-        <input
+        <Checkbox
           {...control}
-          type="checkbox"
           checked={checked}
           required={property.required}
           disabled={disabled}
-          className={cn('size-4 self-start', focusRing, disabledState)}
+          className="self-start"
           onChange={(event) => {
             onCommit(event.target.checked);
           }}

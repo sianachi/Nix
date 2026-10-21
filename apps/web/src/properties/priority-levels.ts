@@ -16,3 +16,8 @@ export const PRIORITY_LEVELS = [
 export function priorityWord(value: number): string | null {
   return PRIORITY_LEVELS.find((level) => level.value === value)?.word ?? null;
 }
+
+/** How a step reads everywhere: the display and the editor's options share it. */
+export function priorityLabel(value: number): string {
+  return `P${String(value)} ${priorityWord(value) ?? ''}`.trim();
+}

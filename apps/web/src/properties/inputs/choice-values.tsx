@@ -1,13 +1,13 @@
-import { Select } from '@nix/ui';
 import { type ReactNode } from 'react';
 
 import { useWorkspaceMembers } from '../../settings/members/use-workspace-members';
-import { PRIORITY_LEVELS } from '../priority-levels';
+import { PRIORITY_LEVELS, priorityLabel } from '../priority-levels';
 import { useSelectFrecency } from '../use-select-frecency';
 import { UNSET_LABEL, UNSET_VALUE, readSelectValue } from '../../views/core/container-model';
 
 import { type PropertyInputProps } from './types';
-import { cellSelectClasses, ValueShell } from './shell';
+import { ChoiceSelect } from './choice-select';
+import { ValueShell } from './shell';
 
 export function SelectValue(props: PropertyInputProps): ReactNode {
   const { item, property, onCommit, disabled = false, density = 'panel' } = props;
@@ -40,44 +40,23 @@ export function SelectValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props}>
-      {(control) =>
-        density === 'cell' ? (
-          <select
-            {...control}
-            tabIndex={props.tabIndex}
-            value={current ?? UNSET_VALUE}
-            required={property.required}
-            disabled={disabled}
-            onChange={(event) => {
-              choose(event.target.value);
-            }}
-            className={cellSelectClasses}
-          >
-            {/* Clearing has to be reachable from the control that set it: a property somebody
+      {(control) => (
+        <ChoiceSelect
+          density={density}
+          control={control}
+          tabIndex={props.tabIndex}
+          value={current ?? UNSET_VALUE}
+          required={property.required}
+          disabled={disabled}
+          onChange={choose}
+        >
+          {/* Clearing has to be reachable from the control that set it: a property somebody
                 filled in by mistake is otherwise permanent. */}
-            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-            {choices}
-          </select>
-        ) : (
-          <Select
-            {...control}
-            tabIndex={props.tabIndex}
-            value={current ?? UNSET_VALUE}
-            required={property.required}
-            disabled={disabled}
-            onChange={(event) => {
-              choose(event.target.value);
-            }}
-          >
-            {/* Clearing has to be reachable from the control that set it: a property somebody
-                filled in by mistake is otherwise permanent. */}
-            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
-
-            {choices}
-          </Select>
-        )
-      }
+          {choices}
+        </ChoiceSelect>
+      )}
     </ValueShell>
   );
 }
@@ -182,44 +161,23 @@ export function AssigneeValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props} {...(hint === undefined ? {} : { hint })}>
-      {(control) =>
-        density === 'cell' ? (
-          <select
-            {...control}
-            tabIndex={props.tabIndex}
-            value={current ?? UNSET_VALUE}
-            required={property.required}
-            disabled={disabled}
-            onChange={(event) => {
-              choose(event.target.value);
-            }}
-            className={cellSelectClasses}
-          >
-            {/* Clearing has to be reachable from the control that set it: a property somebody
+      {(control) => (
+        <ChoiceSelect
+          density={density}
+          control={control}
+          tabIndex={props.tabIndex}
+          value={current ?? UNSET_VALUE}
+          required={property.required}
+          disabled={disabled}
+          onChange={choose}
+        >
+          {/* Clearing has to be reachable from the control that set it: a property somebody
                 filled in by mistake is otherwise permanent. */}
-            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-            {choices}
-          </select>
-        ) : (
-          <Select
-            {...control}
-            tabIndex={props.tabIndex}
-            value={current ?? UNSET_VALUE}
-            required={property.required}
-            disabled={disabled}
-            onChange={(event) => {
-              choose(event.target.value);
-            }}
-          >
-            {/* Clearing has to be reachable from the control that set it: a property somebody
-                filled in by mistake is otherwise permanent. */}
-            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
-
-            {choices}
-          </Select>
-        )
-      }
+          {choices}
+        </ChoiceSelect>
+      )}
     </ValueShell>
   );
 }
@@ -238,50 +196,29 @@ export function PriorityValue(props: PropertyInputProps): ReactNode {
 
   return (
     <ValueShell {...props}>
-      {(control) =>
-        density === 'cell' ? (
-          <select
-            {...control}
-            tabIndex={props.tabIndex}
-            value={current === null ? UNSET_VALUE : String(current)}
-            required={property.required}
-            disabled={disabled}
-            onChange={(event) => {
-              const next = event.target.value;
-              onCommit(next === UNSET_VALUE ? null : Number(next));
-            }}
-            className={cellSelectClasses}
-          >
-            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
+      {(control) => (
+        <ChoiceSelect
+          density={density}
+          control={control}
+          tabIndex={props.tabIndex}
+          value={current === null ? UNSET_VALUE : String(current)}
+          required={property.required}
+          disabled={disabled}
+          onChange={(next) => {
+            onCommit(next === UNSET_VALUE ? null : Number(next));
+          }}
+        >
+          {/* Clearing has to be reachable from the control that set it: a property somebody
+                filled in by mistake is otherwise permanent. */}
+          <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-            {PRIORITY_LEVELS.map((level) => (
-              <option key={level.value} value={String(level.value)}>
-                {`${String(level.value)} - ${level.word}`}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <Select
-            {...control}
-            tabIndex={props.tabIndex}
-            value={current === null ? UNSET_VALUE : String(current)}
-            required={property.required}
-            disabled={disabled}
-            onChange={(event) => {
-              const next = event.target.value;
-              onCommit(next === UNSET_VALUE ? null : Number(next));
-            }}
-          >
-            <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
-
-            {PRIORITY_LEVELS.map((level) => (
-              <option key={level.value} value={String(level.value)}>
-                {`${String(level.value)} - ${level.word}`}
-              </option>
-            ))}
-          </Select>
-        )
-      }
+          {PRIORITY_LEVELS.map((level) => (
+            <option key={level.value} value={String(level.value)}>
+              {priorityLabel(level.value)}
+            </option>
+          ))}
+        </ChoiceSelect>
+      )}
     </ValueShell>
   );
 }

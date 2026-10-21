@@ -1,11 +1,12 @@
-import { Button, Input, Select, Text } from '@nix/ui';
-import { useId, useState, type ReactNode } from 'react';
+import { Input } from '@nix/ui';
+import { useRef, useState, type ReactNode } from 'react';
 
 import { readTimestampValue, readerZone, writeTimestampValue } from '../../views/core/timestamps';
 import { readPropertyText } from '../../views/core/container-model';
 
 import { type PropertyInputProps } from './types';
-import { cellSelectClasses, controlName } from './shell';
+import { ChoiceSelect } from './choice-select';
+import { ClearButton, GroupShell, controlName } from './shell';
 import { useDraft } from './drafts';
 import { ReadOnlyValue } from './computed-value';
 
@@ -20,8 +21,9 @@ import { ReadOnlyValue } from './computed-value';
  * written, so it cannot disagree with them - which is exactly what the server refuses.
  */
 export function TimestampValue(props: PropertyInputProps): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
+  const { item, property, onCommit, disabled = false, density = 'panel' } = props;
   const controlLabel = controlName(density, item, property);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const stored = readTimestampValue(item.properties, property.key);
   const raw = readPropertyText(item, property.key);
@@ -73,66 +75,70 @@ export function TimestampValue(props: PropertyInputProps): ReactNode {
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <Input
-        type="datetime-local"
-        aria-label={controlLabel}
-        tone={density === 'cell' ? 'plain' : 'default'}
-        value={draft}
-        disabled={disabled}
-        aria-invalid={error === null ? undefined : true}
-        onChange={(event) => {
-          setDraft(event.target.value);
-        }}
-        onBlur={() => {
-          commit(draft, draftZone);
-        }}
-      />
+    <GroupShell {...props}>
+      {(group) => (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              ref={inputRef}
+              type="datetime-local"
+              aria-label={group.name('Date and time', true)}
+              aria-describedby={group['aria-describedby']}
+              aria-invalid={group['aria-invalid']}
+              // A table cell carries one control, so its zone is read from here instead.
+              title={density === 'cell' ? draftZone : undefined}
+              tone={density === 'cell' ? 'plain' : 'default'}
+              value={draft}
+              disabled={disabled}
+              className="min-w-0 flex-1"
+              onChange={(event) => {
+                setDraft(event.target.value);
+              }}
+              onBlur={() => {
+                commit(draft, draftZone);
+              }}
+            />
+            {stored === null ? null : (
+              <ClearButton
+                name={controlLabel}
+                density={density}
+                disabled={disabled}
+                inputRef={inputRef}
+                onClear={() => {
+                  setDraft('');
+                  commit('', draftZone);
+                }}
+              />
+            )}
+          </div>
 
-      {density === 'cell' ? (
-        <select
-          aria-label={`Time zone for ${controlLabel}`}
-          value={draftZone}
-          disabled={disabled}
-          onChange={(event) => {
-            setDraftZone(event.target.value);
-            commit(draft, event.target.value);
-          }}
-          className={cellSelectClasses}
-        >
-          {zoneOptions(draftZone).map((zoneName) => (
-            <option key={zoneName} value={zoneName}>
-              {zoneName}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <Select
-          aria-label={`Time zone for ${controlLabel}`}
-          value={draftZone}
-          disabled={disabled}
-          onChange={(event) => {
-            setDraftZone(event.target.value);
-            commit(draft, event.target.value);
-          }}
-        >
-          {zoneOptions(draftZone).map((zoneName) => (
-            <option key={zoneName} value={zoneName}>
-              {zoneName}
-            </option>
-          ))}
-        </Select>
+          {/* The zone is edited in the panel and on a card; a table row would carry ~420 options
+              per cell for a choice made once. */}
+          {density === 'cell' ? null : (
+            <ChoiceSelect
+              density={density}
+              control={{
+                'aria-label': group.name('Time zone'),
+                'aria-describedby': group['aria-describedby'],
+                'aria-invalid': group['aria-invalid'],
+              }}
+              value={draftZone}
+              disabled={disabled}
+              onChange={(next) => {
+                setDraftZone(next);
+                commit(draft, next);
+              }}
+            >
+              {zoneOptions(draftZone).map((zoneName) => (
+                <option key={zoneName} value={zoneName}>
+                  {zoneName}
+                </option>
+              ))}
+            </ChoiceSelect>
+          )}
+        </>
       )}
-
-      {/* Said out loud rather than only drawn as an invalid frame. A pair of controls with no
-          <Field> around them had no place to put the refusal, and a refusal with nowhere to go is
-          a refusal nobody reads. */}
-      {error === null || error.length === 0 ? null : (
-        <Text variant="note" role="alert">
-          {error}
-        </Text>
-      )}
-    </div>
+    </GroupShell>
   );
 }
 
@@ -149,10 +155,9 @@ export function TimestampValue(props: PropertyInputProps): ReactNode {
  * browsers; a button that says "Clear reminder" is not.
  */
 export function ReminderValue(props: PropertyInputProps): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
+  const { item, property, onCommit, disabled = false, density = 'panel' } = props;
   const controlLabel = controlName(density, item, property);
-  const hintId = useId();
-  const errorId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const stored = readTimestampValue(item.properties, property.key);
   const raw = readPropertyText(item, property.key);
@@ -186,62 +191,56 @@ export function ReminderValue(props: PropertyInputProps): ReactNode {
   const passed = stored !== null && stored.at.toMillis() <= openedAt;
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="datetime-local"
-          aria-label={controlLabel}
-          aria-describedby={
-            [
-              density === 'cell' ? null : hintId,
-              error === null || error.length === 0 ? null : errorId,
-            ]
-              .filter((id) => id !== null)
-              .join(' ') || undefined
-          }
-          tone={density === 'cell' ? 'plain' : 'default'}
-          value={draft}
-          disabled={disabled}
-          aria-invalid={error === null ? undefined : true}
-          className="min-w-0 flex-1"
-          onChange={(event) => {
-            setDraft(event.target.value);
-          }}
-          onBlur={() => {
-            commit(draft);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') commit(draft);
-          }}
-        />
-        {stored === null ? null : (
-          <Button
-            type="button"
-            variant="ghost"
+    <GroupShell
+      {...props}
+      {...(density === 'cell'
+        ? {}
+        : {
+            hint: passed
+              ? `This time has passed, so it will not remind you again. Times are in ${zone}.`
+              : `You will be notified at this time, in ${zone}.`,
+          })}
+    >
+      {(group) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            ref={inputRef}
+            type="datetime-local"
+            aria-label={group.name('Date and time', true)}
+            aria-describedby={group['aria-describedby']}
+            aria-invalid={group['aria-invalid']}
+            tone={density === 'cell' ? 'plain' : 'default'}
+            value={draft}
             disabled={disabled}
-            aria-label={`Clear reminder for ${controlLabel}`}
-            onClick={() => {
-              setDraft('');
-              send('', null);
+            className="min-w-0 flex-1"
+            onChange={(event) => {
+              setDraft(event.target.value);
             }}
-          >
-            Clear
-          </Button>
-        )}
-      </div>
-      {density === 'cell' ? null : (
-        <Text variant="note" tone="muted" id={hintId}>
-          {passed
-            ? `This time has passed, so it will not remind you again. Times are in ${zone}.`
-            : `You will be notified at this time, in ${zone}.`}
-        </Text>
+            onBlur={() => {
+              commit(draft);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commit(draft);
+              }
+            }}
+          />
+          {stored === null ? null : (
+            <ClearButton
+              name={controlLabel}
+              density={density}
+              disabled={disabled}
+              inputRef={inputRef}
+              onClear={() => {
+                setDraft('');
+                send('', null);
+              }}
+            />
+          )}
+        </div>
       )}
-      {error === null || error.length === 0 ? null : (
-        <Text variant="note" role="alert" id={errorId}>
-          {error}
-        </Text>
-      )}
-    </div>
+    </GroupShell>
   );
 }
 
@@ -253,9 +252,14 @@ export function ReminderValue(props: PropertyInputProps): ReactNode {
  * enumerate them still offers the two that matter - the reader's, and whatever is already stored.
  */
 function zoneOptions(current: string): readonly string[] {
+  const all = (platformZones ??= listZones());
+  return all.includes(current) ? all : [current, ...all];
+}
+
+let platformZones: readonly string[] | undefined;
+
+function listZones(): readonly string[] {
   const supported =
     typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
-
-  const all = supported.length > 0 ? supported : [readerZone()];
-  return all.includes(current) ? all : [current, ...all];
+  return supported.length > 0 ? supported : [readerZone()];
 }

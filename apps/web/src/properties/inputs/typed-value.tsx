@@ -13,6 +13,8 @@ export function TypedValue(
   props: PropertyInputProps & {
     readonly kind: TypedKind;
     readonly suggestions?: readonly string[];
+    /** Guidance shown under the field while it is focused. */
+    readonly hint?: string;
   },
 ): ReactNode {
   const { item, property, onCommit, disabled = false, density = 'panel', kind } = props;
@@ -61,13 +63,18 @@ export function TypedValue(
   }
 
   return (
-    <ValueShell {...props} error={props.error ?? invalid}>
+    <ValueShell
+      {...props}
+      error={props.error ?? invalid}
+      {...(props.hint === undefined ? {} : { hint: props.hint })}
+    >
       {(control) => (
         <>
           <Input
             {...control}
             tabIndex={props.tabIndex}
             type={kind}
+            inputMode={kind === 'number' ? 'decimal' : undefined}
             list={props.suggestions === undefined ? undefined : suggestionsId}
             tone={density === 'cell' ? 'plain' : 'default'}
             value={draft}
@@ -81,6 +88,13 @@ export function TypedValue(
               commit(event.currentTarget);
             }}
             onKeyDown={(event) => {
+              // Escape puts back what was last handed over, as the long-text field does, so the
+              // blur that follows has nothing to write.
+              if (event.key === 'Escape') {
+                setInvalid(null);
+                setDraft(sent);
+              }
+
               // Enter is the explicit action for somebody who types and does not move on.
               if (event.key === 'Enter') {
                 event.preventDefault();

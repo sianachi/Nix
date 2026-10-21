@@ -347,7 +347,7 @@ describe('typed property controls', () => {
     fireEvent.scroll(grid(), { target: { scrollLeft: 400 } });
     fireEvent.mouseDown(screen.getByRole('gridcell', { name: 'When for Alpha' }));
     expect(screen.getByRole('dialog', { name: 'Edit When for Alpha' })).toBeInTheDocument();
-    expect(screen.getByLabelText('When')).toHaveAttribute('type', 'datetime-local');
+    expect(screen.getByLabelText('Date and time')).toHaveAttribute('type', 'datetime-local');
   });
 
   it('settles a numeric draft on click-away and starts the next row with its own value', async () => {

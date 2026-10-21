@@ -89,3 +89,68 @@ function DynamicFieldsExample(): ReactNode {
   );
 }
 export const DynamicFields = { render: (): ReactNode => <DynamicFieldsExample /> };
+
+const groupDefinitions: readonly PropertyDefinition[] = [
+  { key: 'remind', label: 'Reminder', type: 'reminder', options: [], required: false },
+  { key: 'starts', label: 'Starts', type: 'datetime', options: [], required: false },
+  { key: 'meeting', label: 'Meeting', type: 'timestamp', options: [], required: false },
+  {
+    key: 'tags',
+    label: 'Tags',
+    type: 'multi_select',
+    options: ['Home', 'Work', 'Errand'],
+    required: false,
+  },
+  { key: 'priority', label: 'Priority', type: 'priority', options: [], required: false },
+  { key: 'due', label: 'Due date', type: 'date', options: [], required: false },
+  { key: 'done', label: 'Done', type: 'checkbox', options: [], required: false },
+  { key: 'cover', label: 'Cover', type: 'image', options: [], required: false },
+];
+
+function GroupsExample({ density }: { readonly density: 'panel' | 'cell' | 'card' }): ReactNode {
+  const [values, setValues] = useState<Record<string, unknown>>({
+    remind: '2099-03-17T09:30:00+00:00[UTC]',
+    starts: '2026-03-17T09:00:00+00:00[UTC]',
+    meeting: '2026-03-17T09:00:00+00:00[UTC]',
+    tags: ['Home'],
+    priority: 2,
+    due: '2026-03-17',
+  });
+  const item: Item = {
+    id: '11111111-1111-4111-8111-111111111111',
+    workspaceId: '22222222-2222-4222-8222-222222222222',
+    parentId: null,
+    title: 'Launch checklist',
+    type: 'note',
+    lifecycleState: 'active',
+    hasChildren: false,
+    seq: 1,
+    createdAt: '2026-10-06T10:00:00Z',
+    updatedAt: '2026-10-06T10:00:00Z',
+    properties: values,
+  };
+  return (
+    <div className="flex w-full max-w-sm flex-col gap-3">
+      {groupDefinitions.map((property) => (
+        <PropertyInput
+          key={property.key}
+          item={item}
+          property={property}
+          density={density}
+          onCommit={(value) => {
+            setValues((previous) => ({ ...previous, [property.key]: value }));
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Every multi-control editor with its legend, a Clear button and the house checkbox. */
+export const Groups = { render: (): ReactNode => <GroupsExample density="panel" /> };
+export const PhoneGroups = {
+  ...Groups,
+  parameters: { viewport: { defaultViewport: 'mobile1' } },
+};
+export const Cells = { render: (): ReactNode => <GroupsExample density="cell" /> };
+export const Card = { render: (): ReactNode => <GroupsExample density="card" /> };

@@ -1,11 +1,11 @@
-import { Input, Text } from '@nix/ui';
-import { useState, type ReactNode } from 'react';
+import { Input } from '@nix/ui';
+import { useRef, useState, type ReactNode } from 'react';
 
 import { readTimestampValue, readerZone, writeTimestampValue } from '../../views/core/timestamps';
 import { readDateValue, readPropertyText } from '../../views/core/container-model';
 
 import { type PropertyInputProps } from './types';
-import { controlName, ValueShell } from './shell';
+import { ClearButton, controlName, GroupShell, ValueShell } from './shell';
 import { COMPLETE_DATE } from './drafts';
 import { ReadOnlyValue } from './computed-value';
 
@@ -25,6 +25,7 @@ import { ReadOnlyValue } from './computed-value';
 export function DateTimeValue(props: PropertyInputProps): ReactNode {
   const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
   const controlLabel = controlName(density, item, property);
+  const dateRef = useRef<HTMLInputElement>(null);
   const zone = readerZone();
 
   const stored = readTimestampValue(item.properties, property.key);
@@ -104,60 +105,74 @@ export function DateTimeValue(props: PropertyInputProps): ReactNode {
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          aria-label={controlLabel}
-          tabIndex={props.tabIndex}
-          type="date"
-          tone={density === 'cell' ? 'plain' : 'default'}
-          value={draftDate}
-          required={property.required}
-          disabled={disabled}
-          aria-invalid={error === null && !incomplete ? undefined : true}
-          onChange={(event) => {
-            const next = event.target.value;
-            setDraftDate(next);
+    <GroupShell
+      {...props}
+      error={
+        error ?? (incomplete ? 'Enter a complete date, and a complete time if you set one.' : null)
+      }
+    >
+      {(group) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            ref={dateRef}
+            aria-label={group.name('Date', true)}
+            aria-describedby={group['aria-describedby']}
+            aria-invalid={group['aria-invalid']}
+            tabIndex={props.tabIndex}
+            type="date"
+            tone={density === 'cell' ? 'plain' : 'default'}
+            value={draftDate}
+            required={property.required}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              setDraftDate(next);
 
-            // A complete date is a finished edit for the date half, the same as DateValue: waiting
-            // for a blur would leave somebody looking at a date they picked and did not save.
-            if (next !== draftDate && COMPLETE_DATE.test(next)) {
-              commit(next, draftTime);
-            }
-          }}
-          onBlur={() => {
-            commit(draftDate, draftTime);
-          }}
-        />
+              // A complete date is a finished edit for the date half, the same as DateValue: waiting
+              // for a blur would leave somebody looking at a date they picked and did not save.
+              if (next !== draftDate && COMPLETE_DATE.test(next)) {
+                commit(next, draftTime);
+              }
+            }}
+            onBlur={() => {
+              commit(draftDate, draftTime);
+            }}
+          />
 
-        <Input
-          aria-label={`Time for ${controlLabel}`}
-          tabIndex={props.tabIndex}
-          type="time"
-          tone={density === 'cell' ? 'plain' : 'default'}
-          value={draftTime}
-          disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value;
-            setDraftTime(next);
-            commit(draftDate, next);
-          }}
-          onBlur={() => {
-            commit(draftDate, draftTime);
-          }}
-        />
-      </div>
+          <Input
+            aria-label={group.name('Time')}
+            aria-describedby={group['aria-describedby']}
+            tabIndex={props.tabIndex}
+            type="time"
+            tone={density === 'cell' ? 'plain' : 'default'}
+            value={draftTime}
+            disabled={disabled}
+            onChange={(event) => {
+              const next = event.target.value;
+              setDraftTime(next);
+              commit(draftDate, next);
+            }}
+            onBlur={() => {
+              commit(draftDate, draftTime);
+            }}
+          />
 
-      {error !== null && error.length > 0 ? (
-        <Text variant="note" role="alert">
-          {error}
-        </Text>
-      ) : incomplete ? (
-        <Text variant="note" role="alert">
-          Enter a complete date, and a complete time if you set one.
-        </Text>
-      ) : null}
-    </div>
+          {localDate.length === 0 ? null : (
+            <ClearButton
+              name={controlLabel}
+              density={density}
+              disabled={disabled}
+              inputRef={dateRef}
+              onClear={() => {
+                setDraftDate('');
+                setDraftTime('');
+                commit('', '');
+              }}
+            />
+          )}
+        </div>
+      )}
+    </GroupShell>
   );
 }
 
@@ -174,6 +189,7 @@ export function DateValue(props: PropertyInputProps): ReactNode {
   const [seen, setSeen] = useState(stored);
   const [sent, setSent] = useState(stored);
   const [incomplete, setIncomplete] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   if (stored !== seen) {
     setSeen(stored);
@@ -228,28 +244,51 @@ export function DateValue(props: PropertyInputProps): ReactNode {
       error={error ?? (incomplete ? 'Enter a date as year, month and day.' : null)}
     >
       {(control) => (
-        <Input
-          {...control}
-          tabIndex={props.tabIndex}
-          type="date"
-          tone={density === 'cell' ? 'plain' : 'default'}
-          value={draft}
-          required={property.required}
-          disabled={disabled}
-          onChange={(event) => {
-            const next = event.target.value;
-            setDraft(next);
-            setIncomplete(false);
+        <div className="flex items-center gap-2">
+          <Input
+            {...control}
+            ref={inputRef}
+            tabIndex={props.tabIndex}
+            type="date"
+            tone={density === 'cell' ? 'plain' : 'default'}
+            value={draft}
+            required={property.required}
+            disabled={disabled}
+            className="min-w-0 flex-1"
+            onChange={(event) => {
+              const next = event.target.value;
+              setDraft(next);
+              setIncomplete(false);
 
-            // A complete date is a finished edit: choosing one from the field's own picker produces
-            // exactly this and nothing follows it, so waiting for a blur would leave somebody
-            // looking at a date they picked and did not save.
-            if (next !== sent && COMPLETE_DATE.test(next)) {
-              send(next);
-            }
-          }}
-          onBlur={commit}
-        />
+              // A complete date is a finished edit: choosing one from the field's own picker produces
+              // exactly this and nothing follows it, so waiting for a blur would leave somebody
+              // looking at a date they picked and did not save.
+              if (next !== sent && COMPLETE_DATE.test(next)) {
+                send(next);
+              }
+            }}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              // Puts back what was last handed over, as the text fields do.
+              if (event.key === 'Escape') {
+                setDraft(sent);
+                setIncomplete(false);
+              }
+            }}
+          />
+          {stored.length === 0 ? null : (
+            <ClearButton
+              name={controlName(density, item, property)}
+              density={density}
+              disabled={disabled}
+              inputRef={inputRef}
+              onClear={() => {
+                setDraft('');
+                send(null);
+              }}
+            />
+          )}
+        </div>
       )}
     </ValueShell>
   );
