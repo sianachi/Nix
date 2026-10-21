@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -295,7 +296,7 @@ describe('a picture property', () => {
     expect(screen.queryByRole('button', { name: 'Undo removing Cover' })).not.toBeInTheDocument();
   });
 
-  it('keeps the address and remove targets from overlapping each other', () => {
+  it('gives the address and the remove button the house control height, 44px on touch', () => {
     render(
       <PropertyInput
         item={itemWith({ cover: PICTURE })}
@@ -304,18 +305,33 @@ describe('a picture property', () => {
       />,
     );
 
-    // 12px type at the 1.45 line height of that step is 17.4px tall, which fails WCAG 2.5.8 on
-    // the control that opens the editor. `before:-inset-y-1` takes the address to 25.4px without
-    // touching its width; Remove keeps 4px each side, so the 12px `gap-3` between them leaves 8px
-    // that belongs to neither. With the old `-inset-2` against a `gap-2` row, a click at the end
-    // of a truncated URL landed on Remove and deleted the picture.
     const address = screen.getByRole('button', { name: 'Cover' });
-    expect(address).toHaveClass('relative', 'before:absolute', 'before:inset-x-0');
-    expect(address).toHaveClass('before:-inset-y-1');
+    expect(address).toHaveClass('min-h-(--control-md)', 'any-pointer-coarse:min-h-(--control-lg)');
 
     const remove = screen.getByRole('button', { name: 'Remove Cover' });
-    expect(remove).toHaveClass('before:-inset-y-2', 'before:-inset-x-1');
-    expect(remove.parentElement).toHaveClass('gap-3');
+    expect(remove).toHaveClass('h-(--control-md)', 'any-pointer-coarse:h-(--control-lg)');
+  });
+
+  it('moves focus to the address box after Remove, and back to the address after Undo', async () => {
+    const person = userEvent.setup();
+
+    function Stateful(): ReactNode {
+      const [stored, setStored] = useState<unknown>(PICTURE);
+      return (
+        <PropertyInput
+          item={itemWith({ cover: stored })}
+          property={coverProperty()}
+          onCommit={setStored}
+        />
+      );
+    }
+    render(<Stateful />);
+
+    await person.click(screen.getByRole('button', { name: 'Remove Cover' }));
+    expect(screen.getByRole('textbox', { name: 'Cover' })).toHaveFocus();
+
+    await person.click(screen.getByRole('button', { name: 'Undo removing Cover' }));
+    expect(screen.getByRole('button', { name: 'Cover' })).toHaveFocus();
   });
 
   it('dropping onto a set picture replaces it', () => {

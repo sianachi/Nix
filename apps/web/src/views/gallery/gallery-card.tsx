@@ -230,6 +230,7 @@ export function GalleryCard(props: GalleryCardProps): ReactNode {
                   <ListCell
                     item={item}
                     property={field}
+                    density="card"
                     onWrite={(value) => onWrite(item.id, field.key, value)}
                   />
                 </ValuePopover>

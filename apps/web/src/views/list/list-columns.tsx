@@ -1,7 +1,7 @@
 import { cn, focusRing, type TableColumn } from '@nix/ui';
 import type { ReactNode } from 'react';
 
-import { isKnownPropertyType } from '../../properties/property-input';
+import { isKnownPropertyType, type PropertyInputDensity } from '../../properties/property-input';
 import { TITLE_COLUMN_KEY, resolveConfiguredColumns } from '../core/columns';
 import {
   readPropertyText,
@@ -18,7 +18,11 @@ import { ListCell } from './list-cell';
 export const SELECT_COLUMN_KEY = '\u0000select';
 
 /** A table column that, when it edits a known property, also names it so a phone row can read it. */
-export type ListColumn = TableColumn<Item> & { readonly property?: PropertyDefinition };
+export type ListColumn = TableColumn<Item> & {
+  readonly property?: PropertyDefinition;
+  /** The same control at card density, for a popover on a phone where a table cell is too tight. */
+  readonly cardCell?: (item: Item) => ReactNode;
+};
 
 export type RowGestures = ReturnType<typeof rowGestures>;
 
@@ -79,7 +83,11 @@ export function buildColumns(
         sortable: true,
         cell: (item) => renderProperty(item, key, definition, write, refusals),
         ...(definition !== undefined && isKnownPropertyType(definition.type)
-          ? { property: definition }
+          ? {
+              property: definition,
+              cardCell: (item: Item) =>
+                renderProperty(item, key, definition, write, refusals, 'card'),
+            }
           : {}),
 
         // Numbers read right-aligned so their digits line up; everything else keeps the table's
@@ -108,6 +116,7 @@ function renderProperty(
   definition: PropertyDefinition | undefined,
   write: (itemId: string, key: string, value: PropertyValue) => Promise<string | null>,
   refusals: CellRefusalStore,
+  density?: PropertyInputDensity,
 ): ReactNode {
   if (definition === undefined || !isKnownPropertyType(definition.type)) {
     return readPropertyText(item, key);
@@ -118,6 +127,7 @@ function renderProperty(
       item={item}
       property={definition}
       onWrite={(value) => write(item.id, key, value)}
+      {...(density === undefined ? {} : { density })}
       refusal={refusals.read(item.id, key)}
       onRefusalChange={(refusal) => {
         refusals.write(item.id, key, refusal);

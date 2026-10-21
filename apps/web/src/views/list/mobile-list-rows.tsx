@@ -106,7 +106,7 @@ function MobileRow(props: {
               </Text>
             ) : (
               <ValuePopover item={item} property={property} density="cell" className="w-full">
-                {column.cell(item)}
+                {(column.cardCell ?? column.cell)(item)}
               </ValuePopover>
             )}
           </div>

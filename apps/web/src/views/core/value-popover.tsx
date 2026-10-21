@@ -34,7 +34,7 @@ export function ValuePopover(props: {
         <button
           {...trigger}
           className={cn(
-            'flex min-h-(--control-md) min-w-0 cursor-default items-center rounded-md px-2 text-left pointer-coarse:min-h-(--control-lg)',
+            'flex min-h-(--control-md) min-w-0 cursor-default items-center rounded-md px-2 text-left any-pointer-coarse:min-h-(--control-lg)',
             focusRing,
             className,
           )}
