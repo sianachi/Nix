@@ -27,6 +27,8 @@ public sealed class BrowserAuthBoundaryTests
     [InlineData("https://nix.example.test", true)]
     [InlineData("http://localhost:5173", true)]
     [InlineData("http://127.0.0.1:5173", true)]
+    [InlineData("http://nix.localhost", true)]
+    [InlineData("http://nixlocalhost", false)]
     [InlineData("http://nix.example.test", false)]
     [InlineData("https://user@example.test", false)]
     [InlineData("https://nix.example.test/path", false)]

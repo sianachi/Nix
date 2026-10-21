@@ -698,7 +698,7 @@ internal static class ExportEndpoints
             || parsed.Fragment.Length != 0
             || parsed.Scheme is not ("http" or "https")
             || (parsed.Scheme == Uri.UriSchemeHttp
-                && !parsed.IsLoopback
+                && !parsed.IsLocal()
                 && parsed.Host.Contains('.', StringComparison.Ordinal)))
         {
             baseUri = default!;
