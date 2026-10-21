@@ -224,6 +224,7 @@ export function GalleryCard(props: GalleryCardProps): ReactNode {
                   item={item}
                   property={field}
                   density="chip"
+                  labelled
                   className="max-w-full"
                 >
                   <ListCell

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';
+import { stubViewport } from '../../stub-viewport';
 import { BoardView } from '../../../views/board/board-view';
 import type {
   EffectiveSchema,
@@ -144,6 +145,25 @@ const DONE = itemOf({
 });
 const UNSET = itemOf({ id: 'i3', title: 'Retention policy', seq: 3000 });
 
+/** The card's context menu is the keyboard and touch path for a column move (drag is desktop only). */
+async function moveViaMenu(
+  user: ReturnType<typeof userEvent.setup>,
+  title: string,
+  column: string,
+): Promise<void> {
+  const card = screen.getByRole('button', { name: new RegExp(title, 'i') }).closest('li');
+  expect(card).not.toBeNull();
+  fireEvent.contextMenu(card as HTMLElement, { clientX: 10, clientY: 10 });
+  const entry = await screen.findByRole('menuitem', { name: `Move to ${column}` });
+  // The menu is ready once it has taken focus; before that a click can land on a closing panel.
+  await waitFor(() => {
+    expect(document.activeElement).toHaveAttribute('role', 'menuitem');
+  });
+  await user.click(entry);
+  // Let the card's own refocus frame run inside this test rather than the next one.
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
 describe('the board view', () => {
   it('keeps a 3,200-card board DOM bounded across its columns', () => {
     const statuses = ['Backlog', 'Doing', 'Done'] as const;
@@ -229,7 +249,7 @@ describe('the board view', () => {
     expect(screen.getByRole('region', { name: 'Unset' })).toBeVisible();
   });
 
-  it('moves a card to another column from the keyboard and writes the grouping property', async () => {
+  it('moves a card to another column from its menu and writes the grouping property', async () => {
     const user = userEvent.setup();
     const onWrite = vi.fn();
 
@@ -241,15 +261,15 @@ describe('the board view', () => {
       }),
     );
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Status for Search ranking' }),
-      'Done',
-    );
+    await moveViaMenu(user, 'Search ranking', 'Done');
 
     expect(onWrite).toHaveBeenCalledWith('i1', { status: 'Done' });
 
     const done = screen.getByRole('region', { name: 'Done' });
-    expect(within(done).getByRole('button', { name: /search ranking/i })).toBeVisible();
+    const moved = within(done).getByRole('button', { name: /search ranking/i });
+    expect(moved).toBeVisible();
+    // Focus follows the card to its new column rather than falling to the document.
+    expect(moved).toHaveFocus();
   });
 
   it('clears the property when a card is moved to the unset column', async () => {
@@ -260,10 +280,7 @@ describe('the board view', () => {
       boardWith({ items: [DOING], view: viewOf({ groupOrder: ['Doing', 'Done'] }), onWrite }),
     );
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Status for Search ranking' }),
-      'Unset',
-    );
+    await moveViaMenu(user, 'Search ranking', 'Unset');
 
     // Null, not the empty string: the property is being cleared, and an empty string is a value.
     expect(onWrite).toHaveBeenCalledWith('i1', { status: null });
@@ -280,10 +297,7 @@ describe('the board view', () => {
       }),
     );
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Status for Search ranking' }),
-      'Done',
-    );
+    await moveViaMenu(user, 'Search ranking', 'Done');
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/do not have permission/i);
@@ -442,7 +456,44 @@ describe('the board view', () => {
       }),
     );
 
-    expect(screen.getByDisplayValue('Ada')).toBeVisible();
+    // A button naming its field, not a form control: nothing is editable until it is tapped.
+    expect(screen.queryByDisplayValue('Ada')).toBeNull();
+    const owner = screen.getByRole('button', { name: /Owner for Billing/ });
+    expect(owner).toHaveTextContent('Owner');
+    expect(owner).toHaveTextContent('Ada');
+  });
+
+  it('edits a card value in a popover and writes it once', async () => {
+    const user = userEvent.setup();
+    const onWrite = vi.fn();
+    renderAt(
+      boardWith({
+        items: [
+          itemOf({ id: 'i9', title: 'Billing', properties: { status: 'Doing', owner: 'Ada' } }),
+        ],
+        view: viewOf({ groupOrder: ['Doing'], columns: ['owner', 'status'] }),
+        onWrite,
+      }),
+    );
+
+    await user.click(screen.getByRole('button', { name: /Owner for Billing/ }));
+    const field = within(screen.getByRole('dialog', { name: /Owner for Billing/ })).getByRole(
+      'textbox',
+      { name: /Owner for Billing/ },
+    );
+    await user.clear(field);
+    await user.type(field, 'Bo');
+    fireEvent.blur(field);
+
+    expect(onWrite).toHaveBeenCalledTimes(1);
+    expect(onWrite).toHaveBeenCalledWith('i9', { owner: 'Bo' });
+  });
+
+  it('names the one visible column once on a phone, keeping its heading for screen readers', () => {
+    stubViewport(390);
+    renderAt(boardWith({ items: [DOING], view: viewOf({ groupOrder: ['Doing', 'Done'] }) }));
+
+    expect(screen.getByRole('heading', { name: 'Doing' }).parentElement).toHaveClass('sr-only');
   });
 
   it('creates a card already in the column it was added to', async () => {

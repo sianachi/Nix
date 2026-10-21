@@ -112,7 +112,7 @@ export function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
         dropTarget && dragged !== null ? 'outline-2 -outline-offset-2 outline-accent' : '',
       )}
     >
-      <div className="flex items-baseline justify-between gap-2">
+      <div className={cn('flex items-baseline justify-between gap-2', compact && 'sr-only')}>
         {/* `break-words` is `Text`'s default now; `min-w-0` is what lets a flex child actually
             shrink and wrap instead of pushing the count beside it out of the fixed-width column. */}
         <Text variant="h6" as="h3" className="min-w-0">

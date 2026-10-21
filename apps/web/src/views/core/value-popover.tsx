@@ -13,16 +13,18 @@ import type { Item, PropertyDefinition } from './container-model';
  * The tap opens the cell's own editor, passed as children, in a popover - so a face is never a
  * form, and there is one edit path. The button is named "<Field> for <Title>" so a screen reader
  * can tell twenty cards' "Category" values apart. An empty value shows the field's name, muted,
- * so it can still be filled in from here.
+ * so it can still be filled in from here; `labelled` puts that name before a filled value too, for
+ * faces with no column header to say which field a bare "Ada" belongs to (a card).
  */
 export function ValuePopover(props: {
   readonly item: Item;
   readonly property: PropertyDefinition;
   readonly density: ValueDensity;
   readonly className?: string;
+  readonly labelled?: boolean;
   readonly children: ReactNode;
 }): ReactNode {
-  const { item, property, density, className, children } = props;
+  const { item, property, density, className, labelled = false, children } = props;
   const label = `${property.label} for ${item.title || 'Untitled'}`;
 
   return (
@@ -38,7 +40,16 @@ export function ValuePopover(props: {
           )}
         >
           {hasDisplayValue(item, property) ? (
-            <PropertyValueDisplay item={item} property={property} density={density} />
+            <>
+              {labelled ? (
+                <span aria-hidden className="mr-2 shrink-0">
+                  <Text as="span" variant="caption" tone="muted">
+                    {property.label}
+                  </Text>
+                </span>
+              ) : null}
+              <PropertyValueDisplay item={item} property={property} density={density} />
+            </>
           ) : (
             <Text as="span" variant="caption" tone="muted" truncate aria-hidden>
               {property.label}

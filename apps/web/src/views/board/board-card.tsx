@@ -1,9 +1,8 @@
-import { ContextMenu, Select, Blueprint, Text, cn, focusRing } from '@nix/ui';
+import { ContextMenu, Blueprint, Text, cn, focusRing } from '@nix/ui';
 import { useRef, type ReactNode } from 'react';
 
 import type { StaleMember } from '../../lib/suggest/staleness';
 import {
-  UNSET_VALUE,
   readSelectValue,
   type Item,
   type PropertyDefinition,
@@ -13,6 +12,7 @@ import { useItemOpenProps } from '../core/item-open-click';
 import { useOptionalItemSelection } from '../core/item-selection-context';
 import { SelectCheckbox } from '../core/select-checkbox';
 import { useItemContextActions } from '../core/use-item-context-actions';
+import { ValuePopover } from '../core/value-popover';
 import { ListCell } from '../list/list-cell';
 import { staleDismissalKey, type BoardColumn } from './board-grouping';
 import { StaleCardHint } from './stale-card-hint';
@@ -132,7 +132,29 @@ function BoardCard(props: BoardCardProps): ReactNode {
   return (
     <ContextMenu
       label={`${item.title || 'Untitled'} actions`}
-      items={() => itemActions(item.id, item.title)}
+      items={() =>
+        itemActions(
+          item.id,
+          item.title,
+          // Drag is desktop-only, so a column move needs a menu path for keyboard and touch. One
+          // entry per other column (not "Move to…", which is the tree move every view has).
+          columns
+            .filter((column) => column.value !== current)
+            .map((column) => ({
+              kind: 'action' as const,
+              label: `Move to ${column.label}`,
+              onSelect: () => {
+                onMove(item, column.value);
+                // The card re-mounts in its new column; hand focus to it there, if it is on screen.
+                requestAnimationFrame(() => {
+                  document
+                    .querySelector<HTMLElement>(`[data-board-card="${CSS.escape(item.id)}"] button`)
+                    ?.focus();
+                });
+              },
+            })),
+        )
+      }
     >
       {(contextTarget) => (
         <li
@@ -140,6 +162,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
           {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
           aria-posinset={position}
           aria-setsize={setSize}
+          data-board-card={item.id}
           data-virtual-index={virtualIndex}
           className="group min-w-0"
         >
@@ -196,60 +219,25 @@ function BoardCard(props: BoardCardProps): ReactNode {
             )}
 
             {fields.length === 0 ? null : (
-              <div className="flex flex-col gap-1">
+              <div className="-mx-2 flex flex-col">
                 {fields.map((field) => (
-                  <div key={field.key}>
-                    <Text variant="kicker" tone="muted" as="span">
-                      {field.label}
-                    </Text>
+                  <ValuePopover
+                    key={field.key}
+                    item={item}
+                    property={field}
+                    density="chip"
+                    labelled
+                    className="max-w-full"
+                  >
                     <ListCell
-                      density="card"
                       item={item}
                       property={field}
                       onWrite={(value) => onWrite(item.id, field.key, value)}
                     />
-                  </div>
+                  </ValuePopover>
                 ))}
               </div>
             )}
-
-            {/*
-        Drag is not the only way to move a card, and it never can be: a keyboard user, a screen
-        reader user and anyone on a touch device with assistive technology all need this control.
-        It carries the same meaning as the drag - it writes the grouping property - so the two
-        gestures cannot drift apart.
-      */}
-            <label className="flex flex-col gap-0.5">
-              <Text variant="kicker" tone="muted" as="span">
-                {property.label}
-              </Text>
-              <Select
-                // Named per card, not per property: a board of twelve cards would otherwise offer twelve
-                // controls all called "Status", and neither a screen reader user nor a test could say
-                // which one they were operating.
-                aria-label={`${property.label} for ${item.title || 'Untitled'}`}
-                value={current ?? UNSET_VALUE}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  onMove(item, next === UNSET_VALUE ? null : next);
-                }}
-              >
-                {/*
-            The card's current value is offered even when it is not one of the board's columns, so
-            a card that arrived here with a value this board does not show can still be read
-            without the control silently reporting some other column.
-          */}
-                {current !== null && !columns.some((column) => column.value === current) ? (
-                  <option value={current}>{current}</option>
-                ) : null}
-
-                {columns.map((column) => (
-                  <option key={column.value ?? UNSET_VALUE} value={column.value ?? UNSET_VALUE}>
-                    {column.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
           </Blueprint>
         </li>
       )}
