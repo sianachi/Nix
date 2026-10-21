@@ -9,6 +9,8 @@
 name: CI frontend
 
 on:
+  # Manual runs, for main pushes the path filter skips (a Prettier fix outside these paths).
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
