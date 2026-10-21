@@ -619,11 +619,13 @@ describe('ListView on a phone', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('marks an empty value with a placeholder that still names the field', () => {
+  it('names an empty field in place of a blank', () => {
     stubViewport(false);
     renderAt(listWith({ items: [item('item-e', 'Empty', 1)], schema }));
 
-    expect(screen.getByRole('button', { name: /Owner for Empty/ })).toHaveTextContent('\u2014');
+    const button = screen.getByRole('button', { name: /Owner for Empty/ });
+    expect(within(button).getByText('Owner')).toBeInTheDocument();
+    expect(button).not.toHaveTextContent('\u2014');
   });
 
   it('edits one field in a popover through the normal write path', async () => {

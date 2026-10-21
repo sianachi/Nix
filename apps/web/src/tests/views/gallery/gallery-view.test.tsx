@@ -240,6 +240,7 @@ describe('the gallery view', () => {
   });
 
   it('keeps a retained card draft and focus as the virtual range and pane width change', async () => {
+    const user = userEvent.setup();
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1_440);
     let viewportHeight = 900;
     vi.spyOn(window, 'innerHeight', 'get').mockImplementation(() => viewportHeight);
@@ -313,7 +314,11 @@ describe('the gallery view', () => {
         '1',
       );
     });
-    const field = within(card('Item 2')).getByRole('textbox', { name: 'Owner' });
+    await user.click(within(card('Item 2')).getByRole('button', { name: /Owner for Item 2/ }));
+    const field = within(screen.getByRole('dialog', { name: 'Owner for Item 2' })).getByRole(
+      'textbox',
+      { name: 'Owner for Item 2' },
+    );
     field.focus();
     fireEvent.change(field, { target: { value: 'Draft owner' } });
     const initialCards = screen.getAllByRole('listitem').length;
@@ -337,7 +342,7 @@ describe('the gallery view', () => {
         '0',
       );
     });
-    expect(within(card('Item 2')).getByRole('textbox', { name: 'Owner' })).toBe(field);
+    expect(within(card('Item 2')).getByRole('textbox', { name: 'Owner for Item 2' })).toBe(field);
     expect(field).toHaveFocus();
     expect(field).toHaveValue('Draft owner');
     scrollPosition = 15_000;
@@ -345,7 +350,7 @@ describe('the gallery view', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Item 150' })).toBeInTheDocument();
     });
-    expect(within(card('Item 2')).getByRole('textbox', { name: 'Owner' })).toBe(field);
+    expect(within(card('Item 2')).getByRole('textbox', { name: 'Owner for Item 2' })).toBe(field);
     expect(field).toHaveFocus();
     expect(field).toHaveValue('Draft owner');
     expect(screen.getAllByRole('listitem').length).toBeLessThan(100);
@@ -543,7 +548,9 @@ describe('the gallery view', () => {
     const retyped = card('Harbour at dawn');
 
     expect(within(retyped).queryByText(SHOT)).not.toBeInTheDocument();
-    expect(within(retyped).getByDisplayValue('Ada')).toBeInTheDocument();
+    expect(
+      within(retyped).getByRole('button', { name: /Owner for Harbour at dawn/ }),
+    ).toHaveTextContent('Ada');
   });
 
   it('refuses to point a picture at a value that is not a fetchable address', () => {
@@ -683,8 +690,9 @@ describe('the gallery view', () => {
 
     const illustrated = card('Harbour at dawn');
 
-    expect(within(illustrated).getByText('Owner')).toBeInTheDocument();
-    expect(within(illustrated).getByDisplayValue('Ada')).toBeInTheDocument();
+    expect(
+      within(illustrated).getByRole('button', { name: /Owner for Harbour at dawn/ }),
+    ).toHaveTextContent('Ada');
     expect(within(illustrated).queryByText(SHOT)).not.toBeInTheDocument();
   });
 
@@ -701,6 +709,80 @@ describe('the gallery view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Notes from the site visit' }));
 
     expect(opened).toEqual(['i2']);
+  });
+
+  it('shows card values as buttons, not form controls', () => {
+    const blank = itemOf({ id: 'i9', title: 'Blank card' });
+    renderAt(galleryOf({ items: [WITH_COVER, blank], view: viewOf({ columns: ['owner'] }) }));
+
+    expect(within(card('Harbour at dawn')).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(within(card('Harbour at dawn')).queryByRole('combobox')).not.toBeInTheDocument();
+    const empty = within(card('Blank card')).getByRole('button', { name: /Owner for Blank card/ });
+    expect(within(empty).getByText('Owner')).toBeInTheDocument();
+  });
+
+  it('edits one value in a popover through setProperties, without opening the item', async () => {
+    const user = userEvent.setup();
+    const setProperties = vi.fn(() => Promise.resolve(null));
+    const onOpen = vi.fn();
+    const container = aContainer({
+      schema: schemaOf(COVER, OWNER),
+      views: views([]),
+      children: [WITH_COVER],
+      setProperties,
+    });
+    renderAt(
+      galleryOf({ items: [WITH_COVER], view: viewOf({ columns: ['owner'] }), container, onOpen }),
+    );
+
+    await user.click(screen.getByRole('button', { name: /Owner for Harbour at dawn/ }));
+    const field = within(
+      screen.getByRole('dialog', { name: /Owner for Harbour at dawn/ }),
+    ).getByRole('textbox', { name: /Owner for Harbour at dawn/ });
+    await user.clear(field);
+    await user.type(field, 'Bo');
+    await user.tab();
+
+    await waitFor(() => {
+      expect(setProperties).toHaveBeenCalledTimes(1);
+    });
+    expect(setProperties).toHaveBeenCalledWith('i1', { owner: 'Bo' });
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('closes the editor on Escape and returns focus to the value', async () => {
+    const user = userEvent.setup();
+    renderAt(galleryOf({ items: [WITH_COVER], view: viewOf({ columns: ['owner'] }) }));
+
+    const value = screen.getByRole('button', { name: /Owner for Harbour at dawn/ });
+    await user.click(value);
+    expect(screen.getByRole('dialog', { name: /Owner for Harbour at dawn/ })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(value).toHaveFocus();
+    });
+  });
+
+  it('does not start the card long-press from inside an open editor', async () => {
+    const user = userEvent.setup();
+    renderAt(galleryOf({ items: [WITH_COVER], view: viewOf({ columns: ['owner'] }) }));
+    await user.click(screen.getByRole('button', { name: /Owner for Harbour at dawn/ }));
+    const inside = screen
+      .getByRole('dialog', { name: /Owner for Harbour at dawn/ })
+      .querySelector('[data-context-menu-ignore]');
+    if (inside === null) throw new Error('The editor is not marked as outside the card gestures.');
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(inside, { pointerType: 'touch', clientX: 10, clientY: 10 });
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('says the container is empty rather than drawing an empty grid', () => {

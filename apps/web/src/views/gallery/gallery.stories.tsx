@@ -102,7 +102,10 @@ export const VirtualizedDraft = {
       if (element === null) throw new Error(`${title} needs its card`);
       return element;
     };
-    const field = within(card('Item 2')).getByRole<HTMLInputElement>('textbox', { name: 'Owner' });
+    await userEvent.click(within(card('Item 2')).getByRole('button', { name: /Owner for Item 2/ }));
+    const field = within(card('Item 2')).getByRole<HTMLInputElement>('textbox', {
+      name: 'Owner for Item 2',
+    });
     await userEvent.clear(field);
     await userEvent.type(field, 'Draft owner');
     const checkEnd = async (): Promise<void> => {

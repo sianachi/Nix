@@ -5,7 +5,6 @@ import { isDisplayableImageValue } from '../../properties/image-value';
 import { CARD_SIZE_COVER, type CardSize } from './card-size';
 import { CoverImage } from './cover-image';
 
-/** The card's picture region: the cover, or the words that say why there is not one. */
 /** The longer side of a stored thumbnail, in pixels (Core's `MaximumThumbnailSide`). */
 const THUMBNAIL_SIDE = 480;
 
@@ -16,6 +15,7 @@ const THUMBNAIL_SIDE = 480;
  */
 const TOLERATED_UPSCALE = 1.5;
 
+/** The card's picture region: the cover, or the words that say why there is not one. */
 export function CoverPane({
   src,
   label,

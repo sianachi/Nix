@@ -104,8 +104,15 @@ function ViewStrip(props: ViewSwitcherProps): ReactNode {
 
 /** The phone's picker: one native select, so six long view names never push into the item controls. */
 function ViewSelect(props: ViewSwitcherProps): ReactNode {
-  const { views, unrenderable, activeViewId, onSelect, documentLabel, documentHidden, defaultViewId } =
-    props;
+  const {
+    views,
+    unrenderable,
+    activeViewId,
+    onSelect,
+    documentLabel,
+    documentHidden,
+    defaultViewId,
+  } = props;
   const mark = (name: string, id: string): string =>
     `${name}${id === defaultViewId ? ' (default)' : ''}${unrenderable.includes(id) ? ' (needs attention)' : ''}`;
   return (

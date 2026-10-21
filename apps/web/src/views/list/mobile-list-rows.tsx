@@ -1,17 +1,15 @@
 import {
   Button,
   ContextMenu,
-  Popover,
   Text,
   cn,
-  focusRing,
   type ContextMenuTargetProps,
   type TableColumn,
 } from '@nix/ui';
 import { useState, type ReactNode } from 'react';
 
-import { PropertyValueDisplay, hasDisplayValue } from '../../properties/property-value-display';
 import type { Item } from '../core/container-model';
+import { ValuePopover } from '../core/value-popover';
 import { SELECT_COLUMN_KEY } from './list-columns';
 import { rowMenuLabel, type ListRowsProps } from './list-rows';
 
@@ -90,7 +88,6 @@ function MobileRow(props: {
   readonly selected: boolean;
 }): ReactNode {
   const { item, columns, target, selectColumn, selected } = props;
-  const title = item.title || 'Untitled';
 
   return (
     <li
@@ -108,29 +105,9 @@ function MobileRow(props: {
                 {column.cell(item)}
               </Text>
             ) : (
-              <Popover
-                label={`${column.header} for ${title}`}
-                trigger={(trigger) => (
-                  <button
-                    {...trigger}
-                    className={cn(
-                      'flex min-h-(--control-lg) w-full min-w-0 cursor-default items-center rounded-md px-2 text-left',
-                      focusRing,
-                    )}
-                  >
-                    {hasDisplayValue(item, property) ? (
-                      <PropertyValueDisplay item={item} property={property} density="cell" />
-                    ) : (
-                      <Text as="span" variant="caption" tone="muted" aria-hidden>
-                        {'\u2014'}
-                      </Text>
-                    )}
-                    <span className="sr-only">{`${column.header} for ${title}`}</span>
-                  </button>
-                )}
-              >
+              <ValuePopover item={item} property={property} density="cell" className="w-full">
                 {column.cell(item)}
-              </Popover>
+              </ValuePopover>
             )}
           </div>
         );

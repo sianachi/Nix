@@ -11,6 +11,7 @@ import {
 import { useClickSelects } from '../core/item-open-click';
 import { useOptionalItemSelection } from '../core/item-selection-context';
 import { SelectCheckbox } from '../core/select-checkbox';
+import { ValuePopover } from '../core/value-popover';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import { rowGestures } from '../core/use-item-selection';
 import { FileThumbnail } from '../../thumbnails';
@@ -62,8 +63,8 @@ export function GalleryCard(props: GalleryCardProps): ReactNode {
   const isFileCard = item.type === 'file' && !item.hasChildren;
   const coverValue = cover.kind === 'ready' ? readPropertyText(item, cover.property.key) : '';
 
-  // Absent values render as nothing rather than as an empty row: a card is a summary, and a column
-  // of blank labels tells nobody anything.
+  // Each field is a value; an empty one shows its name so it can be filled in from the card.
+  // Editing is the cell's own editor in a popover, as in the phone list.
   const fields = secondary.flatMap((key) => {
     const definition = schema.find((entry) => entry.key === key);
     return definition === undefined ? [] : [definition];
@@ -216,19 +217,21 @@ export function GalleryCard(props: GalleryCardProps): ReactNode {
             // sits on top of the card in DOM order, and without a stacking context of its own this
             // layer would swallow every click a field control below it is meant to receive - a tap
             // meant for a select or a checkbox opening the item instead.
-            <div className="relative z-10 flex flex-col gap-1">
+            <div className="relative z-10 -mx-2 flex flex-wrap gap-x-1">
               {fields.map((field) => (
-                <div key={field.key}>
-                  <Text variant="kicker" tone="muted" as="span">
-                    {field.label}
-                  </Text>
+                <ValuePopover
+                  key={field.key}
+                  item={item}
+                  property={field}
+                  density="chip"
+                  className="max-w-full"
+                >
                   <ListCell
-                    density="card"
                     item={item}
                     property={field}
                     onWrite={(value) => onWrite(item.id, field.key, value)}
                   />
-                </div>
+                </ValuePopover>
               ))}
             </div>
           )}
