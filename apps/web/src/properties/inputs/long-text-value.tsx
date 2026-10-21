@@ -44,11 +44,11 @@ export function LongTextValue(props: PropertyInputProps): ReactNode {
           maxLength={8000}
           // At rest in a cell, the box is one line at the height of the one-line fields beside it,
           // with no resize grip. A text area paints overflow into its own padding, so padding cannot
-          // hide the second line; a line as tall as the box (less its two 1px borders) centres the
-          // first line like an input does and puts the second out of sight.
+          // hide the second line; with no vertical border while collapsed, a line exactly as tall
+          // as the box centres the first line like an input does and puts the second out of sight.
           className={
             collapsed && density === 'cell'
-              ? 'h-(--control-md) min-h-0 resize-none overflow-hidden py-0 leading-[calc(var(--control-md)-2px)] any-pointer-coarse:h-(--control-lg) any-pointer-coarse:leading-[calc(var(--control-lg)-2px)]'
+              ? 'h-(--control-md) min-h-0 resize-none overflow-hidden border-y-0 py-0 leading-(--control-md) any-pointer-coarse:h-(--control-lg) any-pointer-coarse:leading-(--control-lg)'
               : 'max-h-64'
           }
           tone={density === 'cell' ? 'plain' : 'default'}
