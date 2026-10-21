@@ -770,6 +770,7 @@ export function OfflineRuntime(): null {
     let active: AbortController | null = null;
     let disposed = false;
     let rerun = false;
+    let contended = false;
     let automaticTimer: ReturnType<typeof setTimeout> | undefined;
     let pendingTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleAutomatic = (): void => {
@@ -808,6 +809,7 @@ export function OfflineRuntime(): null {
               { ifAvailable: true },
               async (lock) => {
                 if (lock !== null) await run();
+                else contended = true;
               },
             );
       void coordinated
@@ -835,6 +837,11 @@ export function OfflineRuntime(): null {
           if (rerun) {
             rerun = false;
             synchronize();
+          } else if (contended) {
+            // The lock was held (often by the pass this effect restart just aborted): try again soon
+            // instead of leaving the status on "Syncing" for the whole five-minute interval.
+            contended = false;
+            automaticTimer = setTimeout(synchronize, 1_000);
           } else scheduleAutomatic();
         });
     };

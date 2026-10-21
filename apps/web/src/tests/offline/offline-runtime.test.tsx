@@ -427,6 +427,65 @@ describe('scheduling background offline synchronization', () => {
     mounted.unmount();
   });
 
+  it('retries when its web lock is still held by a pass that the effect restart aborted', async () => {
+    let held = false;
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: async (
+          _name: string,
+          _options: unknown,
+          grant: (lock: unknown) => Promise<void>,
+        ) => {
+          if (held) {
+            await grant(null);
+            return;
+          }
+          held = true;
+          try {
+            await grant({});
+          } finally {
+            held = false;
+          }
+        },
+      },
+    });
+    try {
+      const remoteNote = note(1);
+      const first = core([remoteNote]);
+      const flushStarted = deferred();
+      const releaseFlush = deferred();
+      let flushes = 0;
+      transport.beforeAccountFlush = async () => {
+        flushes += 1;
+        if (flushes === 1) {
+          flushStarted.resolve();
+          await releaseFlush.promise;
+        }
+      };
+      const mounted = renderRuntime(first.client);
+      await flushStarted.promise;
+      // A new client restarts the effect: the aborted pass still holds the lock when the new one asks.
+      mounted.rerender(
+        <AuthProvider>
+          <ApiClientOverrideProvider client={core([remoteNote]).client}>
+            <OfflineRuntime />
+          </ApiClientOverrideProvider>
+        </AuthProvider>,
+      );
+      const ready = nextReady();
+      await act(async () => {
+        releaseFlush.resolve();
+        await ready;
+      });
+
+      expect(transport.downloaded).toEqual([remoteNote.id]);
+      mounted.unmount();
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
   it('retries an aborted active pass when the network returns before its cleanup finishes', async () => {
     const remoteNote = note(1);
     const remote = core([remoteNote]);
