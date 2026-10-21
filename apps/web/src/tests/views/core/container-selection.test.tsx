@@ -116,7 +116,7 @@ it('selects a board card by its box, which sits outside the drag handle', async 
   expect(within(bar).getByText('1 selected')).toBeVisible();
 });
 
-it('selects a checklist line by its box, apart from the box that ticks it', async () => {
+it('selects checklist lines from the menu, then by their boxes, apart from the boxes that tick them', async () => {
   const user = userEvent.setup();
   renderAt(
     <ContainerView
@@ -134,10 +134,16 @@ it('selects a checklist line by its box, apart from the box that ticks it', asyn
       onOpen={vi.fn()}
     />,
   );
-  await user.click(screen.getByRole('checkbox', { name: 'Select First' }));
+  await user.pointer({
+    keys: '[MouseRight]',
+    target: screen.getByRole('button', { name: 'Open First' }),
+  });
+  await user.click(await screen.findByRole('menuitem', { name: 'Select' }));
+  await user.click(await screen.findByRole('checkbox', { name: 'Select Second' }));
   const bar = screen.getByRole('toolbar', { name: 'Selected items' });
-  expect(within(bar).getByText('1 selected')).toBeVisible();
+  expect(within(bar).getByText('2 selected')).toBeVisible();
   expect(screen.getByRole('checkbox', { name: 'First' })).not.toBeChecked();
+  expect(screen.getByRole('checkbox', { name: 'Second' })).not.toBeChecked();
 });
 
 it('does not show the drag hint on a coarse pointer', () => {
