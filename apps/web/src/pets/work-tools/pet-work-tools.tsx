@@ -6,7 +6,7 @@ import {
 } from '@nix/companion/tool-args';
 import type { StructureFingerprint } from '@nix/companion';
 import { Text } from '@nix/ui';
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { memo, useEffect, useRef, useState, type ComponentProps, type ReactElement } from 'react';
 import { readActionReceipt, writeActionReceipt } from '../action-receipts';
 import { writeMayRunWithoutAsking } from '../approval/write-gate';
 import type { EditedRequest } from '../approval/edit-request';
@@ -24,7 +24,7 @@ import {
 import { afterWrite } from '../approval/prepare-write';
 import { PetWorkToolCard } from './tool-card';
 
-export function PetWorkTools({
+function PetWorkToolsView({
   runtime,
   workspaceId,
   petId,
@@ -373,3 +373,35 @@ export function PetWorkTools({
     </section>
   );
 }
+
+type Props = ComponentProps<typeof PetWorkToolsView>;
+
+/** Library-contract reason for the memo: the watch stream hands the list a fresh `runtime` object
+ * up to four times a second, so props are compared by what the cards actually render. Every
+ * other prop, including any added later, is compared by identity. */
+function sameToolInputs(prev: Props, next: Props): boolean {
+  const before = prev.runtime.tools ?? [];
+  const after = next.runtime.tools ?? [];
+  if (before.length !== after.length || prev.runtime.lockedRead !== next.runtime.lockedRead)
+    return false;
+  const sameTools = before.every((tool, index) => {
+    const other = after[index];
+    return (
+      tool.id === other?.id &&
+      tool.status === other.status &&
+      tool.result === other.result &&
+      tool.claimId === other.claimId &&
+      tool.arguments === other.arguments
+    );
+  });
+  if (!sameTools) return false;
+  if ((prev.applyExemptToolIds ?? []).join() !== (next.applyExemptToolIds ?? []).join())
+    return false;
+  const was = prev as Record<string, unknown>;
+  const now = next as Record<string, unknown>;
+  return [...new Set([...Object.keys(was), ...Object.keys(now)])].every(
+    (key) => key === 'runtime' || key === 'applyExemptToolIds' || Object.is(was[key], now[key]),
+  );
+}
+
+export const PetWorkTools = memo(PetWorkToolsView, sameToolInputs);
