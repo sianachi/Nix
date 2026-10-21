@@ -20,6 +20,7 @@ import { useViewState } from '../core/view-state';
 import { ruleConditions } from '../core/filter-rules';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { useHiddenItems } from '../../items/use-hidden-items';
+import { editableDefinition, QueryRowValue } from './query-row-values';
 import { useQueryResults } from './use-query-results';
 
 /** Loaded once somebody asks for suggested filters; most visits to a smart list never do. */
@@ -117,6 +118,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
   }
 
   const { results } = run;
+  const schema = container.schema?.properties ?? [];
   const unhidden = results.results.filter((item) => !visibility.hiddenSet.has(item.id));
   const visible = applyTitleSearch(unhidden, viewState.search);
 
@@ -210,7 +212,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
             inferred={proposal.inferred}
             truncated={results.truncated}
             draft={proposal.draft}
-            schema={container.schema?.properties ?? []}
+            schema={schema}
             onDraftChange={(draft) => {
               setProposal({ ...proposal, draft });
             }}
@@ -297,9 +299,9 @@ export function QueryView(props: ViewRendererProps): ReactNode {
               {(target) => (
                 <li
                   {...target}
-                  className="flex min-w-0 items-start gap-2 border-b border-divider py-3 sm:gap-3"
+                  className="flex min-w-0 items-start gap-2 border-b border-divider py-2 sm:gap-3"
                 >
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-start gap-2">
                       {picking ? (
                         <Checkbox
@@ -338,21 +340,32 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                       </Text>
                     )}
 
-                    {/* The values the query matched on, so a row says why it is here. The rule
-                      properties are the view's own filters, deduplicated - a rule pair over one
-                      property (Overdue's due/done) shows each key once. */}
-                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    {/* The values the query matched on, so a row says why it is here, each
+                      editable in place. A property this container does not declare reads as text. */}
+                    <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
                       {[...new Set(ruleConditions(view.filters).map((rule) => rule.property))].map(
                         (key) => {
+                          const definition = editableDefinition(schema, key);
                           const text = readPropertyText(owner, key);
-                          return text.length === 0 ? null : (
+                          return definition !== undefined ? (
+                            <QueryRowValue
+                              key={key}
+                              itemId={row.id}
+                              title={owner.title}
+                              properties={row.properties}
+                              property={definition}
+                              onSaved={() => {
+                                void run.reload();
+                              }}
+                            />
+                          ) : text.length === 0 ? null : (
                             <Text
                               key={key}
                               variant="note"
                               tone="muted"
                               as="span"
                               lines={2}
-                              className="min-w-0 max-w-full whitespace-pre-line wrap-anywhere"
+                              className="min-w-0 max-w-full whitespace-pre-line wrap-anywhere px-2"
                             >
                               {text}
                             </Text>

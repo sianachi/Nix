@@ -88,6 +88,7 @@ function renderQueryView(
   view: View = OVERDUE_VIEW,
   onOpen = vi.fn(),
   url = '/',
+  container = aContainer({ itemId: SMART_LIST }),
 ): ReturnType<typeof vi.fn> {
   const client = createNixClient({
     baseUrl: window.location.origin,
@@ -101,7 +102,7 @@ function renderQueryView(
     return (
       <>
         <ViewTools view={view} schema={[]} viewState={state} onSave={() => Promise.resolve(null)} />
-        <QueryView container={aContainer({ itemId: SMART_LIST })} view={view} onOpen={onOpen} />
+        <QueryView container={container} view={view} onOpen={onOpen} />
       </>
     );
   }
@@ -178,6 +179,22 @@ describe('the smart list', () => {
     expect(await screen.findByRole('button', { name: 'Water plants' })).toBeInTheDocument();
     expect(screen.getByText('in Tracker')).toBeInTheDocument();
     expect(screen.getByText('2026-08-10')).toBeInTheDocument();
+  });
+
+  it('edits a matched value in place when the container declares the property', async () => {
+    const due = { key: 'due', label: 'Due', type: 'date' as const, options: [], required: false };
+    stubRun(results([row(ROW_ONE, 'Water plants', '2026-08-10')]));
+    renderQueryView(
+      OVERDUE_VIEW,
+      vi.fn(),
+      '/',
+      aContainer({
+        itemId: SMART_LIST,
+        schema: { properties: [due], declared: [due], inherit: true },
+      }),
+    );
+
+    expect(await screen.findByRole('button', { name: /Due for Water plants/ })).toBeVisible();
   });
 
   it('opens a row where it lives', async () => {

@@ -144,7 +144,7 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
     <div className="@container flex min-w-0 flex-col gap-2">
       <Text variant="note" tone="muted" as="p">
         {scope === 'query'
-          ? 'Filters run across every container you can read, joined with AND; an "any of" group matches when one of its filters does. A property here is a key that may live in other containers, so it is typed rather than picked. Smart lists compare stored values; computed formula and rollup values can be filtered in container views.'
+          ? 'Filters run across every container you can read and must all match; an "any of" group needs one. Properties are typed keys. Smart lists compare stored values; computed formula and rollup values can be filtered in container views.'
           : 'Filters are joined with AND, and an "any of" group matches when one of its filters does. They hide children from this view only. Other views keep their own filters.'}
       </Text>
       {computedRules.length === 0 ? null : (
@@ -279,7 +279,7 @@ function ConditionRow({ rule, listId, onChange, onRemove }: ConditionRowProps): 
   const hint = valueHint(rule);
 
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] @xl:items-end">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 @xl:grid-cols-2 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] @xl:items-end">
       <Field label="Property" className="min-w-0">
         {(control) => (
           <Input
@@ -293,7 +293,7 @@ function ConditionRow({ rule, listId, onChange, onRemove }: ConditionRowProps): 
         )}
       </Field>
 
-      <Field label="Condition" className="min-w-0">
+      <Field label="Condition" className="col-span-2 min-w-0 @xl:col-span-1">
         {(control) => (
           <Select
             {...control}
@@ -321,7 +321,11 @@ function ConditionRow({ rule, listId, onChange, onRemove }: ConditionRowProps): 
       </Field>
 
       {operatorTakesValue(rule.operator) ? (
-        <Field label="Value" className="min-w-0" {...(hint === null ? {} : { hint })}>
+        <Field
+          label="Value"
+          className="col-span-2 min-w-0 @xl:col-span-1"
+          {...(hint === null ? {} : { hint })}
+        >
           {(control) => (
             <Input
               {...control}
@@ -334,12 +338,12 @@ function ConditionRow({ rule, listId, onChange, onRemove }: ConditionRowProps): 
         </Field>
       ) : (
         // Keeps the row's grid columns aligned when the value has nothing to ask.
-        <div aria-hidden="true" />
+        <div aria-hidden="true" className="hidden @xl:block" />
       )}
 
       <Button
         variant="icon"
-        className="justify-self-start"
+        className="col-start-2 row-start-1 self-end justify-self-start @xl:col-start-auto @xl:row-start-auto"
         aria-label={`Remove the filter on ${rule.property.length > 0 ? rule.property : 'this property'}`}
         onClick={onRemove}
       >
