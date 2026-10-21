@@ -12,9 +12,12 @@ import { useId, type ReactElement, type ReactNode } from 'react';
  */
 export function ApprovalFrame({
   heading,
+  anchor = false,
   children,
   actions,
 }: {
+  /** The first thing waiting on the owner: the chat scrolls to its top. */
+  readonly anchor?: boolean;
   /** The preview's headline: the operation and what it acts on. */
   readonly heading: string;
   readonly children: ReactNode;
@@ -25,6 +28,7 @@ export function ApprovalFrame({
   return (
     <div
       role="group"
+      data-pet-latest-message={anchor ? '' : undefined}
       aria-labelledby={headingId}
       className="my-1 flex min-w-0 flex-col gap-2 rounded-md border border-divider p-3 wrap-anywhere"
     >

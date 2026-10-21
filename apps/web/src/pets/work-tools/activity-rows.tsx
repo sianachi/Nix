@@ -4,7 +4,7 @@ import type { StructureFingerprint } from '@nix/companion';
 import type { Problem } from '@nix/structure-spec';
 import { Button, Icon, Text, cn, focusRing, inkWashStates } from '@nix/ui';
 import { ChevronRight } from 'lucide-react';
-import { useEffect, useRef, type ReactElement } from 'react';
+import { useEffect, useRef, type ReactElement, type RefObject } from 'react';
 import type { EditedRequest } from '../approval/edit-request';
 import {
   APPLYING_WITHOUT_ASKING,
@@ -38,6 +38,9 @@ function ActivityRow({
   detailsLabel = 'Result details',
   detailsExtra,
   actions,
+  anchor = false,
+  focusOnMount = false,
+  rowRef,
 }: {
   readonly sentence: string;
   readonly status: string;
@@ -46,7 +49,18 @@ function ActivityRow({
   /** Shown above the text details, inside the same disclosure. */
   readonly detailsExtra?: ReactElement | undefined;
   readonly actions: ReactElement | undefined;
+  /** The first thing waiting on the owner: the chat scrolls to its top. */
+  readonly anchor?: boolean;
+  /** The owner just decided with a click: this row is where they land, once. */
+  readonly focusOnMount?: boolean;
+  readonly rowRef?: RefObject<HTMLDivElement | null>;
 }): ReactElement {
+  const ownRef = useRef<HTMLDivElement | null>(null);
+  const row = rowRef ?? ownRef;
+  useEffect(() => {
+    if (focusOnMount) row.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Justification: focus moves once, on mount, never on a later render.
+  }, []);
   const line = (
     <div className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-2">
       <Text variant="bodySmall">{sentence}</Text>
@@ -58,7 +72,13 @@ function ActivityRow({
     </div>
   );
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div
+      ref={row}
+      // Focusable by script only: after a decision the row is where the owner lands.
+      tabIndex={-1}
+      data-pet-latest-message={anchor ? '' : undefined}
+      className="flex min-w-0 flex-col gap-1 focus:outline-none"
+    >
       {details || detailsExtra ? (
         <details className="group">
           <summary
@@ -105,7 +125,9 @@ export function ReadActivityRow({
   autoRun,
   submitted,
   onResolve,
+  anchor,
 }: {
+  readonly anchor: boolean;
   readonly tool: PetToolCall;
   readonly args: WorkspaceToolArgs;
   readonly busy: boolean;
@@ -133,12 +155,20 @@ export function ReadActivityRow({
     })();
   }, [autoRun, tool, submitted, busy, onResolve]);
 
+  const row = useRef<HTMLDivElement | null>(null);
+  // The buttons leave with the decision, so focus moves to the row as they are clicked.
+  const decide = (approved: boolean) => {
+    row.current?.focus();
+    void onResolve(tool, approved);
+  };
   const needsClick = !autoRun && tool.status === 'pending' && !submitted;
   return (
     <ActivityRow
       sentence={describeReadSentence(tool, args, autoRun)}
       status={readStatusText(tool, autoRun, submitted)}
       details={tool.result || undefined}
+      anchor={anchor && needsClick}
+      rowRef={row}
       actions={
         needsClick ? (
           <div className="flex flex-wrap gap-2">
@@ -146,7 +176,7 @@ export function ReadActivityRow({
               variant="primary"
               disabled={busy}
               onClick={() => {
-                void onResolve(tool, true);
+                decide(true);
               }}
             >
               Approve request
@@ -155,7 +185,7 @@ export function ReadActivityRow({
               variant="ghost"
               disabled={busy}
               onClick={() => {
-                void onResolve(tool, false);
+                decide(false);
               }}
             >
               Decline request
@@ -215,7 +245,9 @@ export function WriteReceiptRow({
   cleanup,
   applied,
   ownerReason,
+  focusOnMount,
 }: {
+  readonly focusOnMount: boolean;
   readonly tool: PetToolCall;
   /** For a write that was not run: why, in the owner's words. */
   readonly ownerReason?: string | undefined;
@@ -258,6 +290,7 @@ export function WriteReceiptRow({
               : 'Result details'
       }
       detailsExtra={applied}
+      focusOnMount={focusOnMount}
       actions={
         progress || cleanup ? (
           <div className="flex flex-col gap-2">

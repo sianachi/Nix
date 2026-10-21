@@ -6,7 +6,7 @@ import {
   type ActionEvent,
   type ParseResult,
 } from '@openuidev/react-lang';
-import { Button, Text } from '@nix/ui';
+import { Button, Text, focusRing } from '@nix/ui';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -181,6 +181,7 @@ export default function OpenUiBlock({
   const [parsed, setParsed] = useState<ParseResult | null>(null);
   const [startState] = useState(() => initialState ?? storedState(stateKey));
   const state = useRef<Record<string, unknown>>(startState ?? {});
+  const block = useRef<HTMLDivElement | null>(null);
   // The state to save, captured when "Save as artifact" is pressed; null while not saving.
   const [saving, setSaving] = useState<{ readonly state: string | null } | null>(null);
   // Writes wait here, one card at a time, until the owner decides.
@@ -254,7 +255,13 @@ export default function OpenUiBlock({
   if (!streaming && parsed !== null && parsed.root === null) return fallback;
   return (
     <OpenUiScope.Provider value={workspaceIds}>
-      <div className="min-w-0 rounded-md border border-divider p-3" data-openui-block="">
+      <div
+        ref={block}
+        // Focusable by script only: after a decision the card is gone and focus lands here.
+        tabIndex={-1}
+        className={`min-w-0 rounded-md border border-divider p-3 focus:outline-none ${focusRing}`}
+        data-openui-block=""
+      >
         <Renderer
           response={program}
           library={nixLibrary}
@@ -285,6 +292,8 @@ export default function OpenUiBlock({
                   : { rootItemId: scopeRoot, readOnly: scopeReadOnly }
               }
               onDecide={(decision) => {
+                // A click moves focus to the block as the card leaves; an auto-run never does.
+                if (!(decision.approved && decision.withoutAsking)) block.current?.focus();
                 pendingWrite.settle(decision);
                 setWrites((pending) => pending.filter((write) => write.id !== pendingWrite.id));
               }}

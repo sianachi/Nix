@@ -367,6 +367,7 @@ function PetWorkToolsView({
           submitted={decisions[decisionKey(tool)] ?? readActionReceipt(decisionKey(tool))}
           ownerReason={ownerReasons[tool.id]}
           onResolve={resolve}
+          scrollAnchor={needsDecision[0] === tool.id}
         />
       ))}
       {error ? <Text role="alert">{error}</Text> : null}

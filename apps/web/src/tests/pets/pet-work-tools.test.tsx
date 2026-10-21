@@ -363,6 +363,77 @@ describe('companion work approvals', () => {
     expect(screen.queryByRole('button', { name: 'Decline request' })).not.toBeInTheDocument();
   });
 
+  it('moves focus to the receipt row after a click on Decline request', async () => {
+    client.execute.mockImplementation(
+      (endpoint: { body: { operation: string; requestId: string } }) =>
+        Promise.resolve({
+          ...runtime,
+          tools: runtime.tools?.map((tool) => ({
+            ...tool,
+            status: endpoint.body.operation === 'tool_claim' ? 'claimed' : 'pending',
+            claimId: endpoint.body.requestId,
+          })),
+        }),
+    );
+    show();
+    await userEvent.click(screen.getByRole('button', { name: 'Decline request' }));
+    const status = await screen.findByText(/^Declined/);
+    expect(status.closest('[tabindex="-1"]')).toHaveFocus();
+  });
+
+  it("moves focus to the row after a click on a read's Approve request", async () => {
+    const readRuntime = {
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        arguments: JSON.stringify({ ...JSON.parse(tool.arguments), operation: 'list_items' }),
+      })),
+    };
+    client.execute.mockImplementation(() => new Promise(() => undefined));
+    localStorage.setItem('nix.pet.readWithoutAsking', 'false');
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={readRuntime}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Approve request' }));
+    const status = await screen.findByText(/^Approval submitted/);
+    expect(status.closest('[tabindex="-1"]')).toHaveFocus();
+    localStorage.removeItem('nix.pet.readWithoutAsking');
+  });
+
+  it('does not move focus when a read runs on its own', async () => {
+    const owner = document.createElement('button');
+    document.body.append(owner);
+    owner.focus();
+    client.execute.mockImplementation(() => new Promise(() => undefined));
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={{
+          ...runtime,
+          tools: (runtime.tools ?? []).map((tool) => ({
+            ...tool,
+            arguments: JSON.stringify({ ...JSON.parse(tool.arguments), operation: 'list_items' }),
+          })),
+        }}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    // Reads run without asking by default; the owner's place is theirs.
+    await screen.findByText(/Listing items|Listed items/);
+    expect(owner).toHaveFocus();
+    owner.remove();
+  });
+
   it.each(['create_note', 'append_note'])(
     'shows the full pending %s content inline, with no folding, as a labelled line',
     async (operation) => {
@@ -428,6 +499,9 @@ describe('companion work approvals', () => {
     expect(headingA).not.toHaveTextContent('Plan B');
     const groupA = screen.getByRole('group', { name: headingA.textContent });
     const groupB = screen.getByRole('group', { name: headingB.textContent });
+    // The first waiting card is where the chat scrolls to; the second is not.
+    expect(groupA).toHaveAttribute('data-pet-latest-message');
+    expect(groupB).not.toHaveAttribute('data-pet-latest-message');
     for (const [group, heading] of [
       [groupA, headingA],
       [groupB, headingB],

@@ -92,6 +92,8 @@ describe('component writes', () => {
     expect(run).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Approve request' }));
     expect(await screen.findByText('Done!')).toBeInTheDocument();
+    // The card is gone, so focus lands on the block rather than dropping to the page.
+    expect(document.querySelector('[data-openui-block]')).toHaveFocus();
     const [, ranIn, raw, , options] = run.mock.calls[0] as [
       unknown,
       string,
@@ -115,6 +117,7 @@ describe('component writes', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Do it' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Decline request' }));
     expect(await screen.findByText('Not done')).toBeInTheDocument();
+    expect(document.querySelector('[data-openui-block]')).toHaveFocus();
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -123,6 +126,8 @@ describe('component writes', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Do it' }));
     expect(await screen.findByText('Done!')).toBeInTheDocument();
     expect(run).toHaveBeenCalledTimes(1);
+    // An auto-run never takes focus from where the owner is.
+    expect(document.querySelector('[data-openui-block]')).not.toHaveFocus();
   });
 
   it('always wait for operations the switch never covers', async () => {

@@ -109,7 +109,7 @@ export function MessageList({
   return (
     <PetChatViewport
       quiet
-      latestKey={`${messages.at(-1)?.id ?? ''}:${runtime.tools?.at(-1)?.id ?? ''}:${running ? 'thinking' : 'idle'}`}
+      latestKey={`${messages.at(-1)?.id ?? ''}:${runtime.tools?.at(-1)?.id ?? ''}:${running ? 'thinking' : 'idle'}:${approvalPending ? 'approval' : ''}`}
     >
       {messages.length === 0 ? (
         <>
@@ -142,7 +142,10 @@ export function MessageList({
                 message={message}
                 petName={pet.name}
                 workspaceId={workspaceId}
-                latest={index === messages.length - 1}
+                // While a card waits it is the scroll anchor; your own message still wins (it is yours).
+                latest={
+                  index === messages.length - 1 && (!approvalPending || message.role === 'user')
+                }
                 onAsk={stable.onAsk}
                 applyWithoutAsking={applyWithoutAsking}
                 earlierPieces={piecesBefore[index]}

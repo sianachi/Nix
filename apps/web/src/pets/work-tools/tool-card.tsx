@@ -56,7 +56,9 @@ export function PetWorkToolCard({
   ownerReason,
   onResolve,
   noteScope,
+  scrollAnchor,
 }: {
+  readonly scrollAnchor: boolean;
   readonly noteScope?: { readonly rootItemId: string; readonly readOnly: boolean } | undefined;
   readonly tool: PetToolCall;
   readonly ownerReason?: string | undefined;
@@ -85,6 +87,7 @@ export function PetWorkToolCard({
   const readOnly = noteScope?.readOnly ?? true;
   const [state, setState] = useState<ToolPreviewState>({ loading: true });
   const autoDeclineKey = useRef('');
+  const [decidedByClick, setDecidedByClick] = useState(false);
   // Set only once `onResolve` actually started this write on its own (the S3 pattern
   // `ReadActivityRow` follows). The receipt, not this ref, carries "without asking" into the UI.
   const autoApplyKey = useRef('');
@@ -271,6 +274,7 @@ export function PetWorkToolCard({
         autoRun={autoRun}
         submitted={submitted}
         onResolve={onResolve}
+        anchor={scrollAnchor}
       />
     );
   }
@@ -355,6 +359,7 @@ export function PetWorkToolCard({
         submitted={submitted}
         progress={progress}
         cleanup={cleanup}
+        focusOnMount={decidedByClick}
       />
     );
   }
@@ -385,7 +390,13 @@ export function PetWorkToolCard({
       onEdit={setEdit}
       onEditing={setEditing}
       onBuildProgress={onBuildProgress}
-      onResolve={onResolve}
+      onResolve={(...decision) => {
+        // Only the card's own buttons reach here (auto-runs call `onResolve` directly), so a
+        // receipt that follows is one the owner asked for and takes focus.
+        setDecidedByClick(true);
+        return onResolve(...decision);
+      }}
+      anchor={scrollAnchor}
     />
   );
 }

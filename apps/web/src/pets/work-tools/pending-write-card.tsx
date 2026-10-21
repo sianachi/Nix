@@ -40,7 +40,9 @@ export function PendingWriteCard({
   onEditing,
   onBuildProgress,
   onResolve,
+  anchor,
 }: {
+  readonly anchor: boolean;
   readonly tool: PetToolCall;
   readonly submitted: string | undefined;
   readonly busy: boolean;
@@ -82,6 +84,7 @@ export function PendingWriteCard({
   return (
     <ApprovalFrame
       heading={heading}
+      anchor={anchor}
       actions={(headingId) =>
         tool.status === 'pending' && !submitted ? (
           <ApprovalActions
