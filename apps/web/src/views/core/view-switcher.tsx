@@ -1,7 +1,7 @@
 import { Icon, Select, focusRing } from '@nix/ui';
 import { FileText, List as ListIcon, TriangleAlert } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { createContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { useNarrowViewport } from '../../layout/viewport';
 import { DOCUMENT_VIEW, type View } from './container-model';
@@ -26,6 +26,12 @@ import { findViewKind } from './view-kinds';
  * That is why the document is passed as a flag rather than smuggled in as a fourth view kind: it
  * has no configuration, cannot be reordered or deleted, and is the one entry every item has.
  */
+
+/**
+ * Where a tool's second line (an open phone search field) is drawn: a slot after the item controls,
+ * so DOM and focus order match the visual order. Null outside a switcher row.
+ */
+export const BelowRowSlot = createContext<HTMLElement | null>(null);
 
 export interface ViewSwitcherProps {
   readonly views: readonly View[];
@@ -99,6 +105,7 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
 function ViewStrip(props: ViewSwitcherProps): ReactNode {
   const { trailing, tools } = props;
   const narrow = useNarrowViewport();
+  const [below, setBelow] = useState<HTMLElement | null>(null);
   const strip = narrow ? <ViewSelect {...props} /> : <ViewTabs {...props} />;
   if (trailing === undefined && tools === undefined) return strip;
   // Wraps so a tool's second line (an open phone search field) can drop below the row. The strip
@@ -106,10 +113,11 @@ function ViewStrip(props: ViewSwitcherProps): ReactNode {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1 pr-3 sm:pr-8">
       <div className="min-w-0 flex-1">{strip}</div>
-      {tools}
+      <BelowRowSlot value={below}>{tools}</BelowRowSlot>
       {trailing === undefined ? null : (
         <div className="flex shrink-0 items-center gap-1">{trailing}</div>
       )}
+      <div ref={setBelow} className="basis-full empty:hidden" />
     </div>
   );
 }

@@ -1,10 +1,12 @@
 import { Button, Icon, Input, Popover, Segmented, Select, Text } from '@nix/ui';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
-import { useRef, useState, type ReactNode } from 'react';
+import { useContext, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useNarrowViewport } from '../../layout/viewport';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
 import { TITLE_COLUMN_KEY } from './columns';
+import { BelowRowSlot } from './view-switcher';
 import type { PropertyDefinition, View, ViewFilterRule } from './container-model';
 import type { SortDirection, ViewStateControl } from './view-state';
 
@@ -119,6 +121,16 @@ export function ViewTools({
       </Button>
     );
   const secondLine = narrow && (showSearch || clearLinkFilters !== null);
+  const below = useContext(BelowRowSlot);
+  const line = (
+    <div
+      className={`flex basis-full items-center gap-2 ${below === null ? 'order-last' : ''} ${placement === 'row' ? 'pb-1 pl-4 sm:pl-8' : ''}`}
+    >
+      {showSearch ? search : null}
+      {showSearch && hasSearch ? clearSearch : null}
+      {clearLinkFilters}
+    </div>
+  );
 
   const tools = (
     <>
@@ -209,15 +221,7 @@ export function ViewTools({
         )}
       </Popover>
       {narrow ? null : clearLinkFilters}
-      {secondLine ? (
-        <div
-          className={`order-last flex basis-full items-center gap-2 ${placement === 'row' ? 'pb-1 pl-4 sm:pl-8' : ''}`}
-        >
-          {showSearch ? search : null}
-          {showSearch && hasSearch ? clearSearch : null}
-          {clearLinkFilters}
-        </div>
-      ) : null}
+      {secondLine ? (below === null ? line : createPortal(line, below)) : null}
     </>
   );
 

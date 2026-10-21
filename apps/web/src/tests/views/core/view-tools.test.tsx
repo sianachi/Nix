@@ -6,6 +6,7 @@ import { renderAt } from '../../render-with-router';
 import { stubViewport } from '../../stub-viewport';
 import { aView } from '../../view-fixture';
 import { filterGroup, type ViewFilterRule } from '../../../views/core/container-model';
+import { ViewSwitcher } from '../../../views/core/view-switcher';
 import { ViewTools } from '../../../views/core/view-tools';
 import { useViewState } from '../../../views/core/view-state';
 
@@ -140,5 +141,35 @@ describe('view search on a phone', () => {
     renderAt(<Subject />, '/?search=Water');
     expect(screen.getByRole('searchbox')).toHaveValue('Water');
     expect(screen.getByRole('button', { name: 'Clear search' })).toBeVisible();
+  });
+
+  it('puts the open search line after the item controls in the DOM, as it is drawn', () => {
+    stubViewport(false);
+    function Strip() {
+      const state = useViewState();
+      return (
+        <ViewSwitcher
+          views={[aView({ id: 'all', name: 'All' })]}
+          unrenderable={[]}
+          activeViewId="all"
+          onSelect={vi.fn()}
+          tools={
+            <ViewTools
+              placement="row"
+              view={aView({ filters: [...rules] })}
+              schema={[]}
+              viewState={state}
+              onSave={() => Promise.resolve(null)}
+            />
+          }
+          trailing={<button type="button">Details</button>}
+        />
+      );
+    }
+    renderAt(<Strip />, '/?search=Water');
+
+    const details = screen.getByRole('button', { name: 'Details' });
+    const search = screen.getByRole('searchbox', { name: 'Search titles' });
+    expect(details.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
