@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { petConnectionSchema, type NixClient } from '@nix/api-client';
 import type * as Companion from '@nix/companion';
 import { PetWorkTools } from '../../pets/work-tools/pet-work-tools';
+import { PetWorkToolCard } from '../../pets/work-tools/tool-card';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { MemoryRouter } from 'react-router';
 import { useState, type ReactElement } from 'react';
@@ -379,6 +380,39 @@ describe('companion work approvals', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Decline request' }));
     const status = await screen.findByText(/^Declined/);
     expect(status.closest('[tabindex="-1"]')).toHaveFocus();
+  });
+
+  it('does not take focus for a receipt whose Decline never started, when it settles later', async () => {
+    // A click whose decision did not start (`onResolve` answers false, the lock being held
+    // elsewhere) is not an owner decision, so a receipt that settles later in another tab must
+    // leave the owner's place alone.
+    const tool = runtime.tools?.[0] as NonNullable<typeof runtime.tools>[number];
+    const props = {
+      client: client as unknown as NixClient,
+      workspaceId: '11111111-1111-4111-8111-111111111111',
+      petName: 'Cat',
+      busy: false,
+      readWithoutAsking: false,
+      applyWithoutAsking: false,
+      progress: undefined,
+      onBuildProgress: vi.fn(),
+      onProblemsChange: vi.fn(),
+      onPreviewFailedChange: vi.fn(),
+      followsLockedRead: false,
+      scrollAnchor: false,
+      onResolve: vi.fn(() => Promise.resolve(false)),
+    };
+    const view = render(<PetWorkToolCard {...props} tool={tool} />, { wrapper: MemoryRouter });
+    await userEvent.click(screen.getByRole('button', { name: 'Decline request' }));
+    const owner = document.createElement('button');
+    document.body.append(owner);
+    owner.focus();
+    view.rerender(
+      <PetWorkToolCard {...props} tool={{ ...tool, status: 'completed', result: 'created' }} />,
+    );
+    await screen.findByText('Done');
+    expect(owner).toHaveFocus();
+    owner.remove();
   });
 
   it("moves focus to the row after a click on a read's Approve request", async () => {

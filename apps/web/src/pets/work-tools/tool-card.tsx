@@ -392,9 +392,14 @@ export function PetWorkToolCard({
       onBuildProgress={onBuildProgress}
       onResolve={(...decision) => {
         // Only the card's own buttons reach here (auto-runs call `onResolve` directly), so a
-        // receipt that follows is one the owner asked for and takes focus.
+        // receipt that follows is one the owner asked for and takes focus - unless the call
+        // never started, when a later receipt (settled elsewhere) must not steal focus.
         setDecidedByClick(true);
-        return onResolve(...decision);
+        const started = onResolve(...decision);
+        void started.then((ok) => {
+          if (!ok) setDecidedByClick(false);
+        });
+        return started;
       }}
       anchor={scrollAnchor}
     />
