@@ -56,6 +56,12 @@ async function openCompanion() {
   return user;
 }
 
+/** Opens the composer's "+" menu and chooses `name`. */
+async function chooseFromPlus(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(await screen.findByRole('button', { name: 'Add to message' }));
+  await user.click(await screen.findByRole('menuitem', { name }));
+}
+
 describe('companion live wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -350,9 +356,8 @@ describe('companion live wiring', () => {
     await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
     await screen.findByRole('dialog', { name: 'Conversation with Cat' });
 
-    const add = await screen.findByRole('button', { name: 'Add this page to the message' });
-    await user.click(add);
-    await user.click(add);
+    await chooseFromPlus(user, 'Add this page');
+    await chooseFromPlus(user, 'Add this page');
     const list = screen.getByRole('list', { name: 'Notes sent with your message' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(1);
 
@@ -405,7 +410,7 @@ describe('companion live wiring', () => {
       </MemoryRouter>,
     );
     await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
-    await user.click(await screen.findByRole('button', { name: 'Add this page to the message' }));
+    await chooseFromPlus(user, 'Add this page');
     await user.click(screen.getByRole('button', { name: /^Remove This page/ }));
     expect(screen.queryByRole('list', { name: 'Notes sent with your message' })).toBeNull();
   });
@@ -445,7 +450,7 @@ describe('companion live wiring', () => {
       </MemoryRouter>,
     );
     await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
-    await user.click(await screen.findByRole('button', { name: 'Add this page to the message' }));
+    await chooseFromPlus(user, 'Add this page');
     document.dispatchEvent(new Event('selectionchange'));
     await user.click(await screen.findByRole('button', { name: 'Share selected text' }));
     const list = screen.getByRole('list', { name: 'Notes sent with your message' });
@@ -488,7 +493,7 @@ describe('companion live wiring', () => {
       </MemoryRouter>,
     );
     await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
-    await user.click(await screen.findByRole('button', { name: 'Add this page to the message' }));
+    await chooseFromPlus(user, 'Add this page');
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     expect(screen.getByRole('textbox', { name: 'Edit your message' })).toBeVisible();
 

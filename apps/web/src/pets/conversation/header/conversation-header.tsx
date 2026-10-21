@@ -1,10 +1,11 @@
 import { type PetProfile, type PetSettings } from '@nix/api-client';
-import { Button, ContextMenu, Icon, Menu, Select, Text, focusRing, type MenuEntry } from '@nix/ui';
-import { MoreHorizontal, X } from 'lucide-react';
+import { Button, ContextMenu, Icon, Menu, Text, type MenuEntry } from '@nix/ui';
+import { Check, ChevronDown, MoreHorizontal, X } from 'lucide-react';
 import { type ReactElement, type RefObject } from 'react';
 import { Link } from 'react-router';
 import { PetAvatar, type PetAnimationState } from '../../pet-avatar';
 import { TitleEditor } from '../../pet-history';
+import { statusIsQuiet } from '../state/status-text';
 
 function renderMenuLink({
   href,
@@ -18,10 +19,70 @@ function renderMenuLink({
   );
 }
 
+interface NoteScope {
+  readonly rootItemId: string;
+  readonly title: string;
+  readonly readOnly: boolean;
+  readonly onReadOnlyChange: (readOnly: boolean) => void;
+}
+
+/** What a note chat may do: read the note, or propose edits that each ask first. A menu rather
+ * than a select, so the header stays one row. */
+function NoteAccessChip({
+  noteScope,
+  locked,
+}: {
+  readonly noteScope: NoteScope;
+  readonly locked: boolean;
+}): ReactElement {
+  const current = noteScope.readOnly ? 'Read only' : 'Can edit';
+  return (
+    <>
+      <Menu
+        label="Note chat access"
+        items={[
+          {
+            label: 'Read only',
+            ...(noteScope.readOnly ? { icon: Check } : {}),
+            onSelect: () => {
+              noteScope.onReadOnlyChange(true);
+            },
+          },
+          {
+            label: 'Approved edits',
+            ...(noteScope.readOnly ? {} : { icon: Check }),
+            onSelect: () => {
+              noteScope.onReadOnlyChange(false);
+            },
+          },
+        ]}
+      >
+        {(trigger) => (
+          <Button
+            {...trigger}
+            data-context-menu-ignore
+            variant="ghost"
+            className="shrink-0"
+            disabled={locked}
+            aria-label={`Note access: ${current}`}
+            aria-describedby="pet-note-access-hint"
+          >
+            {current}
+            <Icon icon={ChevronDown} size="sm" />
+          </Button>
+        )}
+      </Menu>
+      <Text as="span" variant="note" className="sr-only" id="pet-note-access-hint">
+        Reads this note and its readable children on demand. Search and results can be partial.
+        Every change asks first.
+      </Text>
+    </>
+  );
+}
+
 export function ConversationHeader({
   layout,
   zen,
-  workspaceId,
   petName,
   appearance,
   motion,
@@ -41,12 +102,12 @@ export function ConversationHeader({
 }: {
   readonly layout: string;
   readonly zen: boolean;
-  readonly workspaceId: string;
   readonly petName: string;
   readonly appearance: PetProfile['appearance'];
   readonly motion: PetSettings['motion'];
   readonly animation: PetAnimationState;
   readonly status: string;
+  /** The conversation's own title, when it has one. */
   readonly title: string | undefined;
   readonly renaming: boolean;
   readonly renameBusy: boolean;
@@ -56,17 +117,12 @@ export function ConversationHeader({
   readonly menuItems: MenuEntry[];
   readonly menuTrigger: RefObject<{ current: HTMLButtonElement | null } | null>;
   readonly onClose: (() => void) | undefined;
-  readonly noteScope:
-    | {
-        readonly rootItemId: string;
-        readonly title: string;
-        readonly readOnly: boolean;
-        readonly onReadOnlyChange: (readOnly: boolean) => void;
-      }
-    | undefined;
+  readonly noteScope: NoteScope | undefined;
   /** A turn is running: the note access cannot change. */
   readonly locked: boolean;
 }): ReactElement {
+  // A new conversation's title is an empty string, not absent.
+  const heading = [noteScope?.title, title].find((value) => value) ?? petName;
   return (
     <ContextMenu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
       {(target) => (
@@ -85,21 +141,25 @@ export function ConversationHeader({
                   size="compact"
                 />
               </div>
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <Text variant="h5" as="h2" title={petName} truncate>
-                  {petName}
+              <div className="flex min-w-0 flex-col">
+                <Text variant="h5" as="h2" title={heading} truncate>
+                  {heading}
                 </Text>
-                <Text role="status" variant="note" tone="muted" truncate>
+                {/* Only what needs attention is drawn; Ready and the states the log already shows
+                    stay in the accessibility tree without taking a line. */}
+                <Text
+                  role="status"
+                  variant="note"
+                  tone="muted"
+                  truncate
+                  {...(statusIsQuiet(status) ? { className: 'sr-only' } : {})}
+                >
                   {status}
                 </Text>
-                {title && !renaming ? (
-                  <Text variant="note" truncate title={title}>
-                    {title}
-                  </Text>
-                ) : null}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1">
+              {noteScope ? <NoteAccessChip noteScope={noteScope} locked={locked} /> : null}
               <Menu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
                 {(trigger) => {
                   menuTrigger.current = trigger.ref;
@@ -131,35 +191,6 @@ export function ConversationHeader({
                 onCancel={onCancelRename}
               />
               {renameError ? <Text role="alert">{renameError}</Text> : null}
-            </div>
-          ) : null}
-          {noteScope ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <Link
-                to={`/w/${workspaceId}?item=${noteScope.rootItemId}`}
-                className={`min-w-0 truncate underline ${focusRing}`}
-              >
-                <Text as="span" variant="note" truncate>
-                  {noteScope.title}
-                </Text>
-              </Link>
-              <Select
-                aria-label="Note chat access"
-                value={noteScope.readOnly ? 'read' : 'edit'}
-                disabled={locked}
-                className="min-w-0 max-w-full"
-                title="Reads this note and its readable children on demand. Every change asks first."
-                onChange={(event) => {
-                  noteScope.onReadOnlyChange(event.currentTarget.value === 'read');
-                }}
-              >
-                <option value="read">Read only</option>
-                <option value="edit">Approved edits</option>
-              </Select>
-              <Text variant="note" tone="muted" className="hidden @md:block">
-                Reads this note and its readable children on demand. Search and results can be
-                partial. Every change asks first.
-              </Text>
             </div>
           ) : null}
         </div>

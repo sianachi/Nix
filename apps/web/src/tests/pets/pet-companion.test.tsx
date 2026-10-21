@@ -61,6 +61,12 @@ function OpenedPetPage() {
   return <h1>Companion page</h1>;
 }
 
+/** Opens the composer's "+" menu and chooses `name`. */
+async function chooseFromPlus(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(await screen.findByRole('button', { name: 'Add to message' }));
+  await user.click(await screen.findByRole('menuitem', { name }));
+}
+
 describe('companion workflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -202,7 +208,7 @@ describe('companion workflow', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await screen.findByRole('dialog', { name: 'Conversation with Cat' });
-    await user.click(screen.getByRole('button', { name: 'Workspace access' }));
+    await chooseFromPlus(user, 'Use workspace');
     await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'What is due?');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     const sends = () =>
@@ -796,7 +802,7 @@ describe('companion workflow', () => {
       const user = userEvent.setup();
       const view = openNote({ locked: false, unlockedUntil: null });
       await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
-      await user.click(await screen.findByRole('button', { name: 'Workspace access' }));
+      await chooseFromPlus(user, 'Use workspace');
       expect(await screen.findByText('This page: Weekly plan')).toBeVisible();
 
       await sendMessage(user, 'What is due?');
@@ -820,7 +826,7 @@ describe('companion workflow', () => {
       const user = userEvent.setup();
       const view = openNote({ locked: true, unlockedUntil: null });
       await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
-      await user.click(await screen.findByRole('button', { name: 'Workspace access' }));
+      await chooseFromPlus(user, 'Use workspace');
       await sendMessage(user, 'What is due?');
       await waitFor(() => {
         expect(sends()).toHaveLength(1);
@@ -952,17 +958,11 @@ describe('companion workflow', () => {
       );
       await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
       const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
-      await user.click(within(dialog).getByRole('button', { name: 'Workspace access' }));
-      expect(within(dialog).getByRole('button', { name: 'Apply without asking' })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      );
+      await chooseFromPlus(user, 'Use workspace');
+      expect(within(dialog).getByText('Applying changes without asking')).toBeVisible();
       // Still the owner's to turn off for this conversation.
       await user.click(within(dialog).getByRole('button', { name: 'Turn off' }));
-      expect(within(dialog).getByRole('button', { name: 'Apply without asking' })).toHaveAttribute(
-        'aria-pressed',
-        'false',
-      );
+      expect(within(dialog).queryByText('Applying changes without asking')).toBeNull();
     } finally {
       petSettings.applyWithoutAsking = false;
     }
@@ -976,34 +976,29 @@ describe('companion workflow', () => {
     );
     await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
     const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    const plus = within(dialog).getByRole('button', { name: 'Add to message' });
     // Nothing can be applied without workspace tools, so the switch only exists with access on.
-    expect(
-      within(dialog).queryByRole('button', { name: 'Apply without asking' }),
-    ).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'Workspace access' }));
-    const toggle = within(dialog).getByRole('button', { name: 'Apply without asking' });
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await user.click(plus);
+    expect(screen.queryByRole('menuitem', { name: 'Apply without asking' })).toBeNull();
+    await user.keyboard('{Escape}');
+    await chooseFromPlus(user, 'Use workspace');
     expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
 
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(
-      within(dialog).getByText(/Applying changes without asking in this conversation/),
-    ).toBeVisible();
+    await chooseFromPlus(user, 'Apply without asking');
+    expect(within(dialog).getByText('Applying changes without asking')).toBeVisible();
 
-    // Turning it off from the banner hands focus back to the toggle the banner mirrors.
+    // Turning it off from the banner hands focus back to the "+" that turns it on.
     await user.click(within(dialog).getByRole('button', { name: 'Turn off' }));
-    expect(toggle).toHaveAttribute('aria-pressed', 'false');
     expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
-    expect(toggle).toHaveFocus();
+    expect(plus).toHaveFocus();
 
-    // Turning workspace access off takes the switch with it.
-    await user.click(within(dialog).getByRole('button', { name: 'Apply without asking' }));
+    // Removing the workspace chip turns access off and takes the switch with it.
+    await chooseFromPlus(user, 'Apply without asking');
     expect(within(dialog).getByRole('button', { name: 'Turn off' })).toBeVisible();
-    await user.click(within(dialog).getByRole('button', { name: 'Workspace access' }));
-    expect(
-      within(dialog).queryByRole('button', { name: 'Apply without asking' }),
-    ).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Remove Workspace' }));
     expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
+    await user.click(plus);
+    expect(screen.queryByRole('menuitem', { name: 'Apply without asking' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'Use workspace' })).toBeVisible();
   });
 });

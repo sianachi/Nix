@@ -214,11 +214,17 @@ describe('companion on a phone', () => {
         <PetPage />
       </MemoryRouter>,
     );
-    expect(await screen.findByRole('combobox', { name: 'Note chat access' })).toHaveAttribute(
-      'title',
-      expect.stringContaining('Every change asks first'),
+    const user = userEvent.setup();
+    expect(
+      await screen.findByRole('button', { name: 'Note access: Read only' }),
+    ).toHaveAccessibleDescription(expect.stringContaining('Every change asks first'));
+    // One row: the note's title is the heading and its link lives in the More menu.
+    expect(screen.getByRole('heading', { name: 'Brag sheet' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Open note' })).toHaveAttribute(
+      'href',
+      `/w/33333333-3333-4333-8333-333333333333?item=${note}`,
     );
-    expect(screen.getByText(/Reads this note and its readable children/)).toHaveClass('hidden');
   });
 
   it('waits for a composer tap before opening a touch tablet keyboard', async () => {

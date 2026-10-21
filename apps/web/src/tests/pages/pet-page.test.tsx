@@ -100,17 +100,19 @@ describe('note chat page', () => {
   it('defaults to read-only retrieval for the note and lets the user require approved edits', async () => {
     const user = userEvent.setup();
     renderNote();
-    const access = await screen.findByRole('combobox', { name: 'Note chat access' });
-    expect(access).toHaveValue('read');
+    const access = await screen.findByRole('button', { name: 'Note access: Read only' });
     expect(mock.hook).toHaveBeenLastCalledWith(
       WORKSPACE,
       '44444444-4444-4444-8444-444444444444',
       true,
       ROOT,
     );
-    expect(screen.queryByRole('button', { name: 'Workspace access' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Apply without asking' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Search and results can be partial/)).toBeVisible();
+    // A read-only note chat offers neither the workspace nor applying changes.
+    await user.click(screen.getByRole('button', { name: 'Add to message' }));
+    expect(screen.queryByRole('menuitem', { name: 'Use workspace' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Apply without asking' })).toBeNull();
+    await user.keyboard('{Escape}');
+    expect(access).toHaveAccessibleDescription(/Search and results can be partial/);
     await user.type(
       screen.getByRole('textbox', { name: 'Message Pip' }),
       'Explain this documentation',
@@ -120,12 +122,13 @@ describe('note chat page', () => {
       expect.objectContaining({ itemId: ROOT, readOnly: true, workspaceAccess: true }),
     );
     expect(mock.send.mock.calls.at(-1)?.[0]).not.toHaveProperty('workspaceMap');
-    await user.selectOptions(access, 'edit');
+    await user.click(access);
+    await user.click(screen.getByRole('menuitem', { name: 'Approved edits' }));
+    expect(screen.getByRole('button', { name: 'Note access: Can edit' })).toBeVisible();
     // An editable note offers the same Apply without asking switch as the workspace chat.
-    expect(screen.getByRole('button', { name: 'Apply without asking' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
+    await user.click(screen.getByRole('button', { name: 'Add to message' }));
+    expect(screen.getByRole('menuitem', { name: 'Apply without asking' })).toBeVisible();
+    await user.keyboard('{Escape}');
     await user.type(screen.getByRole('textbox', { name: 'Message Pip' }), 'Append a summary');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     expect(mock.send).toHaveBeenLastCalledWith(
@@ -150,7 +153,7 @@ describe('note chat page', () => {
     mock.execute.mockResolvedValue({ history: [] });
     const user = userEvent.setup();
     renderNote();
-    await screen.findByRole('combobox', { name: 'Note chat access' });
+    await screen.findByRole('button', { name: 'Note access: Read only' });
     await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
     await user.click(screen.getByRole('menuitem', { name: 'Past conversations' }));
     await user.click(screen.getByRole('button', { name: 'Conversation history' }));
@@ -225,7 +228,7 @@ describe('note chat page', () => {
 
   it('keeps a narrow window on the page, and a wide one without a note', async () => {
     renderNote();
-    expect(await screen.findByRole('combobox', { name: 'Note chat access' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Note access: Read only' })).toBeVisible();
     stubViewport(true);
     render(
       <MemoryRouter initialEntries={[`/w/${WORKSPACE}/pet`]}>
@@ -251,7 +254,7 @@ describe('note chat page', () => {
           removeEventListener: () => undefined,
         }) as unknown as MediaQueryList;
       renderNote();
-      expect(await screen.findByRole('combobox', { name: 'Note chat access' })).toBeVisible();
+      expect(await screen.findByRole('button', { name: 'Note access: Read only' })).toBeVisible();
     },
   );
 });

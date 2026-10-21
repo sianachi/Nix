@@ -131,7 +131,6 @@ export function Conversation({
   // still announced as a level-3 heading, just not itself the tab stop.
   const panelHeading = useRef<HTMLDivElement | null>(null);
   const menuTrigger = useRef<{ current: HTMLButtonElement | null } | null>(null);
-  const applyToggle = useRef<HTMLButtonElement>(null);
   const messages = runtime?.messages ?? [];
   // Each message's view of the generated-UI blocks before it, so a patch can find what it changes.
   const runtimeMessages = runtime?.messages;
@@ -224,6 +223,7 @@ export function Conversation({
   const menuItems = conversationMenuItems({
     workspaceId,
     petName: pet.name,
+    openNoteId: noteScope?.rootItemId,
     layout,
     messages,
     inactive: busy || running,
@@ -312,7 +312,6 @@ export function Conversation({
       <ConversationHeader
         layout={layout}
         zen={zen}
-        workspaceId={workspaceId}
         petName={pet.name}
         appearance={pet.appearance}
         motion={settings.motion}
@@ -480,7 +479,6 @@ export function Conversation({
               if (!next) setApplyWithoutAsking(false);
             }}
             applyWithoutAsking={applyWithoutAsking}
-            applyToggle={applyToggle}
             onApplyChange={setApplyWithoutAsking}
             hasPage={Boolean(currentItem)}
             contextCount={context.contexts.length}

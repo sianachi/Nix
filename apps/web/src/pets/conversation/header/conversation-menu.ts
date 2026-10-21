@@ -7,6 +7,7 @@ import { exportPetMessages } from '../../pet-history';
 export function conversationMenuItems({
   workspaceId,
   petName,
+  openNoteId,
   layout,
   messages,
   inactive,
@@ -20,6 +21,8 @@ export function conversationMenuItems({
 }: {
   readonly workspaceId: string;
   readonly petName: string;
+  /** The note a note chat is about, offered as "Open note". */
+  readonly openNoteId: string | undefined;
   readonly layout: string;
   readonly messages: NonNullable<PetConnection['messages']>;
   /** A turn is running or a request is in flight. */
@@ -33,6 +36,16 @@ export function conversationMenuItems({
   readonly onSettings: () => void;
 }): MenuEntry[] {
   return [
+    ...(openNoteId
+      ? [
+          {
+            kind: 'link' as const,
+            label: 'Open note',
+            href: `/w/${workspaceId}?item=${openNoteId}`,
+          },
+          { kind: 'separator' as const },
+        ]
+      : []),
     { label: 'Save as chat note', disabled: inactive || !messages.length, onSelect: onSaveChat },
     { label: 'New conversation', disabled: inactive, onSelect: onNewConversation },
     {

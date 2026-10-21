@@ -1232,6 +1232,35 @@ export const EmptyChat = {
 };
 export const DarkEmptyChat = { ...EmptyChat, globals: { ground: 'dark' } };
 
+/** The one-row header and one-row composer: the controls a reader needs, each named. */
+async function expectChatControls({
+  canvasElement,
+}: {
+  canvasElement: HTMLElement;
+}): Promise<void> {
+  const canvas = within(canvasElement);
+  await canvas.findByRole('button', { name: 'More conversation actions' }, { timeout: 10_000 });
+  await canvas.findByRole('button', { name: 'Add to message' });
+  await canvas.findByRole('textbox', { name: /^Message / });
+  canvas.getByRole('button', { name: 'Send' });
+}
+export const ConversationControlsDesktop = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={emptyChatConnection}>
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+  play: expectChatControls,
+};
+export const ConversationControlsPhone = {
+  render: (): ReactElement => (
+    <PhoneFrame width={320}>
+      <AutoOpenCompanion />
+    </PhoneFrame>
+  ),
+  play: expectChatControls,
+};
+
 const markdownConversationConnection = petConnectionSchema.parse({
   provider: 'chatgpt',
   status: 'connected',

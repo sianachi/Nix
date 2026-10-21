@@ -1,8 +1,13 @@
-import { Button, Icon, Listbox, Text, Textarea } from '@nix/ui';
-import { ArrowUp, FilePlus, Square, TextQuote } from 'lucide-react';
-import { type KeyboardEvent as ReactKeyboardEvent, type ReactElement, type RefObject } from 'react';
+import { Button, Icon, Listbox, Menu, Text, Textarea, type MenuEntry } from '@nix/ui';
+import { ArrowUp, Check, FilePlus, Layers, Plus, Square, TextQuote } from 'lucide-react';
+import {
+  useLayoutEffect,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactElement,
+  type RefObject,
+} from 'react';
 import { MAX_CONTEXTS, type SharedContext } from '../state/use-message-context';
-import { composerRows } from './composer-rows';
 import { ContextChips } from './context-chips';
 import { type useSlashMenu } from './use-slash-menu';
 
@@ -26,7 +31,6 @@ export function Composer({
   noteReadOnly,
   onToggleWorkspaceAccess,
   applyWithoutAsking,
-  applyToggle,
   onApplyChange,
   hasPage,
   contextCount,
@@ -53,7 +57,6 @@ export function Composer({
   readonly noteReadOnly: boolean;
   readonly onToggleWorkspaceAccess: () => void;
   readonly applyWithoutAsking: boolean;
-  readonly applyToggle: RefObject<HTMLButtonElement | null>;
   readonly onApplyChange: (on: boolean) => void;
   readonly hasPage: boolean;
   readonly contextCount: number;
@@ -62,6 +65,48 @@ export function Composer({
   readonly onShareSelection: () => void;
 }): ReactElement {
   const { options: slashOptions, listbox: slashListbox } = slash;
+  // The "+" trigger, so the banner's "Turn off" can hand focus back to the control it mirrors.
+  const plusTrigger = useRef<RefObject<HTMLButtonElement | null> | null>(null);
+
+  // The field grows with its content up to its max height, wrapped lines included. Measured
+  // rather than counted: a long sentence on a phone wraps without a line break.
+  useLayoutEffect(() => {
+    const field = input.current;
+    if (!field) return;
+    field.style.setProperty('height', 'auto');
+    if (field.scrollHeight > 0)
+      field.style.setProperty('height', `${String(field.scrollHeight)}px`);
+  }, [draft, input]);
+
+  const addItems: MenuEntry[] = [
+    {
+      label: 'Add this page',
+      icon: FilePlus,
+      disabled: !hasPage || contextCount >= MAX_CONTEXTS,
+      onSelect: onAttachPage,
+    },
+    ...(!hasNoteScope && !workspaceAccess
+      ? [
+          {
+            label: 'Use workspace',
+            icon: Layers,
+            disabled: running,
+            onSelect: onToggleWorkspaceAccess,
+          },
+        ]
+      : []),
+    ...(workspaceAccess && !noteReadOnly
+      ? [
+          {
+            label: 'Apply without asking',
+            ...(applyWithoutAsking ? { icon: Check } : {}),
+            onSelect: () => {
+              onApplyChange(!applyWithoutAsking);
+            },
+          },
+        ]
+      : []),
+  ];
 
   function onComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     // An IME's confirming Enter or arrow is the IME's, not the menu's.
@@ -97,7 +142,15 @@ export function Composer({
 
   return (
     <div className="mx-auto flex min-w-0 w-full max-h-[50%] max-w-4xl shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-divider p-3">
-      <ContextChips chips={chips} onRemove={onRemoveChip} />
+      <ContextChips
+        chips={chips}
+        onRemove={onRemoveChip}
+        workspace={
+          workspaceAccess && !hasNoteScope
+            ? { disabled: running, onRemove: onToggleWorkspaceAccess }
+            : undefined
+        }
+      />
       {needsWorkspaceAccess ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
           <Text variant="note">{petName} needs workspace access for this.</Text>
@@ -107,19 +160,16 @@ export function Composer({
         </div>
       ) : null}
       {applyWithoutAsking ? (
-        // Not a live region: the toggle's own pressed state already announces the change,
-        // and a region that appears with its text already in it is read unreliably.
+        // Not a live region: the menu item's own check already shows the state, and a region that
+        // appears with its text already in it is read unreliably.
         <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-divider bg-accent/15 px-3 py-2">
-          <Text variant="note">
-            Applying changes without asking in this conversation. Moves, trash, template saves and
-            external links still ask.
-          </Text>
+          <Text variant="note">Applying changes without asking</Text>
           <Button
             variant="secondary"
             onClick={() => {
               onApplyChange(false);
-              // The banner goes with this button, so focus returns to the toggle it mirrors.
-              applyToggle.current?.focus();
+              // The banner goes with this button, so focus returns to the "+" that turns it on.
+              plusTrigger.current?.current?.focus();
             }}
           >
             Turn off
@@ -140,10 +190,36 @@ export function Composer({
         Message {petName}
       </label>
       <div className="flex min-w-0 items-end gap-2">
+        <Menu label="Add to message" items={addItems}>
+          {(trigger) => {
+            plusTrigger.current = trigger.ref;
+            return (
+              <Button {...trigger} variant="icon" className="shrink-0" aria-label="Add to message">
+                <Icon icon={Plus} size="sm" />
+              </Button>
+            );
+          }}
+        </Menu>
+        {hasPage ? (
+          // Its own button, not a menu entry: choosing from a menu moves focus and can drop the
+          // page selection this action shares, and the mousedown guard keeps it.
+          <Button
+            variant="icon"
+            className="shrink-0"
+            aria-label={hasSelection ? 'Share selected text' : 'Select text on the page first'}
+            disabled={!hasSelection || contextCount >= MAX_CONTEXTS}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={onShareSelection}
+          >
+            <Icon icon={TextQuote} size="sm" />
+          </Button>
+        ) : null}
         <Textarea
           id="pet-message"
           ref={input}
-          rows={composerRows(draft)}
+          rows={1}
           maxLength={8000}
           value={draft}
           placeholder={`Message ${petName}`}
@@ -160,86 +236,15 @@ export function Composer({
           }}
           onKeyDown={onComposerKeyDown}
         />
-        {running ? (
-          <Button
-            variant="icon"
-            className="shrink-0"
-            aria-label="Stop response"
-            onClick={onInterrupt}
-          >
-            <Icon icon={Square} size="sm" />
-          </Button>
-        ) : (
-          <Button
-            variant="icon"
-            className="shrink-0"
-            aria-label="Send"
-            disabled={!canSend}
-            onClick={onSubmit}
-          >
-            <Icon icon={ArrowUp} size="sm" />
-          </Button>
-        )}
-      </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        {!hasNoteScope ? (
-          <Button
-            variant="ghost"
-            className={`shrink-0 ${workspaceAccess ? 'bg-accent/15 text-accent-text' : ''}`}
-            aria-pressed={workspaceAccess}
-            aria-describedby="pet-workspace-access-hint"
-            disabled={running}
-            onClick={onToggleWorkspaceAccess}
-          >
-            Workspace access
-          </Button>
-        ) : null}
-        <Text as="span" variant="note" className="sr-only" id="pet-workspace-access-hint">
-          Lets {petName} find and read your notes for this message. Changes ask first unless you
-          turn on applying without asking.
-        </Text>
-        {workspaceAccess && !noteReadOnly ? (
-          <>
-            <Button
-              ref={applyToggle}
-              variant="ghost"
-              className={`shrink-0 ${applyWithoutAsking ? 'bg-accent/15 text-accent-text' : ''}`}
-              aria-pressed={applyWithoutAsking}
-              aria-describedby="pet-apply-without-asking-hint"
-              onClick={() => {
-                onApplyChange(!applyWithoutAsking);
-              }}
-            >
-              Apply without asking
-            </Button>
-            <Text as="span" variant="note" className="sr-only" id="pet-apply-without-asking-hint">
-              Runs {petName}'s changes in this conversation once their preview shows no problems,
-              using your Nix permissions. Trash, moves, template saves and external links still ask.
-              Changes with problems go back to {petName} to fix. Each conversation starts from the
-              pet's saved default in Settings.
-            </Text>
-          </>
-        ) : null}
+        {/* One element for Send and Stop, so focus stays on it when a turn starts and ends. */}
         <Button
-          variant="icon"
-          className="shrink-0"
-          aria-label="Add this page to the message"
-          disabled={!hasPage || contextCount >= MAX_CONTEXTS}
-          onClick={onAttachPage}
+          variant="primary"
+          className="w-(--control-md) shrink-0 px-0 any-pointer-coarse:w-(--control-lg)"
+          aria-label={running ? 'Stop response' : 'Send'}
+          disabled={!running && !canSend}
+          onClick={running ? onInterrupt : onSubmit}
         >
-          <Icon icon={FilePlus} size="sm" />
-        </Button>
-        <Button
-          variant="icon"
-          className="shrink-0"
-          aria-label={hasSelection ? 'Share selected text' : 'Select text on the page first'}
-          disabled={!hasPage || !hasSelection || contextCount >= MAX_CONTEXTS}
-          onMouseDown={(event) => {
-            event.preventDefault();
-          }}
-          onClick={onShareSelection}
-        >
-          <Icon icon={TextQuote} size="sm" />
+          <Icon icon={running ? Square : ArrowUp} size="sm" />
         </Button>
       </div>
     </div>
