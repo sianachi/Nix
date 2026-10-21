@@ -155,4 +155,30 @@ describe('Popover', () => {
     });
     expect(screen.getByRole('button', { name: 'Elsewhere' })).toHaveFocus();
   });
+
+  it('ignores a late close from an earlier opening once the panel was reopened', async () => {
+    const user = userEvent.setup();
+    const closers: (() => void)[] = [];
+    render(
+      <Popover label="Late" trigger={(trigger) => <button {...trigger}>Late</button>}>
+        {({ close }) => {
+          closers.push(close);
+          return <input aria-label="Field" />;
+        }}
+      </Popover>,
+    );
+    const trigger = screen.getByRole('button', { name: 'Late' });
+
+    await user.click(trigger);
+    const staleClose = closers[closers.length - 1];
+    await user.keyboard('{Escape}');
+    await user.click(trigger);
+    expect(screen.getByRole('dialog', { name: 'Late' })).toBeVisible();
+
+    act(() => {
+      staleClose?.();
+    });
+
+    expect(screen.getByRole('dialog', { name: 'Late' })).toBeVisible();
+  });
 });

@@ -85,6 +85,18 @@ export function Popover(props: PopoverProps): ReactNode {
     openRef.current = open;
   });
 
+  // Each opening is a generation; a close handed out during one opening only applies to that one.
+  const [generation, setGeneration] = useState(0);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setGeneration((g) => g + 1);
+  }
+  const generationRef = useRef(generation);
+  useEffect(() => {
+    generationRef.current = generation;
+  });
+
   const close = (returnFocus: boolean): void => {
     setOpen(false);
     if (returnFocus && openRef.current) setFocusReturnToken((token) => token + 1);
@@ -117,7 +129,7 @@ export function Popover(props: PopoverProps): ReactNode {
               // eslint-disable-next-line react-hooks/refs
               children({
                 close: () => {
-                  close(true);
+                  if (generationRef.current === generation) close(true);
                 },
               })
             : children}
