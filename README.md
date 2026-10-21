@@ -23,42 +23,6 @@ calendar and numbers in one item tree, on a laptop and on a phone. Everything st
 
 The full list is in [docs/features.md](docs/features.md).
 
-## Screenshots
-
-One tree of items, shown the way each job needs. All data here is made up.
-
-| | |
-| --- | --- |
-| ![Timeline](assets/screenshots/timeline.png)<br>**Timeline** | ![Calendar](assets/screenshots/calendar.png)<br>**Calendar** |
-| ![Spreadsheet](assets/screenshots/sheet.png)<br>**Spreadsheet** | ![List](assets/screenshots/list.png)<br>**List** |
-| ![Priority matrix](assets/screenshots/matrix.png)<br>**Matrix** | ![Notes](assets/screenshots/note.png)<br>**Rich notes** |
-| ![Finance](assets/screenshots/finance.png)<br>**Finance** | ![Habits](assets/screenshots/habits.png)<br>**Habits** |
-| ![Companion chat](assets/screenshots/chat.png)<br>**Companion chat** | ![Dark theme](assets/screenshots/dark.png)<br>**Dark theme** |
-
-**On a phone.** Nix installs as an app, with the same views, a share target and offline copies of notes you have opened.
-
-<img src="assets/screenshots/mobile-board.png" alt="Board on a phone" width="150"> <img src="assets/screenshots/mobile-calendar.png" alt="Calendar on a phone" width="150"> <img src="assets/screenshots/mobile-note.png" alt="Note on a phone" width="150"> <img src="assets/screenshots/mobile-habits.png" alt="Habits on a phone" width="150"> <img src="assets/screenshots/mobile-finance.png" alt="Finance on a phone" width="150"> <img src="assets/screenshots/mobile-chat.png" alt="Companion chat on a phone" width="150">
-
-## Run it locally
-
-You need [Docker](https://docs.docker.com/get-docker/) and [mise](https://mise.jdx.dev/).
-
-```sh
-git clone https://github.com/sianachi/nixsites.git && cd nixsites
-mise install                       # Node, pnpm, .NET and Go at the pinned versions
-pnpm install --frozen-lockfile
-pnpm dev                           # infrastructure, database, identity, then every service
-```
-
-Open <http://localhost:5173> and sign in as `dev@nix.localhost` with `NixDev-Password1!`.
-These are local development credentials only.
-
-`pnpm dev` is safe to re-run. Use `bash scripts/dev.sh --help` to start only some services, or
-`--skip-stack` when the Docker infrastructure is already up. If a port is taken, see `.env.example`.
-
-Working in JetBrains Rider? `node --experimental-strip-types scripts/rider-run-configs.mts` writes
-Run/Debug configurations for each service.
-
 ## Run it for real
 
 Try it on your own machine with one line; all it needs is Docker:
@@ -110,6 +74,42 @@ secrets in the namespace. The manifests are in `deploy/k8s`.
 **Images and tags:** every commit on `main` is published as `ghcr.io/sianachi/nix/<image>:<sha>`;
 pushing a `vX.Y.Z` tag names that commit's images `vX.Y.Z` and `latest`, which the installer
 uses by default. `--version` also accepts a full commit SHA.
+
+## Screenshots
+
+One tree of items, shown the way each job needs. All data here is made up.
+
+| | |
+| --- | --- |
+| ![Timeline](assets/screenshots/timeline.png)<br>**Timeline** | ![Calendar](assets/screenshots/calendar.png)<br>**Calendar** |
+| ![Spreadsheet](assets/screenshots/sheet.png)<br>**Spreadsheet** | ![List](assets/screenshots/list.png)<br>**List** |
+| ![Priority matrix](assets/screenshots/matrix.png)<br>**Matrix** | ![Notes](assets/screenshots/note.png)<br>**Rich notes** |
+| ![Finance](assets/screenshots/finance.png)<br>**Finance** | ![Habits](assets/screenshots/habits.png)<br>**Habits** |
+| ![Companion chat](assets/screenshots/chat.png)<br>**Companion chat** | ![Dark theme](assets/screenshots/dark.png)<br>**Dark theme** |
+
+**On a phone.** Nix installs as an app, with the same views, a share target and offline copies of notes you have opened.
+
+<img src="assets/screenshots/mobile-board.png" alt="Board on a phone" width="150"> <img src="assets/screenshots/mobile-calendar.png" alt="Calendar on a phone" width="150"> <img src="assets/screenshots/mobile-note.png" alt="Note on a phone" width="150"> <img src="assets/screenshots/mobile-habits.png" alt="Habits on a phone" width="150"> <img src="assets/screenshots/mobile-finance.png" alt="Finance on a phone" width="150"> <img src="assets/screenshots/mobile-chat.png" alt="Companion chat on a phone" width="150">
+
+## Run it locally
+
+You need [Docker](https://docs.docker.com/get-docker/) and [mise](https://mise.jdx.dev/).
+
+```sh
+git clone https://github.com/sianachi/nixsites.git && cd nixsites
+mise install                       # Node, pnpm, .NET and Go at the pinned versions
+pnpm install --frozen-lockfile
+pnpm dev                           # infrastructure, database, identity, then every service
+```
+
+Open <http://localhost:5173> and sign in as `dev@nix.localhost` with `NixDev-Password1!`.
+These are local development credentials only.
+
+`pnpm dev` is safe to re-run. Use `bash scripts/dev.sh --help` to start only some services, or
+`--skip-stack` when the Docker infrastructure is already up. If a port is taken, see `.env.example`.
+
+Working in JetBrains Rider? `node --experimental-strip-types scripts/rider-run-configs.mts` writes
+Run/Debug configurations for each service.
 
 ## Stack
 
