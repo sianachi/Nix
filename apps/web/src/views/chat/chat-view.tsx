@@ -1,4 +1,5 @@
 import { NewChatNote } from './new-chat-note';
+import { ChatMessage } from './chat-message';
 import { SaveInsightNote } from './save-insight-note';
 import {
   isNixApiError,
@@ -143,7 +144,7 @@ export function ChatView({
     }
   }
   return (
-    <section aria-label="Chat note" className="flex h-full min-h-0 flex-col gap-3">
+    <section aria-label="Chat note" className="@container flex h-full min-h-0 flex-col gap-2">
       {insight !== null ? (
         <SaveInsightNote
           text={insight}
@@ -166,8 +167,8 @@ export function ChatView({
         <Text role="status">Loading conversation…</Text>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2">
-            <Text variant="note">
+          <div className="mx-auto flex w-full max-w-2xl min-w-0 items-center gap-2 px-3 @sm:px-4">
+            <Text variant="note" tone="muted" className="min-w-0 flex-1 truncate">
               Sources:{' '}
               {chat.sourceWorkspaceIds
                 .map(
@@ -178,7 +179,7 @@ export function ChatView({
             </Text>
             {chat.canEdit ? (
               <Button
-                variant="secondary"
+                variant="ghost"
                 disabled={running || busy}
                 onClick={() => {
                   setSources(
@@ -196,8 +197,12 @@ export function ChatView({
             ) : null}
           </div>
           {editingSources ? (
-            <fieldset className="flex flex-col gap-2">
-              <legend>Sources for future turns</legend>
+            <fieldset className="mx-auto flex w-full max-w-2xl flex-col gap-2 px-3 @sm:px-4">
+              <legend>
+                <Text as="span" variant="h5">
+                  Sources for future turns
+                </Text>
+              </legend>
               {workspaces
                 .filter((entry) => entry.lifecycleState === 'active')
                 .map((entry) => (
@@ -242,44 +247,16 @@ export function ChatView({
             latestKey={`${messages.at(-1)?.id ?? ''}:${String(chat.turn?.text.length ?? 0)}`}
           >
             {messages.map((message, index) => (
-              <article
+              <ChatMessage
                 key={message.id}
-                data-pet-latest-message={index === messages.length - 1 ? '' : undefined}
-                data-pet-from-user={message.role === 'user' ? '' : undefined}
-                className="flex flex-col gap-2"
-              >
-                <Text as="span" variant="kicker" tone="muted">
-                  {message.role === 'user'
-                    ? 'User'
-                    : message.role === 'assistant'
-                      ? 'Pet'
-                      : 'Conversation'}
-                </Text>
-                <PetMessageText
-                  text={message.text}
-                  workspaceId={workspaceId}
-                  sourceWorkspaceIds={chat.sourceWorkspaceIds}
-                  // Only the pet's own replies draw components: a chat note is shared, and a
-                  // member's message must never run as UI in another member's session.
-                  format={message.role === 'assistant' ? 'markdown' : 'plain'}
-                  // A chat note is a read-only analysis conversation: its components only read.
-                  readOnly
-                  // Filled in, never sent: the owner reads a component's request first.
-                  onAsk={setDraft}
-                  messageId={message.id}
-                  earlierPieces={piecesBefore[index]}
-                />
-                {message.role === 'assistant' ? (
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setInsight(message.text);
-                    }}
-                  >
-                    Save insight as note
-                  </Button>
-                ) : null}
-              </article>
+                message={message}
+                latest={index === messages.length - 1}
+                workspaceId={workspaceId}
+                sourceWorkspaceIds={chat.sourceWorkspaceIds}
+                earlierPieces={piecesBefore[index]}
+                onAsk={setDraft}
+                onSave={setInsight}
+              />
             ))}
             {!messages.length ? (
               <Text tone="muted">Ask a question about your selected workspaces.</Text>
@@ -304,8 +281,10 @@ export function ChatView({
           </PetChatViewport>
           {chat.turn?.error ? <Text role="alert">{chat.turn.error}</Text> : null}
           {running ? (
-            <div className="flex gap-2">
-              <Text role="status">A reply is in progress…</Text>
+            <div className="mx-auto flex w-full max-w-2xl items-center gap-2 px-3 @sm:px-4">
+              <Text role="status" tone="muted" className="flex-1">
+                A reply is in progress…
+              </Text>
               {chat.canSend ? (
                 <Button
                   variant="secondary"
@@ -325,7 +304,7 @@ export function ChatView({
           ) : null}
           {chat.canSend ? (
             <form
-              className="flex gap-2 p-3"
+              className="mx-auto flex w-full max-w-2xl items-end gap-2 p-3 @sm:p-4"
               onSubmit={(event) => {
                 event.preventDefault();
                 void send();
@@ -340,13 +319,24 @@ export function ChatView({
                   pending.current = null;
                   setDraft(event.currentTarget.value);
                 }}
+                onKeyDown={(event) => {
+                  // Enter stays a newline (a phone has no Shift); Ctrl or Cmd with Enter sends.
+                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    void send();
+                  }
+                }}
               />
               <Button type="submit" disabled={busy || running || !draft.trim()}>
                 Send
               </Button>
             </form>
           ) : (
-            <Text role="status" tone="muted">
+            <Text
+              role="status"
+              tone="muted"
+              className="mx-auto w-full max-w-2xl px-3 pb-3 @sm:px-4"
+            >
               Sending is unavailable. An editor can check source access and the pet connection, or
               update the sources.
             </Text>
