@@ -5,7 +5,7 @@ import {
   type PetSettings,
   type PetSettingsResponse,
 } from '@nix/api-client';
-import { Button, Checkbox, Field, Input, Select, Text, Textarea } from '@nix/ui';
+import { Button, Field, Input, Select, Text, Textarea } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 import { newPet, petCatalog, personalityDescriptions } from './catalog';
 import { usePetSettings } from './use-pet-settings';
@@ -13,20 +13,16 @@ import { PetAvatar } from './pet-avatar';
 import { PetConnectionPanel } from './pet-connection-panel';
 import { PetProviderKeys } from './pet-provider-keys';
 import { PetDeviceSettings } from './pet-device-settings';
+import { PreferenceToggle } from '../settings/shared/preference-toggle';
+import { SettingsSection } from '../settings/shared/settings-section';
 
 export function PetSettingsSection(): ReactElement {
   const state = usePetSettings();
   return (
-    <section aria-labelledby="pets-heading" className="flex min-w-0 max-w-3xl flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <Text id="pets-heading" variant="h3" as="h2">
-          Your companions
-        </Text>
-        <Text variant="note" tone="muted">
-          Choose a provider, character and way of talking. Your pets belong to your account, across
-          all your workspaces.
-        </Text>
-      </div>
+    <SettingsSection
+      title="Your companions"
+      summary="Pick a provider, character and tone; pets follow your account across workspaces"
+    >
       {state.loading ? <Text role="status">Loading your pets…</Text> : null}
       {state.error ? (
         <div className="flex flex-col gap-2">
@@ -43,7 +39,7 @@ export function PetSettingsSection(): ReactElement {
           onSave={state.save}
         />
       ) : null}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -131,28 +127,30 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
     >
       <fieldset disabled={saving} className="flex min-w-0 flex-col gap-4">
         <legend className="sr-only">Saved pets</legend>
-        <Checkbox
+        <PreferenceToggle
           label="Show companion in my workspaces"
           checked={draft.enabled}
           disabled={draft.activePetId === null}
-          onChange={(event) => {
-            change({ ...draft, enabled: event.currentTarget.checked });
+          onChange={(enabled) => {
+            change({ ...draft, enabled });
           }}
+          description="Needs an active pet"
+          unsaved={null}
         />
-        <div className="flex flex-col gap-1">
-          <Checkbox
-            label="Use AI while writing notes"
-            checked={draft.inlineWriting}
-            disabled={draft.activePetId === null || !draft.enabled}
-            onChange={(event) => {
-              change({ ...draft, inlineWriting: event.currentTarget.checked });
-            }}
-          />
-          <Text variant="note" tone="muted">
-            Adds AI commands to the slash menu and the selection menu in notes. The text you select
-            is sent to your connected model. Locked notes are never sent.
-          </Text>
-        </div>
+        <PreferenceToggle
+          label="Use AI while writing notes"
+          checked={draft.inlineWriting}
+          disabled={draft.activePetId === null || !draft.enabled}
+          onChange={(inlineWriting) => {
+            change({ ...draft, inlineWriting });
+          }}
+          description="AI commands in the slash and selection menus"
+          unsaved={null}
+          more="The text you select is sent to your connected model. Locked notes are never sent."
+        />
+        <Text variant="h5" as="h3">
+          Pets
+        </Text>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -203,10 +201,7 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
         )}
         {pet ? (
           <>
-            <Field
-              label="Model provider"
-              hint="Choose the service this pet uses for chat and writing."
-            >
+            <Field label="Model provider" hint="The service this pet uses for chat and writing">
               {(control) => (
                 <Select
                   {...control}
@@ -234,6 +229,9 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
                 }
               />
             )}
+            <Text variant="h5" as="h3">
+              Look and voice
+            </Text>
             <PetAvatar
               appearance={pet.appearance}
               motion={draft.motion}
@@ -292,8 +290,7 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
               </Field>
             </div>
             <Text variant="note" tone="muted">
-              {personalityDescriptions[pet.personality]} All personalities have the same
-              capabilities and respect your permissions.
+              {personalityDescriptions[pet.personality]}
             </Text>
             <Field label="Response length">
               {(control) => (
@@ -314,7 +311,7 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
             </Field>
             <Field
               label="Personal instructions"
-              hint="Tell your pet how you like to work. These preferences do not grant additional access."
+              hint="How you like to work; this never grants extra access"
             >
               {(control) => (
                 <Textarea
@@ -328,20 +325,16 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
                 />
               )}
             </Field>
-            <div className="flex flex-col gap-1">
-              <Checkbox
-                label="Apply changes without asking by default"
-                checked={pet.applyWithoutAsking}
-                onChange={(event) => {
-                  updatePet({ applyWithoutAsking: event.currentTarget.checked });
-                }}
-              />
-              <Text variant="note" tone="muted">
-                Starts each conversation with the Apply without asking switch on, so clean changes
-                run as soon as their preview shows no problems. Moves, trash, template saves and
-                external links still ask, and you can turn the switch off in any conversation.
-              </Text>
-            </div>
+            <PreferenceToggle
+              label="Apply changes without asking by default"
+              checked={pet.applyWithoutAsking}
+              onChange={(applyWithoutAsking) => {
+                updatePet({ applyWithoutAsking });
+              }}
+              description="Clean changes run as soon as their preview shows no problems"
+              unsaved={null}
+              more="Starts each conversation with the Apply without asking switch on. Moves, trash, template saves and external links still ask, and you can turn the switch off in any conversation."
+            />
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -379,10 +372,6 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
             </Select>
           )}
         </Field>
-        <Text variant="note" tone="muted">
-          Messages use your saved personality and instructions. Workspace changes follow the
-          approval setting above and your permissions.
-        </Text>
       </fieldset>
       {draft.enabled ? <PetDeviceSettings inlineWriting={draft.inlineWriting} /> : null}
       <div className="flex flex-wrap items-center gap-3">

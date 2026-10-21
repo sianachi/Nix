@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
 import { formatDateTime, formatRelativeTime } from '../../lib/date-format';
+import { SettingsSection } from '../shared/settings-section';
 import { backupStepFacts } from './backup-facts';
 import { useBackupRuns } from './use-backup-runs';
 
@@ -38,16 +39,18 @@ export function BackupsSection(): ReactElement {
   }, []);
 
   return (
-    <section aria-labelledby="backups-heading" className="flex min-w-0 max-w-4xl flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Text id="backups-heading" variant="h3" as="h2">
-          Backups
-        </Text>
+    <SettingsSection
+      title="Backups"
+      summary="Last night's backup of this deployment, on the server and off-site"
+    >
+      <details>
+        <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+          More<span className="sr-only"> about backups</span>
+        </summary>
         <Text variant="note" tone="muted">
-          The nightly backup of this deployment, taken on the server and copied off-site. A step is
-          overdue when it has not succeeded in the last 26 hours.
+          A step is overdue when it has not succeeded in the last 26 hours.
         </Text>
-      </div>
+      </details>
 
       {status === 'loading' ? <LoadingPanel label="backup status" /> : null}
       {status === 'error' ? (
@@ -121,6 +124,6 @@ export function BackupsSection(): ReactElement {
             );
           })
         : null}
-    </section>
+    </SettingsSection>
   );
 }

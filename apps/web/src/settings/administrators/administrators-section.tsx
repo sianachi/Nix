@@ -1,6 +1,8 @@
 import { Button, Field, Input, Select, Table, Text } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 
+import { useNarrowViewport } from '../../layout/viewport';
+import { SettingsSection } from '../shared/settings-section';
 import { ErrorPanel } from '../../components/states/status-panels';
 import { useWorkspaceAssignablePrincipals } from '../../workspaces/use-workspace-assignable-principals';
 import { formatDay } from '../access-tokens/token-facts';
@@ -17,20 +19,20 @@ import {
 export function AdministratorsSection(): ReactElement {
   const { tenantAdministrator, siteApprover } = useCapabilities();
   return (
-    <div className="flex min-w-0 max-w-4xl flex-col gap-8">
+    <div className="flex min-w-0 flex-col gap-8">
       {tenantAdministrator ? (
         <PeopleBlock
-          id="tenant-admins"
           title="Tenant administrators"
-          description="People who manage roles and groups across the whole tenant. There is always at least one."
+          summary="Manage roles and groups across the whole tenant"
+          more="There is always at least one tenant administrator."
           source={TENANT_ADMINS}
         />
       ) : null}
       {siteApprover ? (
         <PeopleBlock
-          id="site-approvers"
           title="Site approvers"
-          description="People who decide a site’s first publish. Those set in the deployment’s configuration cannot be removed here."
+          summary="Decide a site's first publish"
+          more="Approvers set in the deployment's configuration cannot be removed here."
           source={SITE_APPROVERS}
           showSource
         />
@@ -40,19 +42,20 @@ export function AdministratorsSection(): ReactElement {
 }
 
 function PeopleBlock({
-  id,
   title,
-  description,
+  summary,
+  more,
   source,
   showSource = false,
 }: {
-  readonly id: string;
   readonly title: string;
-  readonly description: string;
+  readonly summary: string;
+  readonly more: string;
   readonly source: PeopleSource;
   readonly showSource?: boolean;
 }): ReactElement {
   const { status, people, error, actionError, busyId, reload, add, remove } = usePeople(source);
+  const narrow = useNarrowViewport();
 
   const columns = [
     { key: 'name', header: 'Person', rowHeader: true, cell: (person: Person) => person.name },
@@ -90,13 +93,15 @@ function PeopleBlock({
   ];
 
   return (
-    <section aria-labelledby={`${id}-heading`} className="flex min-w-0 flex-col gap-3">
-      <Text id={`${id}-heading`} variant="h3" as="h2">
-        {title}
-      </Text>
-      <Text variant="note" tone="muted">
-        {description}
-      </Text>
+    <SettingsSection title={title} summary={summary}>
+      <details>
+        <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+          More<span className="sr-only"> about {title}</span>
+        </summary>
+        <Text variant="note" tone="muted">
+          {more}
+        </Text>
+      </details>
 
       {status === 'error' ? (
         <ErrorPanel
@@ -115,23 +120,64 @@ function PeopleBlock({
         />
       ) : (
         <>
-          <div
-            className="min-w-0 overflow-x-auto"
-            role="region"
-            aria-label={`${title} table`}
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll the table horizontally.
-            tabIndex={0}
-          >
-            <Table
-              caption={title}
-              columns={columns}
-              rows={people}
-              rowKey={(person) => person.id}
-              loading={status === 'loading'}
-              loadingMessage={`Loading ${title.toLocaleLowerCase()}.`}
-              emptyMessage="Nobody is listed yet."
-            />
-          </div>
+          {narrow ? (
+            <ul aria-label={title} className="flex flex-col divide-y divide-divider">
+              {people.length === 0 ? (
+                <Text variant="note" tone="muted" role="status">
+                  {status === 'loading'
+                    ? `Loading ${title.toLocaleLowerCase()}.`
+                    : 'Nobody is listed yet.'}
+                </Text>
+              ) : null}
+              {people.map((person) => (
+                <li key={person.id} className="flex min-h-11 flex-wrap items-center gap-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <Text as="p" variant="bodySmall" className="break-words">
+                      {person.name}
+                    </Text>
+                    <Text as="p" variant="caption" tone="muted">
+                      {[
+                        showSource ? (person.configured ? 'Configured' : 'Granted') : null,
+                        person.since === null ? null : `since ${formatDay(person.since)}`,
+                      ]
+                        .filter((part) => part !== null)
+                        .join(', ')}
+                    </Text>
+                  </div>
+                  {person.configured ? null : (
+                    <Button
+                      variant="secondary"
+                      disabled={busyId !== null}
+                      aria-label={`Remove ${person.name} from ${title}`}
+                      onClick={() => {
+                        void remove(person.id);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div
+              className="min-w-0 overflow-x-auto"
+              role="region"
+              aria-label={`${title} table`}
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll the table horizontally.
+              tabIndex={0}
+            >
+              <Table
+                caption={title}
+                columns={columns}
+                rows={people}
+                rowKey={(person) => person.id}
+                loading={status === 'loading'}
+                loadingMessage={`Loading ${title.toLocaleLowerCase()}.`}
+                emptyMessage="Nobody is listed yet."
+              />
+            </div>
+          )}
           <PersonPicker
             label={title}
             taken={people}
@@ -145,7 +191,7 @@ function PeopleBlock({
           )}
         </>
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -169,7 +215,7 @@ function PersonPicker({
 
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <Field label="Search people" className="w-56">
+      <Field label="Search people" className="w-full sm:w-56">
         {(control) => (
           <Input
             {...control}
@@ -180,7 +226,7 @@ function PersonPicker({
           />
         )}
       </Field>
-      <Field label={`Add to ${label}`} className="w-64">
+      <Field label={`Add to ${label}`} className="w-full sm:w-64">
         {(control) => (
           <Select
             {...control}

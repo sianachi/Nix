@@ -3,6 +3,7 @@ import { useState, type ReactElement } from 'react';
 
 import { ErrorPanel } from '../../components/states/status-panels';
 import { useCapabilities } from '../../session/capabilities-context';
+import { SettingsSection } from '../shared/settings-section';
 import { AccessTokenCreateDialog } from '../access-tokens/access-token-create-dialog';
 import { formatDay, tokenStatus } from '../access-tokens/token-facts';
 import { useAccessTokens, type AccessToken } from '../access-tokens/use-access-tokens';
@@ -43,18 +44,20 @@ export function McpSection(): ReactElement {
   }
 
   return (
-    <section aria-labelledby="mcp-heading" className="flex min-w-0 max-w-4xl flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <Text id="mcp-heading" variant="h3" as="h2">
-          MCP
-        </Text>
+    <SettingsSection
+      title="MCP"
+      summary="Let an AI client use your workspaces as you, within a token's scopes"
+    >
+      <details>
+        <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+          More<span className="sr-only"> about MCP access</span>
+        </summary>
         <Text variant="note" tone="muted">
-          Lets an AI client (Claude Code, Claude Desktop, Cursor and others) use your Nix workspaces
-          through the Model Context Protocol, as you, within a token&apos;s scopes. Core checks
-          every call the same way it checks you; nothing a client sends can widen what the token
-          allows.
+          Works with Claude Code, Claude Desktop, Cursor and other clients through the Model Context
+          Protocol. Core checks every call the same way it checks you; nothing a client sends can
+          widen what the token allows.
         </Text>
-      </div>
+      </details>
 
       <div className="flex flex-col gap-2">
         <Text variant="h5" as="h3">
@@ -84,8 +87,7 @@ export function McpSection(): ReactElement {
           On this computer
         </Text>
         <Text variant="note" tone="muted">
-          With nixctl installed and signed in (nixctl auth login), add it as a stdio server. It uses
-          that profile&apos;s own credential; no token from this page is needed.
+          With nixctl signed in, add it as a stdio server. No token from this page is needed.
         </Text>
         <pre className="overflow-x-auto rounded-md border border-divider bg-surface p-3 font-mono text-sm">
           {`{ "mcpServers": { "nix": { "command": "nixctl", "args": ["mcp"] } } }`}
@@ -118,10 +120,17 @@ export function McpSection(): ReactElement {
           </div>
         </div>
         <Text variant="note" tone="muted">
-          Tokens made here are named with the {MCP_TOKEN_PREFIX} prefix so they are listed together.
-          Revoking one disables that client immediately. All of your tokens, these included, are
-          also under Access tokens.
+          Revoking a token disables that client immediately.
         </Text>
+        <details>
+          <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+            More<span className="sr-only"> about MCP tokens</span>
+          </summary>
+          <Text variant="note" tone="muted">
+            Tokens made here are named with the {MCP_TOKEN_PREFIX} prefix so they are listed
+            together. All of your tokens, these included, are also under Access tokens.
+          </Text>
+        </details>
         {status === 'error' ? (
           <ErrorPanel
             title="Your tokens could not be loaded"
@@ -211,7 +220,7 @@ export function McpSection(): ReactElement {
           </Text>
         </Dialog>
       ) : null}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -226,7 +235,7 @@ function McpTokenRow({
 }): ReactElement {
   const state = tokenStatus(token, now).kind;
   return (
-    <li className="flex flex-wrap items-center gap-3 py-2">
+    <li className="flex flex-wrap items-center gap-3 py-2 min-h-11">
       <div className="min-w-0 flex-1">
         <Text as="p" variant="bodySmall" className="truncate">
           {token.name}

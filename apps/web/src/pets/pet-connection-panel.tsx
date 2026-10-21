@@ -67,7 +67,7 @@ export function PetConnectionPanel({
       className="flex min-w-0 flex-col gap-3 border border-divider p-3 wrap-anywhere"
     >
       {!compact ? (
-        <Text variant="h3" as="h3">
+        <Text variant="h5" as="h3">
           ChatGPT connection
         </Text>
       ) : null}
@@ -75,10 +75,15 @@ export function PetConnectionPanel({
         {connection?.reason ?? 'Checking your connection…'}
       </Text>
       {!compact ? (
-        <Text variant="note" tone="muted">
-          Connecting stores credentials privately on this Nix server. Only messages and context you
-          explicitly share or approve through workspace tools are sent to ChatGPT.
-        </Text>
+        <details>
+          <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+            More<span className="sr-only"> about the ChatGPT connection</span>
+          </summary>
+          <Text variant="note" tone="muted">
+            Connecting stores credentials privately on this Nix server. Only messages and context
+            you explicitly share or approve through workspace tools are sent to ChatGPT.
+          </Text>
+        </details>
       ) : null}
       {connection?.status === 'connecting' && connection.verificationUrl ? (
         <>

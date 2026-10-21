@@ -23,6 +23,7 @@ export function PreferenceToggle(props: {
   readonly unsaved: string | null;
   /** True for a setting that never leaves this browser. */
   readonly deviceOnly?: boolean;
+  readonly disabled?: boolean;
   /** Detail behind the one-line description, kept in a "More" disclosure. */
   readonly more?: ReactNode;
 }): ReactElement {
@@ -32,6 +33,7 @@ export function PreferenceToggle(props: {
       <Checkbox
         label={props.label}
         checked={props.checked}
+        disabled={props.disabled}
         aria-describedby={descriptionId}
         onChange={(event) => {
           props.onChange(event.target.checked);

@@ -110,12 +110,17 @@ export function PetProviderKeys({
       aria-label={`${label} connection`}
       className="flex min-w-0 flex-col gap-3 border border-divider p-3"
     >
-      <Text variant="h3" as="h3">
+      <Text variant="h5" as="h3">
         {label} connection
       </Text>
-      <Text variant="note" tone="muted">
-        {`Your key is kept protected on this Nix server. Messages and shared context go to ${label} and are billed to this key. Your other ${label} pets share it.`}
-      </Text>
+      <details>
+        <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+          More<span className="sr-only"> about the {label} key</span>
+        </summary>
+        <Text variant="note" tone="muted">
+          {`Your key is kept protected on this Nix server. Messages and shared context go to ${label} and are billed to this key. Your other ${label} pets share it.`}
+        </Text>
+      </details>
       {error ? <Text role="alert">{error}</Text> : null}
       {keys === null ? (
         error ? (

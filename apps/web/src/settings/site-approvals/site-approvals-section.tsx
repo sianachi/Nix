@@ -3,6 +3,8 @@ import { Button, Dialog, Field, Table, Text, Textarea } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 
 import { ErrorPanel } from '../../components/states/status-panels';
+import { useNarrowViewport } from '../../layout/viewport';
+import { SettingsSection } from '../shared/settings-section';
 import { formatDateTime } from '../../lib/date-format';
 import { useSiteApprovals } from './use-site-approvals';
 
@@ -18,6 +20,25 @@ interface Deciding {
 export function SiteApprovalsSection(): ReactElement {
   const { status, approvals, error, busySiteId, reload, decide } = useSiteApprovals();
   const [deciding, setDeciding] = useState<Deciding | null>(null);
+  const narrow = useNarrowViewport();
+
+  const decisionButtons = (entry: SiteApprovalEntry): ReactElement => (
+    <span className="inline-flex gap-2">
+      {(['approve', 'reject'] as const).map((decision) => (
+        <Button
+          key={decision}
+          variant="secondary"
+          disabled={busySiteId !== null}
+          aria-label={`${decision === 'approve' ? 'Approve' : 'Reject'} ${entry.name}`}
+          onClick={() => {
+            setDeciding({ entry, decision });
+          }}
+        >
+          {decision === 'approve' ? 'Approve' : 'Reject'}
+        </Button>
+      ))}
+    </span>
+  );
 
   const columns = [
     {
@@ -48,35 +69,15 @@ export function SiteApprovalsSection(): ReactElement {
     {
       key: 'actions',
       header: 'Decision',
-      cell: (entry: SiteApprovalEntry) => (
-        <span className="inline-flex gap-2">
-          {(['approve', 'reject'] as const).map((decision) => (
-            <Button
-              key={decision}
-              variant="secondary"
-              disabled={busySiteId !== null}
-              aria-label={`${decision === 'approve' ? 'Approve' : 'Reject'} ${entry.name}`}
-              onClick={() => {
-                setDeciding({ entry, decision });
-              }}
-            >
-              {decision === 'approve' ? 'Approve' : 'Reject'}
-            </Button>
-          ))}
-        </span>
-      ),
+      cell: decisionButtons,
     },
   ] as const;
 
   return (
-    <section aria-labelledby="site-approvals-heading" className="flex min-w-0 flex-col gap-3">
-      <Text id="site-approvals-heading" variant="h3" as="h2">
-        Site approvals
-      </Text>
-      <Text variant="note" tone="muted">
-        A site’s first publish waits here for an approver. Approving makes the site public.
-      </Text>
-
+    <SettingsSection
+      title="Site approvals"
+      summary="A site's first publish waits here; approving makes it public"
+    >
       {status === 'error' ? (
         <ErrorPanel
           title="Site approvals could not be loaded"
@@ -92,6 +93,30 @@ export function SiteApprovalsSection(): ReactElement {
             </Button>
           }
         />
+      ) : narrow ? (
+        <ul
+          aria-label="Sites waiting for a decision"
+          className="flex flex-col divide-y divide-divider"
+        >
+          {approvals.length === 0 ? (
+            <Text variant="note" tone="muted" role="status">
+              {status === 'loading'
+                ? 'Loading the site approvals.'
+                : 'No site is waiting for approval.'}
+            </Text>
+          ) : null}
+          {approvals.map((entry) => (
+            <li key={entry.siteId} className="flex flex-col gap-2 py-3">
+              <Text as="p" variant="bodySmall" className="break-words">
+                {`${entry.name} (${entry.slug})`}
+              </Text>
+              <Text as="p" variant="caption" tone="muted" className="break-words">
+                {`${entry.hostnames.join(', ')} · asked ${formatDateTime(new Date(entry.approval.requestedAt))}`}
+              </Text>
+              {decisionButtons(entry)}
+            </li>
+          ))}
+        </ul>
       ) : (
         <div
           className="min-w-0 overflow-x-auto"
@@ -121,7 +146,7 @@ export function SiteApprovalsSection(): ReactElement {
           onDecide={(note) => decide(deciding.entry.siteId, deciding.decision, note)}
         />
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
