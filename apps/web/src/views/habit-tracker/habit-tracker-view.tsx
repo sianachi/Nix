@@ -19,6 +19,7 @@ import { HabitChartWidgets, type HabitWidgetConfig } from './habit-chart-widgets
 import { HabitInsights } from './habit-insights';
 import { HabitRow } from './habit-row';
 import { HabitSetup } from './habit-setup';
+import { HabitTrackerHeader } from './habit-tracker-header';
 import { dateText, shiftedDay, todayInTimezone, weekWindow, WEEKDAYS } from './habit-days';
 
 // The tracker's public surface stays here; My Day and tests import these from this module.
@@ -167,126 +168,37 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
       className="@container flex min-w-0 flex-col gap-6"
       aria-labelledby="habit-tracker-title"
     >
-      <header className="flex flex-col gap-4 border-b border-divider pb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <Text as="h2" variant="h4" id="habit-tracker-title">
-              {screen === 'insights'
-                ? 'Your progress'
-                : todayOnly
-                  ? 'Today'
-                  : weekOffset === 0
-                    ? 'This week'
-                    : weekOffset < 0
-                      ? 'Previous week'
-                      : 'Next week'}
-            </Text>
-            <Text variant="bodySmall" tone="muted">
-              {screen === 'insights'
-                ? 'See the pattern, then choose a day to update it.'
-                : todayOnly
-                  ? 'One day at a time. Check in with your habits below.'
-                  : `${window.from} to ${window.to}`}
-            </Text>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setShowSetup((value) => !value);
-            }}
-          >
-            {showSetup ? 'Close setup' : 'Add a habit'}
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <nav
-            className="flex max-w-full flex-wrap gap-1 rounded-lg bg-surface-raised p-1"
-            aria-label="Habit screens"
-          >
-            <Button
-              variant={screen === 'checkins' && todayOnly ? 'primary' : 'ghost'}
-              aria-pressed={screen === 'checkins' && todayOnly}
-              onClick={() => {
-                chooseTodayOnly(true);
-                setWeekOffset(0);
-              }}
-            >
-              Today
-            </Button>
-            <Button
-              variant={screen === 'checkins' && !todayOnly ? 'primary' : 'ghost'}
-              aria-label="Show week"
-              aria-pressed={screen === 'checkins' && !todayOnly}
-              onClick={() => {
-                chooseTodayOnly(false);
-              }}
-            >
-              Week
-            </Button>
-            <Button
-              variant={screen === 'insights' ? 'primary' : 'ghost'}
-              aria-pressed={screen === 'insights'}
-              onClick={() => {
-                setScreen('insights');
-              }}
-            >
-              Insights
-            </Button>
-          </nav>
-          <details>
-            <summary
-              className={cn(
-                'flex min-h-6 cursor-pointer items-center rounded-md px-2 py-1 text-sm text-muted any-pointer-coarse:min-h-(--control-lg)',
-                focusRing,
-              )}
-            >
-              Display options
-            </summary>
-            <Button
-              variant="ghost"
-              aria-pressed={showArchived}
-              onClick={() => {
-                setShowArchived((value) => !value);
-              }}
-            >
-              {showArchived ? 'Hide archived' : 'Show archived'}
-            </Button>
-          </details>
-        </div>
-        {screen === 'checkins' && !todayOnly ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="secondary"
-              aria-label="Previous week"
-              onClick={() => {
-                setWeekOffset((value) => value - 1);
-              }}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setWeekOffset(0);
-              }}
-            >
-              This week
-            </Button>
-            <Button
-              variant="secondary"
-              aria-label="Next week"
-              onClick={() => {
-                setWeekOffset((value) => value + 1);
-              }}
-            >
-              Next
-            </Button>
-            <Text as="span" variant="caption" tone="muted">
-              Tap a day to check in or correct it.
-            </Text>
-          </div>
-        ) : null}
-      </header>
+      <HabitTrackerHeader
+        screen={screen}
+        todayOnly={todayOnly}
+        weekOffset={weekOffset}
+        windowFrom={window.from}
+        windowTo={window.to}
+        showSetup={showSetup}
+        showArchived={showArchived}
+        onToday={() => {
+          chooseTodayOnly(true);
+          setWeekOffset(0);
+        }}
+        onWeek={() => {
+          chooseTodayOnly(false);
+        }}
+        onInsights={() => {
+          setScreen('insights');
+        }}
+        onToggleSetup={() => {
+          setShowSetup((value) => !value);
+        }}
+        onToggleArchived={() => {
+          setShowArchived((value) => !value);
+        }}
+        onShiftWeek={(delta) => {
+          setWeekOffset((value) => value + delta);
+        }}
+        onThisWeek={() => {
+          setWeekOffset(0);
+        }}
+      />
       <ShownItems ids={shownHabitIds} />
       {showSetup ? (
         <HabitSetup
