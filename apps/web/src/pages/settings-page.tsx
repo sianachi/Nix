@@ -117,9 +117,8 @@ export function SettingsPage(): ReactElement {
   const navigate = useNavigate();
   // Back to the list undoes the push that opened the section; only a deep link has nothing to undo.
   const drilledFromList = drilledState.safeParse(state).success;
-  const lastOpened = useRef<string>();
-  if (activeTab !== null) lastOpened.current = activeTab;
-  const cameFrom = fromState.safeParse(state).data?.from ?? lastOpened.current;
+  const lastOpened = useRef<string | undefined>(undefined);
+  const cameFrom = fromState.safeParse(state).data?.from;
 
   // Phone: drilling in puts focus on the section; coming back puts it on the row that was opened.
   useEffect(() => {
@@ -127,10 +126,12 @@ export function SettingsPage(): ReactElement {
     if (activeTab !== null) {
       if (scroller.current !== null) scroller.current.scrollTop = 0;
       content.current?.focus({ preventScroll: true });
-    } else if (cameFrom !== undefined) {
-      nav.current
-        ?.querySelector<HTMLElement>(`a[href$="${SETTINGS_TAB_PARAM}=${cameFrom}"]`)
-        ?.focus();
+      lastOpened.current = activeTab;
+    } else {
+      const row = cameFrom ?? lastOpened.current;
+      if (row !== undefined) {
+        nav.current?.querySelector<HTMLElement>(`a[href$="${SETTINGS_TAB_PARAM}=${row}"]`)?.focus();
+      }
     }
   }, [narrow, activeTab, cameFrom]);
 
@@ -152,7 +153,12 @@ export function SettingsPage(): ReactElement {
               items={items.map((section) => ({ href: hrefFor(section.id), label: section.label }))}
               {...(activeTab === null ? {} : { currentHref: hrefFor(activeTab) })}
               renderLink={({ href, children, ...rest }) => (
-                <Link to={href} replace={!narrow} state={narrow ? { drilled: true } : undefined} {...rest}>
+                <Link
+                  to={href}
+                  replace={!narrow}
+                  state={narrow ? { drilled: true } : undefined}
+                  {...rest}
+                >
                   {children}
                   {narrow ? <Icon icon={ChevronRight} size="sm" className="ml-auto" /> : null}
                 </Link>

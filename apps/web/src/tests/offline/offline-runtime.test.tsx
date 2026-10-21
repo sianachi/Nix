@@ -502,7 +502,9 @@ describe('scheduling background offline synchronization', () => {
     });
     try {
       const mounted = renderRuntime(core([note(1)]).client);
-      await vi.waitFor(() => expect(requests).toBe(1));
+      await vi.waitFor(() => {
+        expect(requests).toBe(1);
+      });
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 1_500));
       });
