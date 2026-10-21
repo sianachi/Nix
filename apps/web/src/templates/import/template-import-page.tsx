@@ -2,97 +2,29 @@ import { Blueprint, Button, Dialog, Icon, Tag, Text, focusRing } from '@nix/ui';
 import { ArrowLeft, FileCheck2, FileUp, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { z } from 'zod';
 
 import { isCanceledError, isNixApiError, NixErrorKind } from '@nix/api-client';
 
-import { useApiClient } from '../api/api-client-provider';
-import { browserSessionStorage } from '../lib/browser-storage';
-import { useZenActive } from '../lib/zen-mode';
-import { useTemplateLibrary } from './template-library-context';
+import { useApiClient } from '../../api/api-client-provider';
+import { useZenActive } from '../../lib/zen-mode';
+import { useTemplateLibrary } from '../template-library-context';
 import {
   beginAndPreviewTemplate,
   cancelTemplateImport,
   commitAndWaitTemplate,
-  TemplateImportPreviewSchema,
   type TemplateImportPreview,
-} from './template-api';
-import { templateFailure } from './use-templates';
-import { useWorkspace } from '../workspaces/workspace-context';
-
-const draftKey = (workspaceId: string): string => `nix:template-import:${workspaceId}`;
-
-const FileIdentitySchema = z.object({
-  name: z.string(),
-  size: z.number().int().nonnegative(),
-  lastModified: z.number().int().nonnegative(),
-});
-
-const ImportDraftSchema = z.object({
-  importId: z.uuid().nullable(),
-  preview: TemplateImportPreviewSchema.nullable(),
-  idempotencyKey: z.uuid(),
-  fileIdentity: FileIdentitySchema.optional(),
-});
-
-type FileIdentity = z.infer<typeof FileIdentitySchema>;
-
-interface ImportDraft {
-  readonly importId: string | null;
-  readonly preview: TemplateImportPreview | null;
-  readonly idempotencyKey: string;
-  readonly fileIdentity: FileIdentity | null;
-}
-
-function newImportDraft(): ImportDraft {
-  return {
-    importId: null,
-    preview: null,
-    idempotencyKey: globalThis.crypto.randomUUID(),
-    fileIdentity: null,
-  };
-}
-
-function identify(file: File): FileIdentity {
-  return { name: file.name, size: file.size, lastModified: file.lastModified };
-}
-
-function isSameFile(file: File, identity: FileIdentity): boolean {
-  return (
-    file.name === identity.name &&
-    file.size === identity.size &&
-    file.lastModified === identity.lastModified
-  );
-}
-
-function readDraft(workspaceId: string): ImportDraft {
-  try {
-    const raw = browserSessionStorage()?.getItem(draftKey(workspaceId));
-    if (raw === null || raw === undefined) return newImportDraft();
-    const parsed = ImportDraftSchema.safeParse(JSON.parse(raw));
-    return parsed.success
-      ? { ...parsed.data, fileIdentity: parsed.data.fileIdentity ?? null }
-      : newImportDraft();
-  } catch {
-    return newImportDraft();
-  }
-}
-
-function writeDraft(workspaceId: string, draft: ImportDraft): void {
-  try {
-    browserSessionStorage()?.setItem(draftKey(workspaceId), JSON.stringify(draft));
-  } catch {
-    // Recovery storage is optional; the durable server-side attempt remains authoritative.
-  }
-}
-
-function forgetDraft(workspaceId: string): void {
-  try {
-    browserSessionStorage()?.removeItem(draftKey(workspaceId));
-  } catch {
-    // A blocked storage API must not block cancellation or navigation.
-  }
-}
+} from '../template-api';
+import { ImportCount } from './import-count';
+import {
+  forgetDraft,
+  identify,
+  isSameFile,
+  readDraft,
+  writeDraft,
+  type FileIdentity,
+} from './import-draft';
+import { templateFailure } from '../use-templates';
+import { useWorkspace } from '../../workspaces/workspace-context';
 
 export function TemplateImportPage(): ReactNode {
   const zen = useZenActive();
@@ -587,23 +519,6 @@ export function TemplateImportPage(): ReactNode {
           details will be forgotten.
         </Text>
       </Dialog>
-    </div>
-  );
-}
-
-function ImportCount({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: number;
-}): ReactNode {
-  return (
-    <div className="rounded-md bg-surface p-2 text-center">
-      <Text variant="h3">{String(value)}</Text>
-      <Text variant="caption" tone="muted">
-        {label}
-      </Text>
     </div>
   );
 }

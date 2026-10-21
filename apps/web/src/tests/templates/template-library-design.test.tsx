@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 import { expect, it, vi } from 'vitest';
-import { TemplateLibraryPage } from '../../templates/template-library-page';
+import { TemplateLibraryPage } from '../../templates/library/template-library-page';
 
 const settings = vi.hoisted(() => ({ enabled: true }));
 vi.mock('../../pets/use-pet-settings', () => ({

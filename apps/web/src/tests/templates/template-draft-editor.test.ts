@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { templateDraftDocumentPath } from '../../templates/template-draft-editor';
+import { templateDraftDocumentPath } from '../../templates/draft/template-draft-editor';
 
 describe('the template draft body route', () => {
   it('addresses the provisioning body by template, operation, and portable source item', () => {

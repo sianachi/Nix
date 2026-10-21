@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event';
 import { ApiClientOverrideProvider } from '../api/api-client-provider';
 import type { WorkspaceLoadState } from '../workspaces/workspace-context';
 import { WorkspaceProvider } from '../workspaces/workspace-context';
-import { TemplateInitializationEditor } from './template-initialization-editor';
+import { TemplateInitializationEditor } from './initialization/template-initialization-editor';
 import type { TemplateItem } from './template-api';
 
 const WORKSPACE = '11111111-1111-4111-8111-111111111111';

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { EffectiveSchemaSchema, ViewSchema } from '../views/core/container-model';
 import { browserSessionStorage } from '../lib/browser-storage';
 import { type TemplateEditDraft } from './template-api';
-import { type TemplateItemEdits } from './template-draft-editor';
+import { type TemplateItemEdits } from './draft/template-draft-editor';
 
 export type StudioMode = 'capture' | 'create' | 'apply' | 'edit';
 
