@@ -8,7 +8,8 @@ import { SelectCheckbox } from '../core/select-checkbox';
 import { rowGestures } from '../core/use-item-selection';
 import { driveKindIcon } from './drive-icons';
 import { DriveFileThumbnail } from './drive-file-thumbnail';
-import { isFileRow, type RowsProps } from './drive-rows';
+import { DriveRowActions } from './drive-row-actions';
+import { isFileRow, rowDetail, type RowsProps } from './drive-rows';
 import { kindOf, type SortKey, type SortState } from './drive-sort';
 
 export function DriveTable(
@@ -38,7 +39,7 @@ export function DriveTable(
         <thead>
           <tr>
             <th scope="col" className="w-(--control-lg) border-b border-divider p-2">
-              {selection === null ? null : <Text variant="kicker">Select</Text>}
+              {selection === null ? null : <span className="sr-only">Select</span>}
             </th>
             <SortableHeader label="Name" columnKey="name" sort={sort} onChangeSort={onChangeSort} />
             {/* Kind and Modified are context, not identity - on a phone-width table that scrolls
@@ -57,7 +58,7 @@ export function DriveTable(
               sort={sort}
               onChangeSort={onChangeSort}
               align="end"
-              className="w-1/4 @2xl/drive:w-auto"
+              className="hidden @2xl/drive:table-cell"
             />
             <SortableHeader
               label="Modified"
@@ -67,6 +68,9 @@ export function DriveTable(
               align="end"
               className="hidden @2xl/drive:table-cell"
             />
+            <th scope="col" className="w-14 border-b border-divider p-0">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -135,17 +139,24 @@ export function DriveTable(
                         ) : (
                           <Icon icon={RowIcon} size="sm" />
                         )}
-                        <Text variant="body" as="span" className="min-w-0 flex-1">
+                        <Text variant="body" as="span" className="min-w-0 flex-1 wrap-anywhere">
                           {item.title || 'Untitled'}
                         </Text>
                       </button>
+                      {/* The dropped Kind and Size columns as one line, outside the button so the
+                          button stays named by the title; shown only where there is no room for them. */}
+                      <div className="pl-10 @2xl/drive:hidden">
+                        <Text variant="caption" as="span" tone="muted">
+                          {rowDetail(item, info)}
+                        </Text>
+                      </div>
                     </td>
                     <td className="hidden border-b border-divider p-2 @2xl/drive:table-cell">
                       <Text variant="body" as="span" tone="muted">
                         {kindOf(item, info)}
                       </Text>
                     </td>
-                    <td className="border-b border-divider p-2 text-right">
+                    <td className="hidden border-b border-divider p-2 text-right @2xl/drive:table-cell">
                       <Text variant="body" as="span" tone="muted">
                         {item.type === 'file'
                           ? info?.status === 'ready'
@@ -158,6 +169,9 @@ export function DriveTable(
                       <Text variant="body" as="span" tone="muted">
                         {formatWhen(item.updatedAt)}
                       </Text>
+                    </td>
+                    <td className="border-b border-divider p-1">
+                      <DriveRowActions item={item} rowContextMenu={rowContextMenu} />
                     </td>
                   </tr>
                 )}
@@ -208,7 +222,7 @@ function SortableHeader({
           onChangeSort(columnKey);
         }}
         className={cn(
-          'flex w-full items-center gap-1 p-2',
+          'flex min-h-(--control-sm) w-full items-center gap-1 p-2 pointer-coarse:min-h-(--control-lg)',
           align === 'end' ? 'justify-end' : 'justify-start',
           focusRing,
         )}

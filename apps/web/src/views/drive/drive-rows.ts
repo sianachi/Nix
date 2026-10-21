@@ -1,8 +1,18 @@
 import type { MenuEntry } from '@nix/ui';
 import type { DragEvent } from 'react';
 
+import { formatBytes } from '../../files/file-facts';
 import type { Item } from '../core/container-model';
+import { kindOf } from './drive-sort';
 import type { DriveFileInfo } from './use-drive-file-info';
+
+/** The kind and size line a phone row and a grid card carry in place of the dropped columns. */
+export function rowDetail(item: Item, info: DriveFileInfo | undefined): string {
+  const kind = kindOf(item, info);
+  return item.type === 'file' && info?.status === 'ready'
+    ? `${kind} · ${formatBytes(info.record.current.byteLength)}`
+    : kind;
+}
 
 /** A file that is not also drawn as a folder: the rows whose picture can be a thumbnail. */
 export function isFileRow(item: Item): boolean {

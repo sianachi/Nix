@@ -280,6 +280,15 @@ describe('the drive view', () => {
     expect(fetchFileContentMock).toHaveBeenCalledWith(client, FILE_A.id);
   });
 
+  it('offers the same actions from a visible button on every row, for touch', async () => {
+    render(driveOf({ items: [FILE_A, FILE_B] }));
+    fireEvent.click(screen.getByRole('button', { name: `Actions for ${FILE_A.title}` }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Download' }));
+    await vi.waitFor(() => {
+      expect(fetchFileContentMock).toHaveBeenCalledWith(client, FILE_A.id);
+    });
+  });
+
   it('draws a row for every child, naming its kind and icon by its body kind', async () => {
     render(driveOf({ items: [NOTE, FOLDER, FILE_A] }));
 
@@ -290,7 +299,8 @@ describe('the drive view', () => {
     // The row's own <tr> carries the kind and size cells; find it from the name button.
     const row = screen.getByRole('button', { name: 'Alpha folder' }).closest('tr');
     if (row === null) throw new Error('The row did not render inside a <tr>.');
-    expect(within(row).getByText('Note')).toBeInTheDocument();
+    // Twice: the Kind column, and the one-line detail a phone row shows in its place.
+    expect(within(row).getAllByText('Note')).toHaveLength(2);
   });
 
   it('fetches file facts lazily and shows the size once it resolves', async () => {
@@ -308,7 +318,9 @@ describe('the drive view', () => {
     render(driveOf({ items: [FILE_B, NOTE, FOLDER] }));
 
     const names = () =>
-      screen.getAllByRole('button', { name: /note|folder|file/i }).map((b) => b.textContent);
+      screen
+        .getAllByRole('button', { name: /^\w+ (note|folder|file)$/i })
+        .map((b) => b.textContent);
     expect(names()).toEqual(['Alpha folder', 'Bravo note', 'Delta file']);
 
     fireEvent.click(screen.getByRole('button', { name: /^Name/ }));

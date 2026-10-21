@@ -222,6 +222,12 @@ export function DriveView(props: ViewRendererProps): ReactNode {
         <>
           <ShownItems ids={rows.map((row) => row.id)} />
 
+          {/* Above the list, so Upload is in reach on a phone without scrolling past every file. */}
+          <div className="flex flex-wrap gap-2">
+            <CreateItemControl label="Add an item" onCreate={container.create} />
+            {uploadButton}
+          </div>
+
           {layout === 'grid' ? (
             <DriveGrid
               rows={rows}
@@ -249,11 +255,6 @@ export function DriveView(props: ViewRendererProps): ReactNode {
               onDrop={onRowDrop}
             />
           )}
-
-          <div className="flex flex-wrap gap-2">
-            <CreateItemControl label="Add an item" onCreate={container.create} />
-            {uploadButton}
-          </div>
         </>
       )}
     </div>

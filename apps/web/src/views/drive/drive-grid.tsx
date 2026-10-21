@@ -1,14 +1,13 @@
 import { ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import type { ReactNode } from 'react';
 
-import { formatBytes } from '../../files/file-facts';
 import { useOptionalItemSelection } from '../core/item-selection-context';
 import { SelectCheckbox } from '../core/select-checkbox';
 import { rowGestures } from '../core/use-item-selection';
 import { driveKindIcon } from './drive-icons';
 import { DriveFileThumbnail } from './drive-file-thumbnail';
-import { isFileRow, type RowsProps } from './drive-rows';
-import { kindOf } from './drive-sort';
+import { DriveRowActions } from './drive-row-actions';
+import { isFileRow, rowDetail, type RowsProps } from './drive-rows';
 
 export function DriveGrid(props: RowsProps): ReactNode {
   const {
@@ -31,7 +30,7 @@ export function DriveGrid(props: RowsProps): ReactNode {
     <ul
       role="list"
       aria-label="This drive's contents"
-      className="grid min-w-0 grid-cols-1 gap-3 @lg/drive:grid-cols-2 @3xl/drive:grid-cols-3 @5xl/drive:grid-cols-4 @7xl/drive:grid-cols-6"
+      className="grid min-w-0 grid-cols-2 gap-3 @3xl/drive:grid-cols-3 @5xl/drive:grid-cols-4 @7xl/drive:grid-cols-6"
     >
       {rows.map((item) => {
         const info = fileInfo.get(item.id);
@@ -77,7 +76,10 @@ export function DriveGrid(props: RowsProps): ReactNode {
                   dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
                 )}
               >
-                <SelectCheckbox item={item} className="self-start" />
+                <div className="flex w-full items-center justify-between">
+                  <SelectCheckbox item={item} />
+                  <DriveRowActions item={item} rowContextMenu={rowContextMenu} />
+                </div>
                 {isFileRow(item) ? (
                   <DriveFileThumbnail
                     item={item}
@@ -91,7 +93,10 @@ export function DriveGrid(props: RowsProps): ReactNode {
                 <button
                   type="button"
                   {...openProps}
-                  className={cn('w-full min-w-0 text-center', focusRing)}
+                  className={cn(
+                    'min-h-(--control-sm) w-full min-w-0 text-center pointer-coarse:min-h-(--control-lg)',
+                    focusRing,
+                  )}
                 >
                   <Text
                     variant="body"
@@ -103,11 +108,7 @@ export function DriveGrid(props: RowsProps): ReactNode {
                   </Text>
                 </button>
                 <Text variant="caption" as="span" tone="muted">
-                  {item.type === 'file'
-                    ? info?.status === 'ready'
-                      ? formatBytes(info.record.current.byteLength)
-                      : '—'
-                    : kindOf(item, info)}
+                  {rowDetail(item, info)}
                 </Text>
               </li>
             )}
