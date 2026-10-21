@@ -89,7 +89,6 @@ describe('the guided creation studio', () => {
     stubCoreApi();
     renderAt(<App />, '/new/board');
     await screen.findByRole('heading', { name: /new board/i });
-    await user.click(screen.getByRole('button', { name: /continue/i }));
     const options = screen.getByRole('textbox', { name: 'Options' });
     await user.clear(options);
     await user.type(options, 'To do{Enter}In progress{Enter}Done');
@@ -127,13 +126,13 @@ describe('the guided creation studio', () => {
     const first = renderAt(<App />, url);
 
     expect(await screen.findByText(/creating in product planning/i)).toBeVisible();
-    const name = screen.getByRole('textbox', { name: /name/i });
+    const name = screen.getByRole('textbox', { name: 'Name' });
     await user.clear(name);
     await user.type(name, 'Launch workflow');
     first.unmount();
 
     renderAt(<App />, url);
-    expect(await screen.findByRole('textbox', { name: /name/i })).toHaveValue('Launch workflow');
+    expect(await screen.findByRole('textbox', { name: 'Name' })).toHaveValue('Launch workflow');
   });
 
   it('starts Interactive Form with its full designer and a response companion', async () => {
@@ -147,8 +146,6 @@ describe('the guided creation studio', () => {
     expect(screen.getByRole('region', { name: /interactive form designer/i })).toBeVisible();
     expect(screen.getByRole('heading', { name: /form flow/i })).toBeVisible();
     expect(screen.getByRole('checkbox', { name: /publish a public response link/i })).toBeVisible();
-
-    await user.click(screen.getByRole('button', { name: /continue/i }));
     expect(screen.getByRole('combobox', { name: /companion/i })).toHaveValue('list');
   });
 
@@ -169,7 +166,7 @@ describe('the guided creation studio', () => {
 
     expect(await screen.findByRole('heading', { name: /edit board/i })).toBeVisible();
     await waitFor(() => {
-      expect(screen.getByRole('textbox', { name: /name/i })).toHaveValue('Delivery board');
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Delivery board');
     });
     expect(screen.getByRole('heading', { name: /delivery board/i })).toBeVisible();
   });
@@ -220,18 +217,17 @@ describe('the guided creation studio', () => {
 
     renderAt(<App />, `/items/${DESTINATION.id}/views/${primary.id}/edit/board`);
     await waitFor(() => {
-      expect(screen.getByRole('textbox', { name: /name/i })).toHaveValue(primary.name);
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(primary.name);
     });
-    await user.click(screen.getByRole('button', { name: /continue/i }));
     await user.click(screen.getByRole('button', { name: /continue/i }));
 
     expect(screen.getByRole('combobox', { name: /companion/i })).toHaveValue('timeline');
     expect(screen.getByRole('option', { name: companion.name })).toBeVisible();
-    expect(screen.getByRole('combobox', { name: /placement/i })).toHaveValue('beside');
-
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-    expect(screen.getByRole('heading', { name: 'Ready to save' })).toBeVisible();
-    expect(screen.getByText('Nothing changes until you press Save.')).toBeVisible();
+    const placement = screen.getByRole('group', { name: 'Placement' });
+    expect(within(placement).getByRole('button', { name: 'Side by side' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
 
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(screen.getByRole('button', { name: 'Updating…' })).toBeDisabled();
@@ -303,12 +299,10 @@ describe('the guided creation studio', () => {
 
     renderAt(<App />, `/items/${DESTINATION.id}/views/${primary.id}/edit/board`);
     await waitFor(() => {
-      expect(screen.getByRole('textbox', { name: /name/i })).toHaveValue(primary.name);
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(primary.name);
     });
     await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /continue/i }));
     await user.selectOptions(screen.getByRole('combobox', { name: /companion/i }), '');
-    await user.click(screen.getByRole('button', { name: /continue/i }));
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
     const request = vi
@@ -327,7 +321,7 @@ describe('the guided creation studio', () => {
     delayed.release();
   });
 
-  it('uses create-specific review and progress copy for a new setup', async () => {
+  it('uses create-specific button and progress copy for a new setup', async () => {
     const user = userEvent.setup();
     stubCoreApi();
     const delayed = deferFetch(
@@ -335,13 +329,7 @@ describe('the guided creation studio', () => {
     );
     renderAt(<App />, '/new/list');
 
-    await screen.findByRole('textbox', { name: /name/i });
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-
-    expect(screen.getByRole('heading', { name: 'Ready to create' })).toBeVisible();
-    expect(screen.getByText('Nothing is written until you press Create.')).toBeVisible();
+    await screen.findByRole('textbox', { name: 'Name' });
     await user.click(screen.getByRole('button', { name: 'Create List' }));
     expect(screen.getByRole('button', { name: 'Creating…' })).toBeDisabled();
 
@@ -351,19 +339,13 @@ describe('the guided creation studio', () => {
     });
   });
 
-  it('uses add-specific review and progress copy for a new view on an existing item', async () => {
+  it('uses add-specific button and progress copy for a new view on an existing item', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [DESTINATION] });
     const delayed = deferFetch((url, method) => method === 'POST' && url.endsWith('/view-setups'));
     renderAt(<App />, `/items/${DESTINATION.id}/views/new/list`);
 
     await screen.findByRole('heading', { name: 'Add List view' });
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-
-    expect(screen.getByRole('heading', { name: 'Ready to add' })).toBeVisible();
-    expect(screen.getByText('Nothing is added until you press Add.')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Add List' }));
     expect(screen.getByRole('button', { name: 'Adding…' })).toBeDisabled();
 
@@ -421,7 +403,7 @@ describe('the guided creation studio', () => {
     renderAt(<App />, `/items/${DESTINATION.id}/views/${view.id}/edit/board`);
 
     await waitFor(() => {
-      expect(screen.getByRole('textbox', { name: /name/i })).toHaveValue(view.name);
+      expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue(view.name);
     });
     await user.click(screen.getByRole('button', { name: /continue/i }));
 
@@ -443,13 +425,13 @@ describe('the guided creation studio', () => {
     stubCoreApi();
     renderAt(<App />, '/new/board');
 
-    const name = await screen.findByRole('textbox', { name: /name/i });
+    const name = await screen.findByRole('textbox', { name: 'Name' });
     await user.clear(name);
-    await user.click(screen.getByRole('button', { name: /review: preview and create/i }));
+    await user.click(screen.getByRole('button', { name: /options: view, companion and sharing/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Enter a name.');
     expect(name).toHaveFocus();
-    expect(screen.getByRole('button', { name: /basics: name and destination/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /basics: name and fields/i })).toHaveAttribute(
       'aria-current',
       'step',
     );
@@ -462,7 +444,7 @@ describe('the guided creation studio', () => {
 
     await user.click(await screen.findByRole('button', { name: /continue/i }));
 
-    expect(screen.getByRole('heading', { name: /set up/i })).toHaveFocus();
+    expect(screen.getByRole('heading', { name: /options/i })).toHaveFocus();
     expect(screen.getByRole('button', { name: /add a filter/i })).toBeVisible();
   });
 
@@ -484,8 +466,7 @@ describe('the guided creation studio', () => {
     stubCoreApi();
     renderAt(<App />, '/new/board');
 
-    await user.click(await screen.findByRole('button', { name: /continue/i }));
-    const fieldName = screen.getByRole('textbox', { name: 'Field name' });
+    const fieldName = await screen.findByRole('textbox', { name: 'Field name' });
     await user.clear(fieldName);
     await user.type(fieldName, 'Workflow status');
 
@@ -504,6 +485,31 @@ describe('the guided creation studio', () => {
     expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 
+  it('opens the discard dialog on Escape', async () => {
+    const user = userEvent.setup();
+    stubCoreApi();
+    renderAt(<App />, '/new/board');
+
+    await user.click(await screen.findByRole('textbox', { name: 'Name' }));
+    await user.keyboard('{Escape}');
+    expect(await screen.findByRole('dialog', { name: 'Discard this setup?' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Discard this setup?' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('draws Required and the publish link as checkboxes', async () => {
+    const user = userEvent.setup();
+    stubCoreApi();
+    renderAt(<App />, '/new/interactive-form');
+
+    await screen.findByRole('heading', { name: /new interactive form/i });
+    expect(screen.getAllByRole('checkbox', { name: 'Required' }).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: /continue/i }));
+    expect(screen.getByRole('checkbox', { name: /publish a public response link/i })).toBeVisible();
+  });
+
   it('refuses malformed recovered data at the session boundary', async () => {
     sessionStorage.setItem(
       'nix:create:board:root',
@@ -512,6 +518,6 @@ describe('the guided creation studio', () => {
     stubCoreApi();
     renderAt(<App />, '/new/board');
 
-    expect(await screen.findByRole('textbox', { name: /name/i })).toHaveValue('Untitled board');
+    expect(await screen.findByRole('textbox', { name: 'Name' })).toHaveValue('Untitled board');
   });
 });

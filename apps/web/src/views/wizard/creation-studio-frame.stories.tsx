@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 
 import { CreationStudioFrame } from './creation-studio-frame';
 import { draftFor, FALLBACK_RECIPE } from './creation-studio-model';
-import { BasicsStep, CompanionStep, ReviewStep, SetupStep } from './creation-studio-steps';
+import { BasicsStep, OptionsStep } from './creation-studio-steps';
 
 export default { title: 'Nix/Creation/Guided setup', parameters: { layout: 'fullscreen' } };
 
@@ -11,16 +11,17 @@ const noop = (): void => undefined;
 function Example({
   small = false,
   initialStep = 0,
+  initialPreviewing = false,
 }: {
   readonly small?: boolean;
   readonly initialStep?: number;
+  readonly initialPreviewing?: boolean;
 }): ReactNode {
   const [draft, setDraft] = useState(() => draftFor(FALLBACK_RECIPE));
   const [step, setStep] = useState(initialStep);
-  const [previewing, setPreviewing] = useState(false);
+  const [previewing, setPreviewing] = useState(initialPreviewing);
   const [error, setError] = useState<string | null>(null);
   const [discarding, setDiscarding] = useState(false);
-  const destination = 'Personal workspace';
   return (
     <main
       aria-label="Guided setup example"
@@ -30,7 +31,7 @@ function Example({
         recipe={FALLBACK_RECIPE}
         itemId={undefined}
         viewId={undefined}
-        destination={destination}
+        destination="Personal workspace"
         intent="create"
         step={step}
         draft={draft}
@@ -58,19 +59,9 @@ function Example({
         }}
       >
         {step === 0 ? (
-          <BasicsStep
-            recipe={FALLBACK_RECIPE}
-            draft={draft}
-            destination={destination}
-            existingItem={false}
-            onChange={setDraft}
-          />
-        ) : step === 1 ? (
-          <SetupStep draft={draft} existingProperties={[]} onChange={setDraft} />
-        ) : step === 2 ? (
-          <CompanionStep draft={draft} onChange={setDraft} />
+          <BasicsStep recipe={FALLBACK_RECIPE} draft={draft} onChange={setDraft} />
         ) : (
-          <ReviewStep draft={draft} destination={destination} intent="create" />
+          <OptionsStep draft={draft} existingProperties={[]} onChange={setDraft} />
         )}
       </CreationStudioFrame>
     </main>
@@ -96,15 +87,22 @@ function checkCreationFits({ canvasElement }: { readonly canvasElement: HTMLElem
 }
 
 export const SmallScreen = { render: (): ReactNode => <Example small />, play: checkCreationFits };
-export const SmallScreenFields = {
+export const SmallScreenOptions = {
   render: (): ReactNode => <Example small initialStep={1} />,
   play: checkCreationFits,
 };
-export const SmallScreenReview = {
-  render: (): ReactNode => <Example small initialStep={3} />,
-  play: checkCreationFits,
+export const SmallScreenPreviewing = {
+  render: (): ReactNode => <Example small initialPreviewing />,
+  play: ({ canvasElement }: { readonly canvasElement: HTMLElement }): void => {
+    const create = [...canvasElement.querySelectorAll('button')].find((button) =>
+      button.textContent.startsWith('Create'),
+    );
+    if (create === undefined || create.getBoundingClientRect().height === 0) {
+      throw new Error('Create must stay visible while the preview is open.');
+    }
+  },
 };
-export const ConstrainedDesktopFields = {
+export const ConstrainedDesktopOptions = {
   render: (): ReactNode => (
     <div className="w-4xl max-w-full">
       <Example initialStep={1} />
@@ -113,4 +111,4 @@ export const ConstrainedDesktopFields = {
   play: checkCreationFits,
 };
 export const DarkSmallScreen = { ...SmallScreen, globals: { ground: 'dark' } };
-export const DarkSmallScreenFields = { ...SmallScreenFields, globals: { ground: 'dark' } };
+export const DarkSmallScreenOptions = { ...SmallScreenOptions, globals: { ground: 'dark' } };

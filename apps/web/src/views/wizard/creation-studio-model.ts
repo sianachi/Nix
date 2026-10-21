@@ -30,10 +30,8 @@ export interface StudioDraft {
 export type StudioIntent = 'create' | 'add' | 'edit';
 
 export const STEPS = [
-  { id: 'basics', label: 'Basics', detail: 'Name and destination' },
-  { id: 'setup', label: 'Set up', detail: 'Fields and behaviour' },
-  { id: 'companion', label: 'Companion', detail: 'An optional second view' },
-  { id: 'review', label: 'Review', detail: 'Preview and create' },
+  { id: 'basics', label: 'Basics', detail: 'Name and fields' },
+  { id: 'options', label: 'Options', detail: 'View, companion and sharing' },
 ] as const;
 
 const StudioDraftSchema = z.object({
@@ -174,15 +172,10 @@ export function validateStep(
   draft: StudioDraft,
   existingProperties: readonly PropertyDefinition[] = [],
 ): string | null {
-  if (step === 0 && draft.title.trim().length === 0) return 'Enter a name.';
-  if (step === 1) return validateDraft(draft, existingProperties);
-  return null;
+  return step === 0 ? validateFields(draft) : validateDraft(draft, existingProperties);
 }
 
-export function validateDraft(
-  draft: StudioDraft,
-  existingProperties: readonly PropertyDefinition[] = [],
-): string | null {
+function validateFields(draft: StudioDraft): string | null {
   if (draft.title.trim().length === 0) return 'Enter a name.';
   const keys = new Set<string>();
   for (const property of draft.properties) {
@@ -209,6 +202,15 @@ export function validateDraft(
     draft.view.dateProperty === null
   )
     return `${draft.view.name} needs a date field.`;
+  return null;
+}
+
+export function validateDraft(
+  draft: StudioDraft,
+  existingProperties: readonly PropertyDefinition[] = [],
+): string | null {
+  const fieldsRefusal = validateFields(draft);
+  if (fieldsRefusal !== null) return fieldsRefusal;
   if (draft.view.kind === 'interactive_form') {
     if (draft.view.interactiveForm === null || draft.view.interactiveForm === undefined)
       return 'An interactive form needs a form definition.';

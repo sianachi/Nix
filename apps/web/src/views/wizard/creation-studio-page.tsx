@@ -7,7 +7,7 @@ import type { ShellContext } from '../../shell/shell-context';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { useContainer } from '../core/use-container';
 import { CreationStudioFrame } from './creation-studio-frame';
-import { CompanionStep, BasicsStep, ReviewStep, SetupStep } from './creation-studio-steps';
+import { BasicsStep, OptionsStep } from './creation-studio-steps';
 import {
   FALLBACK_RECIPE,
   compiledViews,
@@ -244,19 +244,9 @@ function CreationStudio(): ReactNode {
       }}
     >
       {step === 0 ? (
-        <BasicsStep
-          recipe={recipe}
-          draft={draft}
-          destination={destination}
-          existingItem={itemId !== undefined}
-          onChange={setDraft}
-        />
-      ) : step === 1 ? (
-        <SetupStep draft={draft} existingProperties={existingProperties} onChange={setDraft} />
-      ) : step === 2 ? (
-        <CompanionStep draft={draft} onChange={setDraft} />
+        <BasicsStep recipe={recipe} draft={draft} onChange={setDraft} />
       ) : (
-        <ReviewStep draft={draft} destination={destination} intent={intent} />
+        <OptionsStep draft={draft} existingProperties={existingProperties} onChange={setDraft} />
       )}
     </CreationStudioFrame>
   );

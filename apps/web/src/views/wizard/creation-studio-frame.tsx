@@ -70,6 +70,17 @@ export function CreationStudioFrame({
     heading.focus();
   }, [step]);
 
+  useEffect(() => {
+    if (discarding) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !event.defaultPrevented) onCancel();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [discarding, onCancel]);
+
   function focusFirstField(): void {
     queueMicrotask(() => {
       stepMainRef.current?.querySelector<HTMLElement>('input, select, textarea, button')?.focus();
@@ -138,7 +149,7 @@ export function CreationStudioFrame({
           aria-label="Creation steps"
           className="min-w-0 shrink-0 border-b border-divider bg-surface p-2 @4xl/studio:w-44 @4xl/studio:border-b-0 @4xl/studio:border-r"
         >
-          <ol className="grid grid-cols-4 gap-1 @4xl/studio:flex @4xl/studio:flex-col @4xl/studio:gap-2">
+          <ol className="grid grid-cols-2 gap-1 @4xl/studio:flex @4xl/studio:flex-col @4xl/studio:gap-2">
             {STEPS.map((entry, index) => (
               <li key={entry.id} className="min-w-0">
                 <button
@@ -149,7 +160,7 @@ export function CreationStudioFrame({
                     goToStep(index);
                   }}
                   className={cn(
-                    `flex min-h-(--control-lg) w-full flex-col items-center gap-1 rounded-md px-1 py-2 text-center @4xl/studio:flex-row @4xl/studio:gap-2 @4xl/studio:px-2 @4xl/studio:text-left ${focusRing}`,
+                    `flex min-h-(--control-lg) w-full flex-row items-center gap-2 rounded-md px-2 py-1 ${focusRing}`,
                     step === index ? 'bg-accent/10 text-accent-text' : 'hover:bg-foreground/7',
                   )}
                 >
@@ -191,45 +202,6 @@ export function CreationStudioFrame({
                 {error}
               </Text>
             )}
-
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider pt-3">
-              <Button
-                variant="secondary"
-                disabled={step === 0 || saving}
-                onClick={() => {
-                  goToStep(Math.max(0, step - 1));
-                }}
-              >
-                Back
-              </Button>
-              {step < STEPS.length - 1 ? (
-                <Button
-                  disabled={saving}
-                  onClick={() => {
-                    goToStep(Math.min(STEPS.length - 1, step + 1));
-                  }}
-                >
-                  Continue <Icon icon={ArrowRight} size="sm" />
-                </Button>
-              ) : (
-                <Button
-                  disabled={saving || validateDraft(draft, existingProperties) !== null}
-                  onClick={onFinish}
-                >
-                  {saving
-                    ? intent === 'create'
-                      ? 'Creating…'
-                      : intent === 'add'
-                        ? 'Adding…'
-                        : 'Updating…'
-                    : intent === 'create'
-                      ? `Create ${recipe.label}`
-                      : intent === 'add'
-                        ? `Add ${recipe.label}`
-                        : 'Save changes'}
-                </Button>
-              )}
-            </div>
           </div>
         </section>
 
@@ -248,6 +220,53 @@ export function CreationStudioFrame({
           <StudioPreview draft={draft} />
         </aside>
       </div>
+
+      <footer className="shrink-0 border-t border-divider px-3 py-2">
+        <div className="mx-auto flex max-w-xl flex-wrap items-center justify-between gap-2">
+          {step > 0 ? (
+            <Button
+              variant="secondary"
+              disabled={saving}
+              onClick={() => {
+                goToStep(step - 1);
+              }}
+            >
+              Back
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            {step < STEPS.length - 1 ? (
+              <Button
+                variant="secondary"
+                disabled={saving}
+                onClick={() => {
+                  goToStep(step + 1);
+                }}
+              >
+                Continue <Icon icon={ArrowRight} size="sm" />
+              </Button>
+            ) : null}
+            <Button
+              disabled={saving || validateDraft(draft, existingProperties) !== null}
+              onClick={onFinish}
+            >
+              {saving
+                ? intent === 'create'
+                  ? 'Creating…'
+                  : intent === 'add'
+                    ? 'Adding…'
+                    : 'Updating…'
+                : intent === 'create'
+                  ? `Create ${recipe.label}`
+                  : intent === 'add'
+                    ? `Add ${recipe.label}`
+                    : 'Save changes'}
+            </Button>
+          </div>
+        </div>
+      </footer>
 
       <Dialog
         open={discarding}

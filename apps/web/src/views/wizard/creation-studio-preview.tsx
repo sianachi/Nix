@@ -1,14 +1,15 @@
 import { Blueprint, Text } from '@nix/ui';
 import { PRINT_PALETTE } from '@nix/design-tokens/print';
 import { renderView } from '@nix/view-render';
-import { type ReactNode } from 'react';
+import { useDeferredValue, type ReactNode } from 'react';
 
 import { isFilterGroup } from '../core/container-model';
 import { isDateShaped } from '../core/property-types';
 import { InteractiveFormRespondentPreview } from '../form/interactive-form-editor';
 import type { StudioDraft } from './creation-studio-model';
 
-export function StudioPreview({ draft }: { readonly draft: StudioDraft }): ReactNode {
+export function StudioPreview({ draft: live }: { readonly draft: StudioDraft }): ReactNode {
+  const draft = useDeferredValue(live);
   if (draft.view.kind === 'finance') {
     return (
       <Blueprint className="mt-3 flex flex-col gap-4 p-4">
