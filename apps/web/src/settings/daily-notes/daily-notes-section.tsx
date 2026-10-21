@@ -1,11 +1,12 @@
 import { type DailyNoteSettings } from '@nix/api-client';
-import { Button, Checkbox, Field, Select, Text, Textarea, cn } from '@nix/ui';
-import { useId, useState, type ReactElement } from 'react';
+import { Button, Field, Select, Text, Textarea, cn } from '@nix/ui';
+import { useState, type ReactElement } from 'react';
 
 import {
   readOpenDailyOnLaunch,
   writeOpenDailyOnLaunch,
 } from '../../lib/daily-note-device-preferences';
+import { PreferenceToggle } from '../shared/preference-toggle';
 import { SettingsSection } from '../shared/settings-section';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { useDailyNoteSettings } from './use-daily-note-settings';
@@ -75,8 +76,6 @@ function DailyNotesForm({ initial, saving, canManage, onSave }: FormProps): Reac
   const [previousInitial, setPreviousInitial] = useState(initial);
   const [draft, setDraft] = useState(initial);
   const [message, setMessage] = useState<string | null>(null);
-  const enabledHintId = useId();
-  const calendarHintId = useId();
   const examples = titleExamples(new Date());
 
   if (initial !== previousInitial) {
@@ -116,28 +115,16 @@ function DailyNotesForm({ initial, saving, canManage, onSave }: FormProps): Reac
       <fieldset disabled={saving || !canManage} className="flex min-w-0 flex-col gap-4">
         <legend className="sr-only">Daily notes in this workspace</legend>
 
-        <div className="flex flex-col gap-1">
-          <Checkbox
-            label="Use daily notes in this workspace"
-            aria-describedby={enabledHintId}
-            checked={draft.enabled}
-            onChange={(event) => {
-              change({ ...draft, enabled: event.currentTarget.checked });
-            }}
-          />
-          <Text id={enabledHintId} variant="note" tone="muted">
-            Everyone who can edit a shared workspace shares the day’s note
-          </Text>
-          <details>
-            <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
-              More<span className="sr-only"> about daily notes</span>
-            </summary>
-            <Text variant="note" tone="muted">
-              Shared workspaces start with daily notes off until someone switches them on; a
-              personal workspace starts with them on.
-            </Text>
-          </details>
-        </div>
+        <PreferenceToggle
+          label="Use daily notes in this workspace"
+          checked={draft.enabled}
+          onChange={(enabled) => {
+            change({ ...draft, enabled });
+          }}
+          description="Everyone who can edit a shared workspace shares the day’s note"
+          unsaved={null}
+          more="Shared workspaces start with daily notes off until someone switches them on; a personal workspace starts with them on."
+        />
 
         <Field label="Folders" className="max-w-sm">
           {(control) => (
@@ -218,19 +205,15 @@ function DailyNotesForm({ initial, saving, canManage, onSave }: FormProps): Reac
           )}
         </Field>
 
-        <div className="flex flex-col gap-1">
-          <Checkbox
-            label="Show daily notes on the workspace calendar"
-            aria-describedby={calendarHintId}
-            checked={draft.showOnCalendar}
-            onChange={(event) => {
-              change({ ...draft, showOnCalendar: event.currentTarget.checked });
-            }}
-          />
-          <Text id={calendarHintId} variant="note" tone="muted">
-            Each note appears on its date in the calendar
-          </Text>
-        </div>
+        <PreferenceToggle
+          label="Show daily notes on the workspace calendar"
+          checked={draft.showOnCalendar}
+          onChange={(showOnCalendar) => {
+            change({ ...draft, showOnCalendar });
+          }}
+          description="Each note appears on its date in the calendar"
+          unsaved={null}
+        />
 
         <div className="flex flex-col gap-1">
           <div>
@@ -256,7 +239,6 @@ function DeviceSettings(): ReactElement {
   // Read once into state: the value lives in browser storage, which React does not observe, and
   // this checkbox is the only writer on the page.
   const [openOnLaunch, setOpenOnLaunch] = useState(readOpenDailyOnLaunch);
-  const hintId = useId();
 
   return (
     <div
@@ -267,19 +249,16 @@ function DeviceSettings(): ReactElement {
       <Text variant="h5" as="h3">
         Your preference
       </Text>
-      <Checkbox
+      <PreferenceToggle
         label="Open today’s note when Nix starts"
-        aria-describedby={hintId}
         checked={openOnLaunch}
-        onChange={(event) => {
-          const next = event.currentTarget.checked;
+        onChange={(next) => {
           setOpenOnLaunch(next);
           writeOpenDailyOnLaunch(next);
         }}
+        description="Only changes what you see"
+        unsaved={null}
       />
-      <Text id={hintId} variant="note" tone="muted">
-        Only changes what you see
-      </Text>
     </div>
   );
 }

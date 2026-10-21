@@ -1,4 +1,4 @@
-import { useId, type ReactElement } from 'react';
+import { useId, type ReactElement, type ReactNode } from 'react';
 
 import { Checkbox, Text } from '@nix/ui';
 
@@ -23,10 +23,12 @@ export function PreferenceToggle(props: {
   readonly unsaved: string | null;
   /** True for a setting that never leaves this browser. */
   readonly deviceOnly?: boolean;
+  /** Detail behind the one-line description, kept in a "More" disclosure. */
+  readonly more?: ReactNode;
 }): ReactElement {
   const descriptionId = useId();
   return (
-    <>
+    <div className="flex flex-col gap-0.5">
       <Checkbox
         label={props.label}
         checked={props.checked}
@@ -44,6 +46,16 @@ export function PreferenceToggle(props: {
           {props.unsaved}
         </Text>
       )}
-    </>
+      {props.more === undefined ? null : (
+        <details>
+          <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+            More<span className="sr-only"> about {props.label}</span>
+          </summary>
+          <Text variant="note" tone="muted">
+            {props.more}
+          </Text>
+        </details>
+      )}
+    </div>
   );
 }

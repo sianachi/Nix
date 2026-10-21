@@ -108,11 +108,13 @@ export function EditorPreferencesSection(): ReactElement {
             ? null
             : 'The page guide preference applies to this session; browser storage is unavailable.'
         }
+        more={
+          <>
+            The position is an estimate from the A4 export’s margins and type size; the exact break
+            can move by a line.
+          </>
+        }
       />
-      <More about="page guides">
-        The position is an estimate from the A4 export’s margins and type size; the exact break can
-        move by a line.
-      </More>
       <PreferenceToggle
         label="Suggest phrase completions"
         checked={phraseSetting === 'on'}
@@ -125,13 +127,15 @@ export function EditorPreferencesSection(): ReactElement {
             ? null
             : 'The phrase suggestion preference applies to this session; browser storage is unavailable.'
         }
+        more={
+          <>
+            After a pause at the end of a line, press Right Arrow to accept the faded text or Escape
+            to dismiss it; it is not part of the note until you accept it. Needs a keyboard. Learned
+            on this device, in memory only, from notes in the same workspace that this browser
+            already keeps.
+          </>
+        }
       />
-      <More about="phrase completions">
-        After a pause at the end of a line, press Right Arrow to accept the faded text or Escape to
-        dismiss it; it is not part of the note until you accept it. Needs a keyboard. Learned on
-        this device, in memory only, from notes in the same workspace that this browser already
-        keeps.
-      </More>
       <PreferenceToggle
         label="Underline item names that are not linked"
         checked={mentionSetting === 'on'}
@@ -144,11 +148,13 @@ export function EditorPreferencesSection(): ReactElement {
             ? null
             : 'The underline preference applies to this session; browser storage is unavailable.'
         }
+        more={
+          <>
+            Put the caret in one and press {formatShortcut(LINK_MENTION_SHORTCUT)}, or choose Link
+            to, to turn it into a link. Nothing changes in the note until you do.
+          </>
+        }
       />
-      <More about="underlined item names">
-        Put the caret in one and press {formatShortcut(LINK_MENTION_SHORTCUT)}, or choose Link to,
-        to turn it into a link. Nothing changes in the note until you do.
-      </More>
       <Text variant="h5" as="h3">
         Suggestions
       </Text>
@@ -164,12 +170,14 @@ export function EditorPreferencesSection(): ReactElement {
             ? null
             : 'The view suggestion preference applies to this session; browser storage is unavailable.'
         }
+        more={
+          <>
+            Likely values when you create an item, a note on cards that have not moved in a while,
+            the spreadsheet’s fill-series offer, a free time when rescheduling, and a form field’s
+            usual value. Nothing is written until you choose one.
+          </>
+        }
       />
-      <More about="suggestions in views">
-        Likely values when you create an item, a note on cards that have not moved in a while, the
-        spreadsheet’s fill-series offer, a free time when rescheduling, and a form field’s usual
-        value. Nothing is written until you choose one.
-      </More>
       <PreferenceToggle
         label="Order choices by what I pick most"
         checked={choiceSetting === 'on'}
@@ -182,12 +190,15 @@ export function EditorPreferencesSection(): ReactElement {
             ? null
             : 'The choice order preference applies to this session; browser storage is unavailable.'
         }
+        more={
+          <>
+            Remembers what you pick on this device: a select property offers your usual values again
+            in a Recent group above its options, and the slash menu and link picker list what you
+            use most first. Off, nothing new is remembered and nothing is reordered by what you have
+            picked.
+          </>
+        }
       />
-      <More about="choice order">
-        Remembers what you pick on this device: a select property offers your usual values again in
-        a Recent group above its options, and the slash menu and link picker list what you use most
-        first. Off, nothing new is remembered and nothing is reordered by what you have picked.
-      </More>
       <ClearDismissedSuggestions />
       <Text variant="h5" as="h3">
         This device
@@ -208,12 +219,14 @@ export function EditorPreferencesSection(): ReactElement {
             ? null
             : 'The device sync preference applies to this session; browser storage is unavailable.'
         }
+        more={
+          <>
+            Syncs your unlocked notes to this browser and shows the sync status at the foot of the
+            window. Off hides that status and stops syncing; notes already saved here stay until you
+            clear them from Notes on this device.
+          </>
+        }
       />
-      <More about="keeping notes on this device">
-        Syncs your unlocked notes to this browser and shows the sync status at the foot of the
-        window. Off hides that status and stops syncing; notes already saved here stay until you
-        clear them from Notes on this device.
-      </More>
       <PreferenceToggle
         label="Hide mobile tools while writing"
         deviceOnly
