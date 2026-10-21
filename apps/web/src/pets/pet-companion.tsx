@@ -19,7 +19,7 @@ import { chatOpensAsPage, launcherFloats, pageIsAvailable } from './pet-surface'
 import { useZenActive } from '../lib/zen-mode';
 import { usePetSurface } from './use-pet-surface';
 import { PetWorkTools } from './pet-work-tools';
-import { Conversation } from './pet-conversation';
+import { Conversation } from './conversation/conversation';
 
 /** The shell and note dock publish their bottom clearance so every launcher position stays
  * above whichever control reaches further into the viewport. */

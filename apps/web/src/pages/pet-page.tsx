@@ -10,7 +10,7 @@ import { useNarrowViewport } from '../layout/viewport';
 import { paneColumn } from '../layout/regions';
 import { useZenActive } from '../lib/zen-mode';
 import { chatTabId, useTabStore } from '../tabs/tab-store';
-import { Conversation } from '../pets/pet-conversation';
+import { Conversation } from '../pets/conversation/conversation';
 import { usePetRuntime } from '../pets/use-pet-runtime';
 import { usePetSettings } from '../pets/use-pet-settings';
 import { useWorkspace } from '../workspaces/workspace-context';
