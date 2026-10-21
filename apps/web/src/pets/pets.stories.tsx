@@ -409,7 +409,7 @@ export const ViewUpdateApproval = {
     await canvas.findByText('After: Category (category)');
     if (!canvas.getByRole('button', { name: 'Approve request' }).isConnected)
       throw new Error('A view change must wait for approval.');
-    canvas.getByRole('heading', { name: 'Approve this change?' });
+    canvas.getByRole('group');
     if (canvas.queryByRole('region', { name: 'View id' }) !== null)
       throw new Error('A view selector is not text being changed.');
   },

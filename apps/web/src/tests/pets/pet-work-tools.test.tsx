@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { petConnectionSchema, type NixClient } from '@nix/api-client';
@@ -148,7 +148,7 @@ describe('companion work approvals', () => {
       { wrapper: MemoryRouter },
     );
     expect(await screen.findByText(/I will save “Applications” and 1 children/)).toBeVisible();
-    expect(screen.getByText('2 items to copy, 1 template write')).toBeVisible();
+    expect(screen.getByText(/· 2 items to copy, 1 template write$/)).toBeVisible();
     expect(screen.queryByText(/0 fields, 0 views/)).not.toBeInTheDocument();
     await approveRequest();
     await waitFor(() => {
@@ -364,7 +364,7 @@ describe('companion work approvals', () => {
   });
 
   it.each(['create_note', 'append_note'])(
-    'shows the full pending %s content inline, with no folding, plus its line count',
+    'shows the full pending %s content inline, with no folding, as a labelled line',
     async (operation) => {
       const content = 'x'.repeat(340);
       render(
@@ -394,18 +394,54 @@ describe('companion work approvals', () => {
       // Security fix S1: a pending card never folds its content behind "Show content" - the
       // full text is already in the DOM, in a focusable region, with a plain line count next
       // to it.
-      const region = await screen.findByRole('region', {
-        name: operation === 'create_note' ? 'Note body' : 'Added note text',
-      });
-      expect(region).toHaveTextContent(content);
+      const name = operation === 'create_note' ? 'Note body' : 'Added note text';
+      const label = await screen.findByText(name);
+      expect(label.tagName).toBe('DT');
+      expect(label.nextElementSibling).toHaveTextContent(content);
       expect(screen.queryByText('Show content')).not.toBeInTheDocument();
-      expect(
-        screen.getByText(
-          operation === 'create_note' ? 'Note body (1 line)' : 'Added note text (1 line)',
-        ),
-      ).toBeVisible();
+      // One line is a label and its text, not a scroll box with a line count.
+      expect(screen.queryByRole('region', { name })).not.toBeInTheDocument();
+      expect(screen.queryByText(/\(1 line\)/)).not.toBeInTheDocument();
     },
   );
+
+  it('names each waiting card by its own change, and describes its buttons by that name', async () => {
+    const [first] = runtime.tools ?? [];
+    if (first === undefined) throw new Error('The fixture has a tool.');
+    const write = (id: string, title: string) => ({
+      ...first,
+      id,
+      arguments: JSON.stringify({ ...JSON.parse(first.arguments), title }),
+    });
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={{ ...runtime, tools: [write('tool-a', 'Plan A'), write('tool-b', 'Plan B')] }}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    const headingA = await screen.findByRole('heading', { name: /named “Plan A”/ });
+    const headingB = await screen.findByRole('heading', { name: /named “Plan B”/ });
+    expect(headingA).not.toHaveTextContent('Plan B');
+    const groupA = screen.getByRole('group', { name: headingA.textContent });
+    const groupB = screen.getByRole('group', { name: headingB.textContent });
+    for (const [group, heading] of [
+      [groupA, headingA],
+      [groupB, headingB],
+    ] as const) {
+      const buttons = within(group).getAllByRole('button');
+      expect(buttons.map((button) => button.textContent)).toEqual([
+        'Approve request',
+        'Edit',
+        'Decline request',
+      ]);
+      for (const button of buttons) expect(button).toHaveAccessibleDescription(heading.textContent);
+      expect(within(group).getByRole('button', { name: 'Edit before approving' })).toBeVisible();
+    }
+  });
 
   it('words a settled write as the request in the imperative, with the real outcome beside it', async () => {
     const settled = {
@@ -1309,6 +1345,22 @@ describe('companion work approvals', () => {
       expect(await screen.findByText(body)).toBeVisible();
     });
 
+    it('shows a one-line string exactly, inner spaces and all, beside its label', async () => {
+      const exact = 'Pay  rent   on  the  1st';
+      showWrite(
+        'build_blueprint',
+        JSON.stringify({
+          version: 1,
+          title: 'Design draft',
+          summary: 'A small design.',
+          root: { id: 'plan', title: 'Plan', markdown: exact },
+        }),
+      );
+      const text = await screen.findByText((_, element) => element?.textContent === exact);
+      expect(text.tagName).toBe('DD');
+      expect(text.className).toContain('whitespace-pre-wrap');
+    });
+
     it('gives every text region a distinct name when labels repeat', async () => {
       showWrite(
         'build_blueprint',
@@ -1319,12 +1371,12 @@ describe('companion work approvals', () => {
           root: {
             id: 'plan',
             title: 'Plan',
-            markdown: 'First body',
-            children: [{ id: 'week', title: 'Week', markdown: 'Second body' }],
+            markdown: 'First body\nline two',
+            children: [{ id: 'week', title: 'Week', markdown: 'Second body\nline two' }],
           },
         }),
       );
-      await screen.findByText('Second body');
+      await screen.findByText(/Second body/);
       const names = screen
         .getAllByRole('region')
         .map((region) => region.getAttribute('aria-label') ?? '');

@@ -25,7 +25,7 @@ export function ApprovalSummary({
   readonly args: WorkspaceToolArgs;
   readonly workspaceId: string;
 }): ReactNode {
-  const summary = previewProgram(model, args);
+  const summary = previewProgram(args);
   const before = model.bodyEdit ? programIn(model.bodyEdit.before) : null;
   const after = model.bodyEdit ? programIn(model.bodyEdit.after) : null;
   if (summary === null && (before === null || after === null)) return null;

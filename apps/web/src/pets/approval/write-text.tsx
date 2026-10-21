@@ -23,18 +23,31 @@ export function WriteTextSection({
     seen.set(item.label, position);
     return `${item.label} ${String(position)} of ${String(total)}`;
   });
+  // A one-line string is a label and its exact text; only a string with line breaks needs a
+  // scroll region. Neither is ever clipped or folded.
+  const rows = items.map((item, index) => ({ item, name: names[index] ?? item.label, index }));
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-2">
       <Text variant="note" tone="muted">
         Text this change will write
       </Text>
-      {items.map((item, index) => {
+      {rows.map(({ item, name, index }) => {
         const lineCount = item.text.split('\n').length;
-        const name = names[index] ?? item.label;
+        if (lineCount === 1)
+          return (
+            <dl key={`${item.label}:${String(index)}`} className="flex min-w-0 flex-col gap-0.5">
+              <Text as="dt" variant="note" tone="muted">
+                {name}
+              </Text>
+              <Text as="dd" variant="note" className="whitespace-pre-wrap wrap-anywhere">
+                {item.text}
+              </Text>
+            </dl>
+          );
         return (
           <div key={`${item.label}:${String(index)}`} className="flex min-w-0 flex-col gap-1">
             <Text variant="note" tone="muted">
-              {name} ({String(lineCount)} line{lineCount === 1 ? '' : 's'})
+              {name} ({String(lineCount)} lines)
             </Text>
             <div
               role="region"

@@ -110,7 +110,7 @@ describe('companion live wiring', () => {
       'First reply',
       'Second request',
       'Looking into it.',
-      'Approve this change?',
+      'Approve request',
     ].map((fragment) => text.indexOf(fragment));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));

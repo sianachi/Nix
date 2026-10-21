@@ -48,15 +48,10 @@ export function PetStructurePreview({
   const counts = countsLine.filter((value): value is string => value !== undefined);
   return (
     <div className="flex min-w-0 flex-col gap-2 wrap-anywhere">
-      <Text variant="body">{model.headline}</Text>
       <Text variant="note" tone="muted">
         In: {model.destination.path.length ? model.destination.path.join(' / ') : 'Workspace root'}
+        {counts.length ? ` · ${counts.join(', ')}` : ''}
       </Text>
-      {counts.length ? (
-        <Text variant="note" tone="muted">
-          {counts.join(', ')}
-        </Text>
-      ) : null}
       {model.tree.length ? (
         <ul className="list-disc space-y-2 pl-5">
           {model.tree.map((node, index) => (

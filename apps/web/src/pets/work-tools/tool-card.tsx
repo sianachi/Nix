@@ -9,6 +9,7 @@ import { Text, cn, focusRing } from '@nix/ui';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Link } from 'react-router';
 import { z } from 'zod';
+import { touchLink } from '../approval/approval-frame';
 import { PetStructurePreview } from '../pet-structure-preview';
 import { PetBodyEditPreview } from '../pet-body-edit-preview';
 import {
@@ -310,7 +311,10 @@ export function PetWorkToolCard({
           You can restore the earlier text: open the note and choose History from its menu.
         </Text>
         {itemId ? (
-          <Link className={cn('underline', focusRing)} to={`/w/${workspaceId}?item=${itemId}`}>
+          <Link
+            className={cn('underline', touchLink, focusRing)}
+            to={`/w/${workspaceId}?item=${itemId}`}
+          >
             Open the note
           </Link>
         ) : null}

@@ -31,18 +31,16 @@ function model(counts: Partial<Record<'items' | 'fields' | 'views' | 'entries', 
 
 describe('approval summaries', () => {
   it('say nothing when the preview has nothing to add', () => {
-    expect(
-      previewProgram(model({}), { ...flat, operation: 'create_note', title: 'Plan' }),
-    ).toBeNull();
+    expect(previewProgram({ ...flat, operation: 'create_note', title: 'Plan' })).toBeNull();
   });
 
-  it('count what a structure write creates and list property values, quoted safely', async () => {
-    const program = previewProgram(model({ items: 1, fields: 2, views: 1 }), {
+  it('list property values, quoted safely, without repeating the preview counts', async () => {
+    const program = previewProgram({
       ...flat,
       operation: 'set_properties',
       propertiesJson: JSON.stringify({ 'Status") ; root = X("': 'Done', Done: true }),
     });
-    expect(program).toContain('Stat("Fields", 2)');
+    expect(program).not.toContain('Stat(');
     render(
       <MemoryRouter>
         <ApprovalSummary
@@ -58,7 +56,7 @@ describe('approval summaries', () => {
     );
     expect(await screen.findByText('Status") ; root = X("')).toBeInTheDocument();
     expect(screen.getByText('yes')).toBeInTheDocument();
-    expect(screen.getByText('Fields')).toBeInTheDocument();
+    expect(screen.queryByText('Fields')).not.toBeInTheDocument();
   });
 
   it('run a generated-UI program before and after a body edit, side by side', async () => {

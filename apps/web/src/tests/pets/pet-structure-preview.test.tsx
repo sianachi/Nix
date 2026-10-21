@@ -19,12 +19,13 @@ function model(overrides: Partial<PreviewModel> = {}): PreviewModel {
 }
 
 describe('PetStructurePreview', () => {
-  it('renders the headline, destination and counts', () => {
+  it('renders the destination and counts on one line, leaving the headline to its frame', () => {
     render(<PetStructurePreview model={model()} />);
-    expect(screen.getByText('I will create a reading board.')).toBeVisible();
-    expect(screen.getByText('In: Books / Reading log')).toBeVisible();
+    expect(screen.queryByText('I will create a reading board.')).not.toBeInTheDocument();
     // UX fix U15: a zero count is dropped rather than shown as "0 entries".
-    expect(screen.getByText('3 items, 7 fields, 2 views, 12 writes')).toBeVisible();
+    expect(
+      screen.getByText('In: Books / Reading log · 3 items, 7 fields, 2 views, 12 writes'),
+    ).toBeVisible();
     expect(screen.getByText(/This never: Publish a public link/)).toBeVisible();
   });
 
@@ -179,9 +180,6 @@ describe('PetStructurePreview', () => {
         })}
       />,
     );
-    expect(
-      screen.getByText('I will make the linked item repeat every 2 weeks on Monday and Friday.'),
-    ).toBeVisible();
     expect(screen.getByText('every 2 weeks on Monday and Friday')).toBeVisible();
   });
 

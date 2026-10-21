@@ -1,8 +1,9 @@
 import { type PetToolCall } from '@nix/api-client';
 import type { WorkspaceToolArgs } from '@nix/companion/tool-args';
-import { Button, Card, Text, cn, focusRing } from '@nix/ui';
+import { Text, cn, focusRing } from '@nix/ui';
 import type { ReactElement } from 'react';
 import { Link } from 'react-router';
+import { ApprovalActions, ApprovalFrame, touchLink } from '../approval/approval-frame';
 import { ApprovalSummary } from '../approval/approval-summary';
 import { EditRequest, isEditable, type EditedRequest } from '../approval/edit-request';
 import type { PreparedPreview } from '../approval/prepare-write';
@@ -22,7 +23,7 @@ export function PendingWriteCard({
   args,
   originalArgs,
   model,
-  previewCurrent: currentPreview,
+  previewCurrent,
   previewLoading,
   previewError,
   fingerprint,
@@ -66,8 +67,67 @@ export function PendingWriteCard({
   readonly onBuildProgress: (message: string) => void;
   readonly onResolve: Resolver;
 }): ReactElement {
+  const heading = !supported
+    ? 'Unsupported tool request'
+    : (model?.headline ??
+      (previewCurrent && !previewLoading ? 'This change' : 'Preparing a summary…'));
+  const approveDisabled =
+    editing ||
+    !supported ||
+    !previewCurrent ||
+    previewLoading ||
+    !model ||
+    problemCount > 0 ||
+    Boolean(previewError);
   return (
-    <Card title={supported ? 'Approve this change?' : 'Unsupported tool request'} headingLevel={3}>
+    <ApprovalFrame
+      heading={heading}
+      actions={(headingId) =>
+        tool.status === 'pending' && !submitted ? (
+          <ApprovalActions
+            headingId={headingId}
+            approveDisabled={approveDisabled}
+            busy={busy}
+            editLabel={edit === null ? 'Edit' : 'Edit again'}
+            onApprove={() => {
+              const isBuild = args?.operation === 'build_blueprint';
+              if (isBuild) onBuildProgress('Building the draft...');
+              void onResolve(
+                tool,
+                true,
+                previewCurrent ? fingerprint : undefined,
+                undefined,
+                isBuild
+                  ? (completed, total) => {
+                      onBuildProgress(`Building ${String(completed)} of ${String(total)}...`);
+                    }
+                  : undefined,
+                false,
+                false,
+                edit ?? undefined,
+              );
+            }}
+            onDecline={() => {
+              void onResolve(tool, false);
+            }}
+            onEdit={
+              originalArgs && isEditable(originalArgs) && !editing
+                ? () => {
+                    onEditing(true);
+                  }
+                : undefined
+            }
+            onUndo={
+              edit !== null && !editing
+                ? () => {
+                    onEdit(null);
+                  }
+                : undefined
+            }
+          />
+        ) : null
+      }
+    >
       {model && args ? (
         <ApprovalSummary model={model} args={args} workspaceId={workspaceId} />
       ) : null}
@@ -83,7 +143,7 @@ export function PendingWriteCard({
           {model.bodyEdit ? <PetBodyEditPreview edit={model.bodyEdit} /> : null}
         </PetStructurePreview>
       ) : null}
-      {!currentPreview || previewLoading ? (
+      {!previewCurrent || previewLoading ? (
         <Text variant="note">Preparing the preview...</Text>
       ) : null}
       {progress ? (
@@ -91,7 +151,7 @@ export function PendingWriteCard({
           {progress}
         </Text>
       ) : null}
-      {currentPreview && previewError ? (
+      {previewCurrent && previewError ? (
         <Text variant="note" role="alert">
           {previewError}
         </Text>
@@ -106,12 +166,18 @@ export function PendingWriteCard({
       ) : null}
       <WriteTextSection items={textItems} />
       {itemId ? (
-        <Link className={cn('underline', focusRing)} to={`/w/${workspaceId}?item=${itemId}`}>
+        <Link
+          className={cn('underline', touchLink, focusRing)}
+          to={`/w/${workspaceId}?item=${itemId}`}
+        >
           Inspect target item
         </Link>
       ) : null}
       {parentId ? (
-        <Link className={cn('underline', focusRing)} to={`/w/${workspaceId}?item=${parentId}`}>
+        <Link
+          className={cn('underline', touchLink, focusRing)}
+          to={`/w/${workspaceId}?item=${parentId}`}
+        >
           Inspect destination
         </Link>
       ) : null}
@@ -142,74 +208,6 @@ export function PendingWriteCard({
           }}
         />
       ) : null}
-      {tool.status === 'pending' && !submitted ? (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="primary"
-            disabled={
-              editing ||
-              busy ||
-              !supported ||
-              !currentPreview ||
-              previewLoading ||
-              !model ||
-              problemCount > 0 ||
-              Boolean(previewError)
-            }
-            onClick={() => {
-              const isBuild = args?.operation === 'build_blueprint';
-              if (isBuild) onBuildProgress('Building the draft...');
-              void onResolve(
-                tool,
-                true,
-                currentPreview ? fingerprint : undefined,
-                undefined,
-                isBuild
-                  ? (completed, total) => {
-                      onBuildProgress(`Building ${String(completed)} of ${String(total)}...`);
-                    }
-                  : undefined,
-                false,
-                false,
-                edit ?? undefined,
-              );
-            }}
-          >
-            Approve request
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() => {
-              void onResolve(tool, false);
-            }}
-          >
-            Decline request
-          </Button>
-          {originalArgs && isEditable(originalArgs) && !editing ? (
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                onEditing(true);
-              }}
-            >
-              {edit === null ? 'Edit before approving' : 'Edit again'}
-            </Button>
-          ) : null}
-          {edit !== null && !editing ? (
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                onEdit(null);
-              }}
-            >
-              Undo my edits
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-    </Card>
+    </ApprovalFrame>
   );
 }

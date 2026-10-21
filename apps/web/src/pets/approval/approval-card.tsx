@@ -5,12 +5,13 @@ import {
   workspaceToolSchema,
   type WorkspaceToolArgs,
 } from '@nix/companion/tool-args';
-import { Button, Card, Text, cn, focusRing } from '@nix/ui';
+import { Text, cn, focusRing } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { PetBodyEditPreview } from '../pet-body-edit-preview';
 import { PetStructurePreview } from '../pet-structure-preview';
+import { ApprovalActions, ApprovalFrame, touchLink } from './approval-frame';
 import { ApprovalSummary } from './approval-summary';
 import { EditRequest, isEditable } from './edit-request';
 import { prepareWrite, type PreparedPreview } from './prepare-write';
@@ -134,89 +135,85 @@ export function ApprovalCard({
       : undefined;
   const target = args.itemId || args.parentId;
 
+  const heading =
+    prepared?.model.headline ??
+    (preview.status === 'failed' ? 'This change' : 'Preparing a summary…');
   return (
-    <Card title="Approve this change?" headingLevel={3}>
-      <div className="flex flex-col gap-3">
-        <Text variant="note" tone="muted">
-          A component in this conversation asks to change your workspace.
+    <ApprovalFrame
+      heading={heading}
+      actions={(headingId) => (
+        <ApprovalActions
+          headingId={headingId}
+          approveDisabled={!clean || editing}
+          editLabel={edited === null ? 'Edit' : 'Edit again'}
+          onApprove={() => {
+            if (prepared)
+              decide({ approved: true, args, fence: prepared.fingerprint, withoutAsking: false });
+          }}
+          onDecline={() => {
+            decide({ approved: false });
+          }}
+          onEdit={
+            isEditable(requested) && !editing
+              ? () => {
+                  setEditing(true);
+                }
+              : undefined
+          }
+          onUndo={undefined}
+        />
+      )}
+    >
+      <Text variant="note" tone="muted">
+        A component in this conversation asks to change your workspace.
+      </Text>
+      {prepared ? (
+        <ApprovalSummary model={prepared.model} args={args} workspaceId={workspaceId} />
+      ) : null}
+      {prepared ? (
+        <PetStructurePreview model={prepared.model} captureSummary={false} pending>
+          {prepared.model.bodyEdit ? <PetBodyEditPreview edit={prepared.model.bodyEdit} /> : null}
+        </PetStructurePreview>
+      ) : null}
+      {preview.status === 'loading' ? <Text variant="note">Preparing the preview...</Text> : null}
+      {preview.status === 'failed' ? (
+        <Text variant="note" role="alert">
+          {preview.error}
         </Text>
-        {prepared ? (
-          <ApprovalSummary model={prepared.model} args={args} workspaceId={workspaceId} />
-        ) : null}
-        {prepared ? (
-          <PetStructurePreview model={prepared.model} captureSummary={false} pending>
-            {prepared.model.bodyEdit ? <PetBodyEditPreview edit={prepared.model.bodyEdit} /> : null}
-          </PetStructurePreview>
-        ) : null}
-        {preview.status === 'loading' ? <Text variant="note">Preparing the preview...</Text> : null}
-        {preview.status === 'failed' ? (
-          <Text variant="note" role="alert">
-            {preview.error}
-          </Text>
-        ) : null}
-        {args.operation === 'set_properties' ? (
-          <PropertyValueList propertiesJson={args.propertiesJson} />
-        ) : null}
-        <WriteTextSection items={writeTextItems(args)} />
-        {target ? (
-          <Link className={cn('underline', focusRing)} to={`/w/${workspaceId}?item=${target}`}>
-            Inspect the item
-          </Link>
-        ) : null}
+      ) : null}
+      {args.operation === 'set_properties' ? (
+        <PropertyValueList propertiesJson={args.propertiesJson} />
+      ) : null}
+      <WriteTextSection items={writeTextItems(args)} />
+      {target ? (
+        <Link
+          className={cn('underline', touchLink, focusRing)}
+          to={`/w/${workspaceId}?item=${target}`}
+        >
+          Inspect the item
+        </Link>
+      ) : null}
+      <Text variant="note" tone="muted">
+        Approval applies this change using your Nix permissions.
+      </Text>
+      {waitReason ? (
         <Text variant="note" tone="muted">
-          Approval applies this change using your Nix permissions.
+          {waitReason}
         </Text>
-        {waitReason ? (
-          <Text variant="note" tone="muted">
-            {waitReason}
-          </Text>
-        ) : null}
-        {editing ? (
-          <EditRequest
-            original={requested}
-            current={args}
-            onSave={(next) => {
-              setEdited(
-                next === null ? null : workspaceToolSchema.parse(JSON.parse(next.arguments)),
-              );
-              setEditing(false);
-            }}
-            onCancel={() => {
-              setEditing(false);
-            }}
-          />
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="primary"
-            disabled={!clean || editing}
-            onClick={() => {
-              if (prepared)
-                decide({ approved: true, args, fence: prepared.fingerprint, withoutAsking: false });
-            }}
-          >
-            Approve
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              decide({ approved: false });
-            }}
-          >
-            Decline
-          </Button>
-          {isEditable(requested) && !editing ? (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setEditing(true);
-              }}
-            >
-              {edited === null ? 'Edit before approving' : 'Edit again'}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </Card>
+      ) : null}
+      {editing ? (
+        <EditRequest
+          original={requested}
+          current={args}
+          onSave={(next) => {
+            setEdited(next === null ? null : workspaceToolSchema.parse(JSON.parse(next.arguments)));
+            setEditing(false);
+          }}
+          onCancel={() => {
+            setEditing(false);
+          }}
+        />
+      ) : null}
+    </ApprovalFrame>
   );
 }

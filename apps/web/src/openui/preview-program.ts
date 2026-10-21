@@ -1,5 +1,4 @@
 import type { WorkspaceToolArgs } from '@nix/companion/tool-args';
-import type { PreviewModel } from '@nix/structure-spec';
 
 /** A value as a reader sees it in the summary table. */
 function shown(value: unknown): string {
@@ -17,28 +16,13 @@ const quote = (text: string): string => JSON.stringify(text);
 /**
  * The "at a glance" part of an approval card, as a program Nix writes from the preview it already
  * computed - never from model text - so the summary shows exactly what the card's own preview
- * says: what the change creates, and the values a property write sets. Returns null when there
- * is nothing to summarise beyond the card's preview.
+ * says: the values a property write sets. The counts a change creates are the preview's own
+ * counts line, so they are not drawn a second time. Returns null when there is nothing to
+ * summarise beyond the card's preview.
  */
-export function previewProgram(model: PreviewModel, args: WorkspaceToolArgs): string | null {
+export function previewProgram(args: WorkspaceToolArgs): string | null {
   const statements: string[] = [];
   const parts: string[] = [];
-  const counts = (
-    [
-      ['Items', model.counts.items],
-      ['Fields', model.counts.fields],
-      ['Views', model.counts.views],
-      ['Entries', model.counts.entries],
-    ] as const
-  ).filter(([, count]) => count > 0);
-  if (counts.length > 0) {
-    const names = counts.map((_, index) => `c${String(index)}`);
-    statements.push(`counts = Row([${names.join(', ')}])`);
-    counts.forEach(([label, count], index) => {
-      statements.push(`${names[index] ?? ''} = Stat(${quote(label)}, ${String(count)})`);
-    });
-    parts.push('counts');
-  }
   if (args.operation === 'set_properties') {
     let values: unknown;
     try {
