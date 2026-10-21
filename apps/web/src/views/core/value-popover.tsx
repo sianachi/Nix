@@ -39,6 +39,8 @@ export function ValuePopover(props: {
             className,
           )}
         >
+          {/* Spoken first, so a screen reader hears "Status for Plan, Done" rather than the value alone. */}
+          <span className="sr-only">{hasDisplayValue(item, property) ? `${label}, ` : label}</span>
           {hasDisplayValue(item, property) ? (
             <>
               {labelled ? (
@@ -51,11 +53,13 @@ export function ValuePopover(props: {
               <PropertyValueDisplay item={item} property={property} density={density} />
             </>
           ) : (
-            <Text as="span" variant="caption" tone="muted" truncate aria-hidden>
-              {property.label}
-            </Text>
+            // Text does not forward aria-hidden, so the muted name is hidden by its wrapper.
+            <span aria-hidden className="min-w-0">
+              <Text as="span" variant="caption" tone="muted" truncate>
+                {property.label}
+              </Text>
+            </span>
           )}
-          <span className="sr-only">{label}</span>
         </button>
       )}
     >
