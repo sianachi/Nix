@@ -4,45 +4,30 @@ import {
   SHEET_LIMITS,
   type CellRef,
   cellKey,
-  clampColumnWidth,
   columnLetters,
-  formatCellValue,
   isSheetError,
   parseCellKey,
   rangeContains,
 } from '@nix/sheet';
+import { ContextMenu, Text, focusRingInset } from '@nix/ui';
 import {
-  ContextMenu,
-  Text,
-  cn,
-  dragHandleLineStates,
-  fieldLabel,
-  focusRingInset,
-  gridRangeCell,
-} from '@nix/ui';
-import {
-  Fragment,
   useEffect,
   useReducer,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
 
 import { CellEditor } from './cell-editor';
 import { parseTsv, rangeToTsv } from './clipboard';
-import {
-  COLUMN_RESIZE_STEP,
-  type ResizeDrag,
-  beginColumnResize,
-  moveColumnResize,
-} from './column-resize';
 import { gridKeyAction } from './grid-keys';
 import { INITIAL_SELECTION, type GridBounds, selectedRange, selectionReducer } from './selection';
 import { FormulaBar } from './formula-bar';
-import { fitCellText } from './overflow';
+import { SheetCell } from './sheet-cell';
+import { RESIZE_HINT_ID, SheetColumnHeader } from './sheet-column-header';
+import { useColumnResize } from './use-column-resize';
 import { type SheetData } from './use-sheet';
 import { columnOffsets, columnWindow, rowWindow } from './windowing';
 
@@ -82,13 +67,19 @@ const SPARE_ROWS = 40;
 const SPARE_COLS = 6;
 
 const GRID_HINT_ID = 'sheet-grid-keyboard-hint';
-const RESIZE_HINT_ID = 'sheet-resize-keyboard-hint';
 
 export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
-  const [resize, setResize] = useState<ResizeDrag | null>(null);
+  const {
+    resize,
+    cancelResize,
+    onHandlePointerDown,
+    onOverlayPointerMove,
+    onOverlayPointerUp,
+    onOverlayPointerCancel,
+  } = useColumnResize(sheet);
 
   // Whether Tab is a cell movement or an exit. Escape releases the trap and any grid keystroke
   // restores it - blurring on Escape, which this replaced, sent focus to <body>, so the promised
@@ -98,12 +89,6 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const editorRef = useRef<HTMLInputElement>(null);
   const menuCellRef = useRef<CellRef | null>(null);
   const editSettledRef = useRef(false);
-  // The latest pointer position and the one frame scheduled to apply it:
-  // pointermove fires at the pointer's report rate (well past 60Hz on gaming
-  // mice), each event its own task, so moves coalesce to one state write per
-  // animation frame.
-  const dragXRef = useRef<number | null>(null);
-  const dragFrameRef = useRef<number | null>(null);
 
   const bounds: GridBounds = {
     rows: Math.min(SHEET_LIMITS.maxRows, Math.max(sheet.meta.rows + SPARE_ROWS, 100)),
@@ -301,154 +286,37 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
     }
   }
 
-  function stopDragFrame(): void {
-    if (dragFrameRef.current !== null) {
-      cancelAnimationFrame(dragFrameRef.current);
-      dragFrameRef.current = null;
-    }
-    dragXRef.current = null;
-  }
-
-  // A frame scheduled by the last pointermove of a drag must not fire into an
-  // unmounted grid.
-  useEffect(() => {
-    return () => {
-      if (dragFrameRef.current !== null) {
-        cancelAnimationFrame(dragFrameRef.current);
-      }
-    };
-  }, []);
-
-  function onHandlePointerDown(col: number, event: ReactPointerEvent<HTMLDivElement>): void {
-    // preventDefault stops the header text from being selected by the drag;
-    // focus is taken explicitly instead, so the ring and the keys (Escape to
-    // cancel, arrows to fine-tune) are there if the person switches
-    // mid-thought.
+  function onCellMouseDown(
+    row: number,
+    col: number,
+    raw: string,
+    event: ReactMouseEvent<HTMLDivElement>,
+  ): void {
+    if (event.button !== 0) return;
+    // Mouse down rather than click, so a drag begins a range from the right corner;
+    // shift-click extends.
+    //
+    // Checked before we take focus below: a tap that lands on a cell the grid already had
+    // focused and active is a request to edit it, the same door the double-click and Enter
+    // already open - without it, a touch user could select a cell but never edit one without a
+    // keyboard or a double-tap.
+    const alreadyFocused =
+      scrollerRef.current !== null && document.activeElement === scrollerRef.current;
     event.preventDefault();
-    event.currentTarget.focus();
-    setResize(
-      beginColumnResize({
-        col,
-        pointerId: event.pointerId,
-        clientX: event.clientX,
-        width: widths[col] ?? DEFAULT_COLUMN_WIDTH,
-      }),
-    );
-  }
-
-  // Move, release and cancel live on the capture overlay, not the handle: the
-  // handle is virtualized, so a drag that scrolls its column out of the
-  // render window would unmount it mid-gesture and strand the drag with the
-  // overlay swallowing every pointer event. The overlay exists exactly while
-  // a drag is live and nothing can unmount it but the drag ending.
-  function onOverlayPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
-    if (resize?.pointerId !== event.pointerId) {
+    scrollerRef.current?.focus({ preventScroll: true });
+    if (selection.mode === 'edit') {
+      commitDraft('stay');
+    }
+    if (
+      alreadyFocused &&
+      !event.shiftKey &&
+      row === selection.active.row &&
+      col === selection.active.col
+    ) {
+      beginEdit('open', raw);
       return;
     }
-    // A mouse released outside the window sends its pointerup where the
-    // overlay cannot hear it, and the next move arrives with no button held.
-    // Without this, the phantom drag keeps resizing and the next click
-    // commits it; cancelling is the honest reading of a button nobody is
-    // pressing. Touch and pen never hit it - they get implicit capture.
-    if (event.buttons === 0) {
-      stopDragFrame();
-      setResize(null);
-      return;
-    }
-    dragXRef.current = event.clientX;
-    dragFrameRef.current ??= requestAnimationFrame(() => {
-      dragFrameRef.current = null;
-      const clientX = dragXRef.current;
-      if (clientX !== null) {
-        setResize((drag) => (drag === null ? null : moveColumnResize(drag, clientX)));
-      }
-    });
-  }
-
-  function onOverlayPointerUp(event: ReactPointerEvent<HTMLDivElement>): void {
-    if (resize?.pointerId !== event.pointerId) {
-      return;
-    }
-    stopDragFrame();
-    // One write on release, not one per move: the drag previews locally and
-    // the shared document receives a single undoable width change. The
-    // release position is authoritative - it may be newer than the last
-    // frame the preview painted.
-    sheet.setColumnWidth(resize.col, moveColumnResize(resize, event.clientX).width);
-    setResize(null);
-  }
-
-  function onOverlayPointerCancel(): void {
-    // A cancelled gesture (browser took the pointer, touch was interrupted)
-    // reverts rather than committing whatever width it happened to reach.
-    stopDragFrame();
-    setResize(null);
-  }
-
-  /**
-   * After a keyboard resize, scrolls the body the minimum that keeps the
-   * column's right edge - where the focused handle sits - in view, the same
-   * arithmetic the active-cell effect uses. Without it, End would park the
-   * focused element past the viewport (WCAG 2.4.11).
-   */
-  function revealColumnEdge(col: number, width: number): void {
-    const scroller = scrollerRef.current;
-    if (scroller === null) {
-      return;
-    }
-    const left = offsets[col] ?? 0;
-    const right = left + width;
-    if (right > scroller.scrollLeft + scroller.clientWidth) {
-      scroller.scrollLeft = right - scroller.clientWidth;
-    } else if (left < scroller.scrollLeft) {
-      scroller.scrollLeft = left;
-    }
-  }
-
-  function onHandleKeyDown(col: number, event: ReactKeyboardEvent<HTMLDivElement>): void {
-    if (event.key === 'Escape') {
-      // The keyboard exit from a mouse-begun drag: revert, commit nothing.
-      if (resize !== null) {
-        event.preventDefault();
-        stopDragFrame();
-        setResize(null);
-      }
-      return;
-    }
-    const meta = event.metaKey || event.ctrlKey;
-    if (meta && (event.key === 'z' || event.key === 'Z')) {
-      // The grid's undo shortcut, repeated here because the handles live in
-      // the header strip, outside the scroller subtree that binds it - a
-      // resize must be undoable from the very element that just made it.
-      event.preventDefault();
-      if (event.shiftKey) {
-        sheet.redo();
-      } else {
-        sheet.undo();
-      }
-      return;
-    }
-    if (meta && (event.key === 'y' || event.key === 'Y')) {
-      event.preventDefault();
-      sheet.redo();
-      return;
-    }
-    const width = widths[col] ?? DEFAULT_COLUMN_WIDTH;
-    let next: number | null = null;
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
-      next = width - COLUMN_RESIZE_STEP;
-    } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-      next = width + COLUMN_RESIZE_STEP;
-    } else if (event.key === 'Home') {
-      next = SHEET_COLUMN_WIDTH.min;
-    } else if (event.key === 'End') {
-      next = SHEET_COLUMN_WIDTH.max;
-    }
-    if (next !== null) {
-      event.preventDefault();
-      sheet.setColumnWidth(col, next);
-      revealColumnEdge(col, clampColumnWidth(next));
-    }
+    dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
   }
 
   const visibleRows: number[] = [];
@@ -460,11 +328,6 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
     visibleCols.push(col);
   }
 
-  // design-token-exempt: the header strips mirror the body's scroll position and extent, runtime values with no token to draw from
-  const columnStripStyle = {
-    width: `${String(totalWidth)}px`,
-    transform: `translateX(-${String(scroll.left)}px)`,
-  };
   const rowStripStyle = {
     height: `${String(totalHeight)}px`,
     transform: `translateY(-${String(scroll.top)}px)`,
@@ -524,75 +387,21 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
           className="absolute left-0 top-0 z-30 h-8 w-12 border-b border-r border-divider bg-surface"
         />
 
-        {/* Column letters, pinned vertically, following horizontal scroll. */}
-        <div className="absolute left-12 right-0 top-0 z-20 h-8 overflow-hidden border-b border-divider bg-surface">
-          <div className="relative h-8" style={columnStripStyle}>
-            {visibleCols.map((col) => {
-              const width = widths[col] ?? DEFAULT_COLUMN_WIDTH;
-              // design-token-exempt: a column's place and width are grid geometry computed at runtime
-              const style = {
-                left: `${String(offsets[col] ?? 0)}px`,
-                width: `${String(width)}px`,
-              };
-              // design-token-exempt: the handle sits on the column's right edge, grid geometry computed at runtime
-              const handleStyle = { left: `${String(offsets[col + 1] ?? 0)}px` };
-              return (
-                <Fragment key={col}>
-                  <div
-                    className={cn(
-                      'absolute top-0 flex h-8 items-center justify-center border-r border-divider',
-                      fieldLabel,
-                    )}
-                    style={style}
-                  >
-                    {columnLetters(col)}
-                  </div>
-                  {/* A focusable window-splitter separator: drag it, or focus
-                      it and use the arrow keys - the resize must not be a
-                      pointer-only act. Tab reaches only the active column's
-                      handle (a stable single stop where the person already
-                      is, instead of one stop per visible column); arrows
-                      resize once focused. The 12px strip is the hit area,
-                      the inner line is the visual. */}
-                  {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions --
-                      Justification: ARIA defines a focusable separator with
-                      aria-valuenow as the window-splitter widget; jsx-a11y
-                      models separator only as the static divider. */}
-                  <div
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label={`Resize column ${columnLetters(col)}`}
-                    aria-valuenow={width}
-                    aria-valuemin={SHEET_COLUMN_WIDTH.min}
-                    aria-valuemax={SHEET_COLUMN_WIDTH.max}
-                    aria-valuetext={`${String(width)} pixels`}
-                    aria-describedby={RESIZE_HINT_ID}
-                    tabIndex={col === selection.active.col ? 0 : -1}
-                    data-dragging={resize?.col === col ? '' : undefined}
-                    onPointerDown={(event) => {
-                      onHandlePointerDown(col, event);
-                    }}
-                    onKeyDown={(event) => {
-                      onHandleKeyDown(col, event);
-                    }}
-                    className={`group absolute top-0 z-10 h-8 w-3 -translate-x-1/2 cursor-col-resize touch-none ${focusRingInset}`}
-                    style={handleStyle}
-                  >
-                    <span
-                      aria-hidden="true"
-                      // `w-px`, the one hairline weight every drag handle in the product draws -
-                      // this used to be `w-0.5`, which read as a heavier rule than the pane
-                      // divider's beside it for no reason anybody chose. See
-                      // `dragHandleLineStates`.
-                      className={`pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 ${dragHandleLineStates}`}
-                    />
-                  </div>
-                  {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions */}
-                </Fragment>
-              );
-            })}
-          </div>
-        </div>
+        <SheetColumnHeader
+          sheet={sheet}
+          scrollerRef={scrollerRef}
+          visibleCols={visibleCols}
+          widths={widths}
+          offsets={offsets}
+          totalWidth={totalWidth}
+          scrollLeft={scroll.left}
+          activeCol={selection.active.col}
+          resizingCol={resize?.col ?? null}
+          defaultWidth={DEFAULT_COLUMN_WIDTH}
+          dragging={resize !== null}
+          onCancelResize={cancelResize}
+          onHandlePointerDown={onHandlePointerDown}
+        />
 
         {/* Row numbers, pinned horizontally, following vertical scroll. */}
         <div className="absolute bottom-0 left-0 top-8 z-20 w-12 overflow-hidden border-r border-divider bg-surface">
@@ -704,96 +513,27 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
                   <div key={row} role="row" aria-rowindex={row + 1} className="contents">
                     {visibleCols.map((col) => {
                       const key = cellKey({ row, col });
-                      const value = sheet.values.get(key);
-                      const display = value === undefined ? '' : formatCellValue(value);
-                      const failed = value !== undefined && isSheetError(value);
                       const raw = sheet.cells.get(key);
-                      const inRange = !rangeIsCell && rangeContains(range, { row, col });
-                      const isActive = row === selection.active.row && col === selection.active.col;
-                      const numeric = typeof value === 'number';
-                      const width = widths[col] ?? DEFAULT_COLUMN_WIDTH;
-                      // A number that does not fit shows hash marks, never a
-                      // digit prefix that reads as a smaller number. The label
-                      // keeps the real value, so assistive technology hears it
-                      // and the hover reveals it.
-                      const shown = fitCellText(display, numeric, width);
-                      const overflowed = shown !== display;
-                      // The hover disclosure, most specific first: a hashed
-                      // formula cell shows its value and its formula, a hashed
-                      // literal its value, a fitting formula its raw text.
-                      let titleText: string | undefined;
-                      if (overflowed) {
-                        titleText =
-                          raw !== undefined && raw !== display ? `${display} (${raw})` : display;
-                      } else if (raw !== undefined && raw !== display) {
-                        titleText = raw;
-                      }
-                      // design-token-exempt: a cell's place and size are grid geometry computed at runtime
-                      const cellStyle = {
-                        top: `${String(row * ROW_HEIGHT)}px`,
-                        left: `${String(offsets[col] ?? 0)}px`,
-                        width: `${String(width)}px`,
-                        height: `${String(ROW_HEIGHT)}px`,
-                      };
-                      // Justification: this grid uses aria-activedescendant, where focus stays on the
-                      // role="grid" container and the active cell is only named, not focused. A
-                      // tabIndex here would let Tab escape into individual cells and break that
-                      // pattern.
                       return (
-                        // eslint-disable-next-line jsx-a11y/interactive-supports-focus
-                        <div
+                        <SheetCell
                           key={col}
-                          id={`sheet-cell-${key}`}
-                          data-sheet-cell={key}
-                          role="gridcell"
-                          aria-colindex={col + 1}
-                          aria-selected={isActive || inRange}
-                          aria-label={`${key}${display.length > 0 ? `, ${display}` : ''}`}
-                          title={titleText}
+                          cellKey={key}
+                          col={col}
+                          value={sheet.values.get(key)}
+                          raw={raw}
+                          top={row * ROW_HEIGHT}
+                          left={offsets[col] ?? 0}
+                          width={widths[col] ?? DEFAULT_COLUMN_WIDTH}
+                          height={ROW_HEIGHT}
+                          inRange={!rangeIsCell && rangeContains(range, { row, col })}
+                          isActive={row === selection.active.row && col === selection.active.col}
                           onMouseDown={(event) => {
-                            if (event.button !== 0) return;
-                            // Mouse down rather than click, so a drag begins a
-                            // range from the right corner; shift-click extends.
-                            //
-                            // Checked before we take focus below: a tap that
-                            // lands on a cell the grid already had focused and
-                            // active is a request to edit it, the same door the
-                            // double-click and Enter already open - without it,
-                            // a touch user could select a cell but never edit
-                            // one without a keyboard or a double-tap.
-                            const alreadyFocused =
-                              scrollerRef.current !== null &&
-                              document.activeElement === scrollerRef.current;
-                            event.preventDefault();
-                            scrollerRef.current?.focus({ preventScroll: true });
-                            if (selection.mode === 'edit') {
-                              commitDraft('stay');
-                            }
-                            if (
-                              alreadyFocused &&
-                              !event.shiftKey &&
-                              row === selection.active.row &&
-                              col === selection.active.col
-                            ) {
-                              beginEdit('open', raw ?? '');
-                              return;
-                            }
-                            dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
+                            onCellMouseDown(row, col, raw ?? '', event);
                           }}
                           onDoubleClick={() => {
                             beginEdit('open', raw ?? '');
                           }}
-                          // px-2 here is the box overflow.ts's
-                          // CELL_HORIZONTAL_PADDING describes - change both.
-                          className={`absolute overflow-hidden text-ellipsis border-b border-r border-divider px-2 py-1.5 text-sm whitespace-nowrap ${
-                            numeric ? 'text-right' : 'text-left'
-                          } ${failed ? 'font-semibold underline decoration-dotted decoration-2' : ''} ${
-                            inRange ? gridRangeCell : ''
-                          } ${isActive ? 'outline-2 -outline-offset-2 outline-accent' : ''}`}
-                          style={cellStyle}
-                        >
-                          {shown}
-                        </div>
+                        />
                       );
                     })}
                   </div>
