@@ -593,7 +593,7 @@ describe('the timeline at a phone width', () => {
     expect(within(schedule).getByRole('button', { name: /^Edit dates: Idea/ })).toBeVisible();
   });
 
-  it('edits both dates in place from the row, without a separate panel', async () => {
+  it("edits dates in the view's one reschedule panel, which survives the row being re-sorted", async () => {
     stubViewport(false);
     const user = person();
     const { setProperties } = render({ children: [ROLLOUT] });
@@ -604,7 +604,11 @@ describe('the timeline at a phone width', () => {
     await user.keyboard('2026-03-20');
 
     expect(setProperties).toHaveBeenCalledWith('item-rollout', { starts: '2026-03-20' });
-    expect(screen.queryByRole('region', { name: 'Reschedule Rollout' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Reschedule Rollout' })).toContainElement(start);
+    expect(screen.getByRole('button', { name: /^Edit dates: Rollout/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 });
 

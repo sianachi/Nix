@@ -1,11 +1,10 @@
-import { Button, Popover, Text, cn, focusRing } from '@nix/ui';
+import { Button, Text, cn, focusRing } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 import { CalendarEntryMenu } from '../calendar/calendar-entry-menu';
 import { SelectCheckbox } from '../core/select-checkbox';
 import type { AsideContext, Placed } from './timeline-model';
 import { titleOf } from './timeline-model';
-import { RescheduleFields } from './timeline-reschedule';
 import { announce, spoken } from './timeline-text';
 import { useTimelineOpenProps } from './use-timeline-open-props';
 
@@ -50,33 +49,29 @@ function AgendaRow({
             </Button>
           </div>
 
-          {/* One tap opens both date fields in place. The popover lives in the row, which React moves
-              rather than remounts when an edit changes its day, so it stays open. */}
-          <Popover
-            label={`Dates for ${titleOf(item)}`}
-            trigger={(trigger) => (
-              <button
-                {...trigger}
-                aria-label={`Edit dates: ${announce(placed)}`}
-                className={cn(
-                  'flex min-h-(--control-md) w-fit max-w-full items-center rounded-md px-2 text-left pointer-coarse:min-h-(--control-lg)',
-                  focusRing,
-                )}
-              >
-                <Text
-                  as="span"
-                  variant="caption"
-                  tone={placed.start === null || placed.end === null ? 'muted' : 'default'}
-                >
-                  {datesLabel(placed, aside.endKey !== null)}
-                </Text>
-              </button>
+          {/* Opens the view's one reschedule panel rather than a popover in the row: an edit that
+              re-sorts the row moves its node, which would drop a panel living inside it. */}
+          <button
+            type="button"
+            aria-label={`Edit dates: ${announce(placed)}`}
+            aria-expanded={aside.rescheduling === item.id}
+            aria-controls={aside.panelId}
+            onClick={() => {
+              aside.setRescheduling(aside.rescheduling === item.id ? null : item.id);
+            }}
+            className={cn(
+              'flex min-h-(--control-md) w-fit max-w-full items-center rounded-md px-2 text-left pointer-coarse:min-h-(--control-lg)',
+              focusRing,
             )}
           >
-            <div data-context-menu-ignore>
-              <RescheduleFields item={item} aside={aside} />
-            </div>
-          </Popover>
+            <Text
+              as="span"
+              variant="caption"
+              tone={placed.start === null || placed.end === null ? 'muted' : 'default'}
+            >
+              {datesLabel(placed, aside.endKey !== null)}
+            </Text>
+          </button>
         </li>
       )}
     </CalendarEntryMenu>
