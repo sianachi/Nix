@@ -1,7 +1,7 @@
 import { Icon, Nav, Text } from '@nix/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useRef, type ReactElement } from 'react';
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { z } from 'zod';
 
 import { useNarrowViewport } from '../layout/viewport';
@@ -27,6 +27,7 @@ import {
 } from './settings-tab';
 
 const fromState = z.object({ from: z.string() });
+const drilledState = z.object({ drilled: z.literal(true) });
 
 type Gate = (capabilities: Capabilities) => boolean;
 
@@ -113,7 +114,12 @@ export function SettingsPage(): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const nav = useRef<HTMLDivElement>(null);
-  const cameFrom = fromState.safeParse(state).data?.from;
+  const navigate = useNavigate();
+  // Back to the list undoes the push that opened the section; only a deep link has nothing to undo.
+  const drilledFromList = drilledState.safeParse(state).success;
+  const lastOpened = useRef<string>();
+  if (activeTab !== null) lastOpened.current = activeTab;
+  const cameFrom = fromState.safeParse(state).data?.from ?? lastOpened.current;
 
   // Phone: drilling in puts focus on the section; coming back puts it on the row that was opened.
   useEffect(() => {
@@ -146,7 +152,7 @@ export function SettingsPage(): ReactElement {
               items={items.map((section) => ({ href: hrefFor(section.id), label: section.label }))}
               {...(activeTab === null ? {} : { currentHref: hrefFor(activeTab) })}
               renderLink={({ href, children, ...rest }) => (
-                <Link to={href} replace={!narrow} {...rest}>
+                <Link to={href} replace={!narrow} state={narrow ? { drilled: true } : undefined} {...rest}>
                   {children}
                   {narrow ? <Icon icon={ChevronRight} size="sm" className="ml-auto" /> : null}
                 </Link>
@@ -169,7 +175,13 @@ export function SettingsPage(): ReactElement {
       {narrow && activeTab !== null ? (
         <Link
           to={pathname}
+          replace={!drilledFromList}
           state={{ from: activeTab }}
+          onClick={(event) => {
+            if (!drilledFromList) return;
+            event.preventDefault();
+            void navigate(-1);
+          }}
           className="flex min-h-11 items-center gap-1 px-3 text-accent-text"
         >
           <Icon icon={ChevronLeft} size="sm" />

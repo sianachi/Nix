@@ -1,5 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useNavigationType } from 'react-router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { stubCoreApi } from '../api-stub';
@@ -19,6 +20,10 @@ beforeEach(() => {
   signedIn();
   stubCoreApi();
 });
+
+function NavigationType() {
+  return <output aria-label="navigation type">{useNavigationType()}</output>;
+}
 
 describe('reaching the settings screen', () => {
   it('lists sections as navigation links at its own address, under a single main landmark', async () => {
@@ -144,6 +149,25 @@ describe('reaching the settings screen', () => {
       expect(await screen.findByRole('link', { name: 'Calendars' })).toHaveFocus();
       expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument();
     });
+  });
+
+  it('goes back to the section list by undoing the push, not adding another entry', async () => {
+    stubViewport(false);
+    const user = userEvent.setup();
+    renderAt(
+      <>
+        <App />
+        <NavigationType />
+      </>,
+      '/settings',
+    );
+
+    await user.click(await screen.findByRole('link', { name: 'Calendars' }));
+    await screen.findByRole('heading', { level: 2, name: 'Calendars' });
+    await user.click(screen.getByRole('link', { name: 'Settings' }));
+
+    expect(await screen.findByRole('link', { name: 'Calendars' })).toHaveFocus();
+    expect(screen.getByLabelText('navigation type')).toHaveTextContent('POP');
   });
 
   it('is reachable from the profile menu as a real link', async () => {
