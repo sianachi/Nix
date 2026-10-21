@@ -343,7 +343,9 @@ describe('the import dialog', () => {
     await pick(markdownFile('a.md', 'Body.'));
     await userEvent.click(await screen.findByRole('button', { name: 'Choose different files' }));
 
-    expect(await screen.findByRole('button', { name: 'Choose files' })).toBeInTheDocument();
+    const choose = await screen.findByRole('button', { name: 'Choose files' });
+    expect(choose).toBeInTheDocument();
+    expect(choose).toHaveFocus();
   });
 
   it('reports a clean run as whole, and hands the root to the shell', async () => {

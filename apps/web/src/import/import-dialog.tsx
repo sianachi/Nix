@@ -104,6 +104,8 @@ export function ImportDialog({
   const [phase, setPhase] = useState<Phase>({ name: 'pick', reading: false, error: null });
   const fileInput = useRef<HTMLInputElement | null>(null);
   const folderInput = useRef<HTMLInputElement | null>(null);
+  const pickButton = useRef<HTMLButtonElement | null>(null);
+  const backToPick = useRef(false);
   const abort = useRef<AbortController | null>(null);
   const activeDocumentImport = useRef<string | null>(null);
 
@@ -123,6 +125,14 @@ export function ImportDialog({
       subjectRef.current = subject;
     }
   }, [phase, workspaceId, subject]);
+
+  // The "Choose different files" button unmounts with the preview; hand focus to the pick step's primary button.
+  useEffect(() => {
+    if (phase.name === 'pick' && backToPick.current) {
+      backToPick.current = false;
+      pickButton.current?.focus();
+    }
+  }, [phase.name]);
 
   useEffect(
     () => () => {
@@ -391,6 +401,7 @@ export function ImportDialog({
                 <Button
                   variant="secondary"
                   onClick={() => {
+                    backToPick.current = true;
                     setPhase({ name: 'pick', reading: false, error: null });
                   }}
                 >
@@ -412,6 +423,7 @@ export function ImportDialog({
                   variant="secondary"
                   onClick={() => {
                     discardDocument(phase.operation.id);
+                    backToPick.current = true;
                     setPhase({ name: 'pick', reading: false, error: null });
                   }}
                 >
@@ -494,6 +506,7 @@ export function ImportDialog({
                 </Button>
               ) : null}
               <Button
+                ref={pickButton}
                 variant="secondary"
                 disabled={phase.reading}
                 onClick={() => {
