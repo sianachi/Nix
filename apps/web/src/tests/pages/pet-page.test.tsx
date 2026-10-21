@@ -156,7 +156,6 @@ describe('note chat page', () => {
     await screen.findByRole('button', { name: 'Note access: Read only' });
     await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
     await user.click(screen.getByRole('menuitem', { name: 'Past conversations' }));
-    await user.click(screen.getByRole('button', { name: 'Conversation history' }));
     await waitFor(() => {
       const request: unknown = mock.execute.mock.calls.at(-1)?.[0];
       expect(request).toHaveProperty('body.operation', 'history');

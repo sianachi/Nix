@@ -1,5 +1,6 @@
 import { pets, type PetConnection, type PetMessage, type NixClient } from '@nix/api-client';
-import { Button, Input, Text } from '@nix/ui';
+import { Button, Icon, Input, Text } from '@nix/ui';
+import { Pencil, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 
 export function exportPetMessages(messages: readonly PetMessage[], name: string): void {
@@ -103,18 +104,11 @@ export function PetHistory({
   const [messages, setMessages] = useState<PetMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState(false);
-  const [renaming, setRenaming] = useState(false);
+  const [confirmId, setConfirmId] = useState('');
+  const [renamingId, setRenamingId] = useState('');
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const lifetime = useRef<AbortController | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    lifetime.current = controller;
-    return () => {
-      controller.abort();
-    };
-  }, []);
   async function load(
     operation: 'history' | 'read_history' | 'delete_history' | 'rename' | 'resume_history',
     historyId = '',
@@ -143,14 +137,14 @@ export function PetHistory({
         setMessages(result.messages ?? []);
       } else if (operation === 'rename') {
         setHistory(result.history ?? []);
-        setRenaming(false);
+        setRenamingId('');
       } else {
         setHistory(result.history ?? []);
         setLoaded(true);
         setMessages([]);
         setSelected('');
-        setConfirm(false);
-        setRenaming(false);
+        setConfirmId('');
+        setRenamingId('');
       }
     } catch {
       setError('History could not be loaded or changed. Try again.');
@@ -158,28 +152,26 @@ export function PetHistory({
       setBusy(false);
     }
   }
+  // The list is the point of this panel, so it loads on open rather than behind a button.
+  useEffect(() => {
+    const controller = new AbortController();
+    lifetime.current = controller;
+    queueMicrotask(() => void load('history'));
+    return () => {
+      controller.abort();
+    };
+    // Once per mount: the parent remounts this panel when the conversation changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const needle = query.trim().toLowerCase();
   const shown = needle
     ? history.filter((entry) => entry.title.toLowerCase().includes(needle))
     : history;
-  const current = history.find((entry) => entry.id === selected);
   return (
     <section aria-label="Companion history" className="flex min-w-0 flex-col gap-2">
-      <Button
-        variant="ghost"
-        disabled={busy}
-        onClick={() => {
-          void load('history');
-        }}
-      >
-        Conversation history
-      </Button>
+      {!loaded && !error ? <Text role="status">Loading conversations…</Text> : null}
       {loaded ? (
         <>
-          <Text variant="note">
-            Previous conversations are saved when you start a new one. Up to 32 are kept for this
-            pet {rootItemId ? 'about this note' : 'in this workspace'}.
-          </Text>
           {history.length ? (
             <Input
               type="search"
@@ -192,143 +184,195 @@ export function PetHistory({
             />
           ) : null}
           {shown.length ? (
-            <ul aria-label="Saved conversations" className="flex min-w-0 flex-col gap-1">
-              {shown.map((entry) => (
-                <li key={entry.id} className="min-w-0">
-                  <Button
-                    variant={entry.id === selected ? 'secondary' : 'ghost'}
-                    aria-current={entry.id === selected ? 'true' : undefined}
-                    disabled={busy}
-                    className="w-full min-w-0 justify-start"
-                    onClick={() => {
-                      setSelected(entry.id);
-                      setMessages([]);
-                      setConfirm(false);
-                      setRenaming(false);
-                      void load('read_history', entry.id);
-                    }}
-                  >
-                    <span className="min-w-0 truncate">
-                      {new Date(entry.createdAt).toLocaleDateString()} —{' '}
-                      {entry.title || 'Untitled conversation'}
-                    </span>
-                  </Button>
-                </li>
-              ))}
+            <ul aria-label="Saved conversations" className="flex min-w-0 flex-col">
+              {shown.map((entry) => {
+                const title = entry.title || 'Untitled conversation';
+                const open = entry.id === selected;
+                return (
+                  <li key={entry.id} className="min-w-0 border-b border-divider py-1">
+                    {renamingId === entry.id ? (
+                      <TitleEditor
+                        initial={entry.title}
+                        busy={busy}
+                        onSave={(next) => {
+                          void load('rename', entry.id, next);
+                        }}
+                        onCancel={() => {
+                          setRenamingId('');
+                        }}
+                      />
+                    ) : (
+                      <div className="flex min-w-0 items-center">
+                        <Button
+                          variant="ghost"
+                          aria-expanded={open}
+                          disabled={busy}
+                          className="h-auto min-h-(--control-md) min-w-0 flex-1 flex-col items-start justify-center gap-0 py-1 text-left any-pointer-coarse:min-h-(--control-lg)"
+                          onClick={() => {
+                            setSelected(open ? '' : entry.id);
+                            setMessages([]);
+                            setConfirmId('');
+                            if (!open) void load('read_history', entry.id);
+                          }}
+                        >
+                          <Text as="span" variant="bodySmall" className="w-full truncate">
+                            {title}
+                          </Text>
+                          <Text as="span" variant="caption" tone="muted">
+                            {new Date(entry.createdAt).toLocaleDateString()}
+                          </Text>
+                        </Button>
+                        <RowAction
+                          label={`Rename ${title}`}
+                          icon={Pencil}
+                          disabled={busy}
+                          onClick={() => {
+                            setRenamingId(entry.id);
+                            setConfirmId('');
+                          }}
+                        />
+                        <RowAction
+                          label={`Remove ${title}`}
+                          icon={Trash2}
+                          disabled={busy}
+                          onClick={() => {
+                            setConfirmId(entry.id);
+                          }}
+                        />
+                      </div>
+                    )}
+                    {confirmId === entry.id ? (
+                      <div className="flex flex-col gap-2 py-2">
+                        <Text variant="note">
+                          Permanently delete this saved Nix conversation? This cannot be undone. It
+                          does not delete provider-side records.
+                        </Text>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="secondary"
+                            aria-label="Delete saved conversation permanently"
+                            disabled={busy}
+                            onClick={() => {
+                              void load('delete_history', entry.id);
+                            }}
+                          >
+                            Delete permanently
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              setConfirmId('');
+                            }}
+                          >
+                            Keep conversation
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {open ? (
+                      <div className="flex min-w-0 flex-col gap-2 py-2">
+                        {messages.length ? (
+                          <div className="flex min-w-0 max-h-60 flex-col gap-2 overflow-y-auto overscroll-contain">
+                            {messages.map((message) => (
+                              <Text
+                                key={message.id}
+                                variant="note"
+                                className="whitespace-pre-wrap wrap-anywhere"
+                              >
+                                {message.role === 'system'
+                                  ? message.text
+                                  : `${message.role === 'user' ? 'You' : name}: ${message.text}`}
+                              </Text>
+                            ))}
+                          </div>
+                        ) : busy ? (
+                          <Text role="status" variant="note" tone="muted">
+                            Loading messages…
+                          </Text>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            aria-label="Continue this conversation"
+                            disabled={busy || running}
+                            onClick={() => {
+                              void load('resume_history', entry.id);
+                            }}
+                          >
+                            Continue
+                          </Button>
+                          {messages.length ? (
+                            <Button
+                              variant="ghost"
+                              aria-label="Export saved conversation"
+                              onClick={() => {
+                                exportPetMessages(messages, name);
+                              }}
+                            >
+                              Export
+                            </Button>
+                          ) : null}
+                        </div>
+                        <Text variant="note" tone="muted">
+                          {running
+                            ? 'Stop the running turn to continue another conversation.'
+                            : 'Your current conversation is saved to history.'}
+                        </Text>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <Text variant="note" tone="muted">
-              {history.length ? 'No conversation matches that title.' : 'No previous conversations'}
+              {history.length
+                ? 'No conversation matches that title.'
+                : `No earlier conversations. Starting a new one saves the current one here, up to 32 ${rootItemId ? 'about this note' : 'in this workspace'}.`}
             </Text>
           )}
-          {current ? (
-            <>
-              {renaming ? (
-                <TitleEditor
-                  initial={current.title}
-                  busy={busy}
-                  onSave={(title) => {
-                    void load('rename', current.id, title);
-                  }}
-                  onCancel={() => {
-                    setRenaming(false);
-                  }}
-                />
-              ) : (
-                <Button
-                  variant="ghost"
-                  aria-label="Rename saved conversation"
-                  disabled={busy}
-                  onClick={() => {
-                    setRenaming(true);
-                  }}
-                >
-                  Rename conversation
-                </Button>
-              )}
-              <Button
-                variant="secondary"
-                aria-label="Continue this conversation"
-                disabled={busy || running}
-                onClick={() => {
-                  void load('resume_history', current.id);
-                }}
-              >
-                Continue this conversation
-              </Button>
-              <Text variant="note" tone="muted">
-                {running
-                  ? 'Stop the running turn to continue another conversation.'
-                  : 'Your current conversation is saved to history.'}
-              </Text>
-            </>
-          ) : null}
-          {messages.length ? (
-            <>
-              <div className="flex min-w-0 max-h-60 flex-col gap-2 overflow-y-auto overscroll-contain">
-                {messages.map((message) => (
-                  <Text
-                    key={message.id}
-                    variant="note"
-                    className="whitespace-pre-wrap wrap-anywhere"
-                  >
-                    {message.role === 'system'
-                      ? message.text
-                      : `${message.role === 'user' ? 'You' : name}: ${message.text}`}
-                  </Text>
-                ))}
-              </div>
-              <Button
-                variant="ghost"
-                aria-label="Export saved conversation"
-                onClick={() => {
-                  exportPetMessages(messages, name);
-                }}
-              >
-                Export conversation
-              </Button>
-              {confirm ? (
-                <>
-                  <Text variant="note">
-                    Permanently delete this saved Nix conversation? This cannot be undone. It does
-                    not delete provider-side records.
-                  </Text>
-                  <Button
-                    variant="secondary"
-                    aria-label="Delete saved conversation permanently"
-                    disabled={busy}
-                    onClick={() => {
-                      void load('delete_history', selected);
-                    }}
-                  >
-                    Delete permanently
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setConfirm(false);
-                    }}
-                  >
-                    Keep conversation
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="ghost"
-                  aria-label="Remove saved conversation"
-                  onClick={() => {
-                    setConfirm(true);
-                  }}
-                >
-                  Remove conversation
-                </Button>
-              )}
-            </>
-          ) : null}
         </>
       ) : null}
-      {error ? <Text role="alert">{error}</Text> : null}
+      {error ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Text role="alert">{error}</Text>
+          {!loaded ? (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void load('history');
+              }}
+            >
+              Try again
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+function RowAction({
+  label,
+  icon,
+  disabled,
+  onClick,
+}: {
+  readonly label: string;
+  readonly icon: typeof Pencil;
+  readonly disabled: boolean;
+  readonly onClick: () => void;
+}): ReactElement {
+  return (
+    <Button
+      variant="ghost"
+      className="w-(--control-md) shrink-0 px-0 any-pointer-coarse:w-(--control-lg)"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon icon={icon} size="sm" />
+    </Button>
   );
 }
 

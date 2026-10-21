@@ -30,25 +30,23 @@ function setup(props: { running?: boolean; onResumed?: (value: unknown) => void 
 }
 
 async function open(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', { name: 'Conversation history' }));
   await screen.findByRole('list', { name: 'Saved conversations' });
+  return user;
 }
 
-it('requires a second explicit confirmation before deleting an archived conversation', async () => {
+it('deletes from the row without opening it, after a second explicit confirmation', async () => {
   const { execute, user } = setup();
   await open(user);
-  await user.click(screen.getByRole('button', { name: /Plan/ }));
-  await screen.findByText('You: Keep this plan');
-  await user.click(screen.getByRole('button', { name: 'Remove saved conversation' }));
-  expect(execute).toHaveBeenCalledTimes(2);
+  await user.click(screen.getByRole('button', { name: 'Remove Plan' }));
+  expect(execute).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole('button', { name: 'Keep conversation' }));
-  expect(execute).toHaveBeenCalledTimes(2);
-  await user.click(screen.getByRole('button', { name: 'Remove saved conversation' }));
+  expect(execute).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole('button', { name: 'Remove Plan' }));
   await user.click(screen.getByRole('button', { name: 'Delete saved conversation permanently' }));
   await waitFor(() => {
-    expect(execute).toHaveBeenCalledTimes(3);
+    expect(execute).toHaveBeenCalledTimes(2);
   });
-  expect(execute.mock.calls[2]?.[0]).toMatchObject({
+  expect(execute.mock.calls[1]?.[0]).toMatchObject({
     body: { operation: 'delete_history', historyId: PLAN },
   });
 });
@@ -59,30 +57,28 @@ it('filters the saved conversations by title', async () => {
   expect(screen.getAllByRole('listitem')).toHaveLength(2);
   await user.type(screen.getByRole('searchbox', { name: 'Search saved conversations' }), 'READ');
   expect(screen.getAllByRole('listitem')).toHaveLength(1);
-  expect(screen.getByRole('button', { name: /Reading list/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /^Reading list/ })).toBeTruthy();
   await user.type(screen.getByRole('searchbox', { name: 'Search saved conversations' }), 'zzz');
   expect(screen.getByText('No conversation matches that title.')).toBeTruthy();
 });
 
-it('renames an archived conversation inline: Enter saves and Escape cancels', async () => {
+it('renames from the row: Enter saves and Escape cancels', async () => {
   const { execute, user } = setup();
   await open(user);
-  await user.click(screen.getByRole('button', { name: /Plan/ }));
-  await screen.findByText('You: Keep this plan');
-  await user.click(screen.getByRole('button', { name: 'Rename saved conversation' }));
+  await user.click(screen.getByRole('button', { name: 'Rename Plan' }));
   const field = screen.getByRole('textbox', { name: 'Conversation title' });
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('textbox', { name: 'Conversation title' })).toBeNull();
-  expect(execute).toHaveBeenCalledTimes(2);
-  await user.click(screen.getByRole('button', { name: 'Rename saved conversation' }));
+  expect(execute).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole('button', { name: 'Rename Plan' }));
   const again = screen.getByRole('textbox', { name: 'Conversation title' });
   expect(field).not.toBe(again);
   await user.clear(again);
   await user.type(again, '  Sprint review{Enter}');
   await waitFor(() => {
-    expect(execute).toHaveBeenCalledTimes(3);
+    expect(execute).toHaveBeenCalledTimes(2);
   });
-  expect(execute.mock.calls[2]?.[0]).toMatchObject({
+  expect(execute.mock.calls[1]?.[0]).toMatchObject({
     body: { operation: 'rename', historyId: PLAN, text: 'Sprint review' },
   });
 });
@@ -91,7 +87,7 @@ it('continues an archived conversation and hands the worker answer to the caller
   const onResumed = vi.fn();
   const { execute, user } = setup({ onResumed });
   await open(user);
-  await user.click(screen.getByRole('button', { name: /Plan/ }));
+  await user.click(screen.getByRole('button', { name: /^Plan/ }));
   await screen.findByText('You: Keep this plan');
   expect(screen.getByText('Your current conversation is saved to history.')).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Continue this conversation' }));
@@ -107,7 +103,7 @@ it('continues an archived conversation and hands the worker answer to the caller
 it('cannot continue another conversation while a turn is running', async () => {
   const { user } = setup({ running: true });
   await open(user);
-  await user.click(screen.getByRole('button', { name: /Plan/ }));
+  await user.click(screen.getByRole('button', { name: /^Plan/ }));
   await screen.findByText('You: Keep this plan');
   const resume = screen.getByRole('button', { name: 'Continue this conversation' });
   expect((resume as HTMLButtonElement).disabled).toBe(true);

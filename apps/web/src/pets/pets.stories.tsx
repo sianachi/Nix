@@ -699,10 +699,36 @@ export const SaveTemplateApproval = {
 };
 export const DarkSaveTemplateApproval = { ...SaveTemplateApproval, globals: { ground: 'dark' } };
 
+// Answers every history request with two archived conversations, so the story needs no server.
+const historyClient = {
+  execute: () =>
+    Promise.resolve(
+      petConnectionSchema.parse({
+        provider: 'chatgpt',
+        status: 'connected',
+        reason: '',
+        canConnect: false,
+        history: [
+          {
+            id: '33333333-3333-4333-8333-333333333333',
+            title: 'Plan the release',
+            createdAt: '2026-10-18T12:00:00Z',
+          },
+          {
+            id: '44444444-4444-4444-8444-444444444444',
+            title: 'Reading list',
+            createdAt: '2026-10-12T12:00:00Z',
+          },
+        ],
+        messages: [{ id: 'one', role: 'user', text: 'Keep this plan' }],
+      }),
+    ),
+} as unknown as NixClient;
+
 export const History = {
   render: (): ReactElement => (
     <PetHistory
-      client={previewClient}
+      client={historyClient}
       workspaceId="11111111-1111-4111-8111-111111111111"
       petId="22222222-2222-4222-8222-222222222222"
       name="Pip"
