@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
 import { PropertyInput, isKnownPropertyType } from '../../properties/property-input';
 import type { PropertyDefinition, PropertyValue } from '../core/container-model';
-import { ValuePopover, useCommitStored } from '../core/value-popover';
+import { ValuePopover, useTrackWrite } from '../core/value-popover';
 
 /**
  * One matched value of a query row, editable in place through the same popover the phone list
@@ -56,7 +56,7 @@ function RowEditor(props: {
   readonly refusal: string | null;
   readonly write: (value: PropertyValue) => Promise<boolean>;
 }): ReactNode {
-  const commitStored = useCommitStored();
+  const trackWrite = useTrackWrite();
   return (
     <PropertyInput
       item={props.owner}
@@ -64,9 +64,7 @@ function RowEditor(props: {
       density="panel"
       error={props.refusal}
       onCommit={(value) => {
-        void props.write(value).then((stored) => {
-          if (stored) commitStored();
-        });
+        trackWrite(props.write(value));
       }}
     />
   );

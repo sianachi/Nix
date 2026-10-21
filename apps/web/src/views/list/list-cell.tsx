@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 
 import { PropertyInput, type PropertyInputDensity } from '../../properties/property-input';
-import { useCommitStored } from '../core/value-popover';
+import { useTrackWrite } from '../core/value-popover';
 import type { Item, PropertyDefinition, PropertyValue } from '../core/container-model';
 
 /**
@@ -49,7 +49,7 @@ export function ListCell({
   const [localRefusal, setLocalRefusal] = useState<string | null>(null);
   const refusal = onRefusalChange === undefined ? localRefusal : (controlledRefusal ?? null);
   const setRefusal = onRefusalChange ?? setLocalRefusal;
-  const commitStored = useCommitStored();
+  const trackWrite = useTrackWrite();
 
   return (
     <PropertyInput
@@ -63,10 +63,12 @@ export function ListCell({
         // on screen while the next write is in flight says the new value has already failed.
         setRefusal(null);
 
-        void onWrite(value).then((answer) => {
-          setRefusal(answer);
-          if (answer === null) commitStored();
-        });
+        trackWrite(
+          onWrite(value).then((answer) => {
+            setRefusal(answer);
+            return answer === null;
+          }),
+        );
       }}
     />
   );
