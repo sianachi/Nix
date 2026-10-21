@@ -5,7 +5,6 @@ import { useState, type ReactElement, type ReactNode } from 'react';
 
 import { DailyCaptureDialog } from '../daily-notes/daily-capture-dialog';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../components/states/status-panels';
-import { localTimeZone } from '../lib/date-format';
 import { useItemDialog } from '../items/item-dialog-context';
 import { paneScroller } from '../layout/regions';
 import { taskKey, useMyDay, type MyDayState } from '../my-day/use-my-day';
@@ -51,12 +50,6 @@ function coverageText(
       return omitted === null ? sentence : `${sentence} (${String(omitted)} affected.)`;
     })
     .join(' ');
-}
-
-/** The server picks the day from the saved zone (UTC until one is saved); say so if the device disagrees. */
-function zoneDiffers(zone: string): boolean {
-  const own = localTimeZone();
-  return own !== zone && !(own === 'UTC' && zone === 'Etc/UTC');
 }
 
 /** Every leading control (checkbox or spacer) takes this box so titles share one left edge. */
@@ -125,13 +118,6 @@ export function MyDayPage(): ReactElement {
         <>
           <Text tone="muted">
             {day.taskDay} · {day.taskTimezone}
-            {zoneDiffers(day.taskTimezone) ? (
-              <>
-                {' '}
-                (this device is in {localTimeZone()}; change your time zone in Settings, then
-                Notifications)
-              </>
-            ) : null}
           </Text>
           {state.staleReason === null ? null : <PartialNotice pending={state.staleReason} />}
           <TasksSection day={day} state={state} open={open} />

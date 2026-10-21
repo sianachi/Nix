@@ -1,4 +1,9 @@
-import type { PreferencesInput, PrincipalPreferencesResponse } from '@nix/api-client';
+import {
+  notifications,
+  type NixClient,
+  type PreferencesInput,
+  type PrincipalPreferencesResponse,
+} from '@nix/api-client';
 
 /**
  * The saved preference the server reports for a principal who has never chosen a zone. A
@@ -37,4 +42,26 @@ export function preferencesInputFrom(saved: PrincipalPreferencesResponse): Prefe
     habitReminders: saved.habitReminders,
     mutedContainerIds: saved.mutedContainerIds,
   };
+}
+
+const checkedClients = new WeakSet<object>();
+
+/**
+ * Saves the device's zone once per session when the person has never saved preferences, so
+ * server-side days (My Day) follow the device rather than UTC. Resolves true only when it wrote.
+ * Never overwrites a saved document; any failure is swallowed and My Day keeps working.
+ */
+export async function saveDeviceTimeZoneOnce(client: NixClient): Promise<boolean> {
+  if (checkedClients.has(client)) return false;
+  checkedClients.add(client);
+  try {
+    const saved = await client.query(notifications.preferences(), { forceRefresh: true });
+    if (saved.revision !== 0 || saved.timeZone !== NEVER_SAVED_TIME_ZONE) return false;
+    const input = preferencesInputFrom(saved);
+    if (input.timeZone === NEVER_SAVED_TIME_ZONE) return false;
+    await client.execute(notifications.savePreferences(saved.revision, input));
+    return true;
+  } catch {
+    return false;
+  }
 }

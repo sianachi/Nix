@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { saveDeviceTimeZoneOnce } from '../settings/shared/preference-defaults';
 import { onItemChildrenChanged } from '../lib/item-children-changed';
 import { useWorkspace } from '../workspaces/workspace-context';
 
@@ -276,6 +277,13 @@ export function useMyDay(): MyDayState {
       pending.clear();
     };
   }, [load]);
+
+  // A person who never saved a zone gets the device's, then the day is re-read in it.
+  useEffect(() => {
+    void saveDeviceTimeZoneOnce(client).then((saved) => {
+      if (saved) void load();
+    });
+  }, [client, load]);
 
   useEffect(
     () =>

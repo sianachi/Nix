@@ -23,11 +23,6 @@ vi.mock('../../my-day/use-my-day', async (importOriginal) => ({
 vi.mock('../../workspaces/workspace-context', () => ({
   useWorkspace: () => ({ workspaceId: WORKSPACE, workspace: { canUseDailyNotes } }),
 }));
-let deviceZone = 'UTC';
-vi.mock('../../lib/date-format', async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  localTimeZone: () => deviceZone,
-}));
 vi.mock('../../tabs/use-open-item', () => ({
   useOpenItem: () => ({ openPreview, openPinned: vi.fn() }),
 }));
@@ -121,7 +116,6 @@ function ready(value: MyDay, extra: Partial<MyDayState> = {}): void {
 beforeEach(() => {
   vi.clearAllMocks();
   canUseDailyNotes = true;
-  deviceZone = 'UTC';
   completeTask.mockResolvedValue(null);
   checkIn.mockResolvedValue(null);
   undoCheckIn.mockResolvedValue(null);
@@ -181,19 +175,10 @@ describe('editing a habit from its row', () => {
 });
 
 describe('the day and zone header', () => {
-  it('says so when the device zone differs from the zone the server used', () => {
-    deviceZone = 'Europe/London';
+  it('shows the day and zone the server used, with no instructions', () => {
     ready(day());
     render(<MyDayPage />);
-    expect(screen.getByText(/2026-10-16 · UTC/)).toHaveTextContent(
-      'this device is in Europe/London',
-    );
-  });
-
-  it('stays quiet when they agree', () => {
-    ready(day());
-    render(<MyDayPage />);
-    expect(screen.queryByText(/this device is in/)).not.toBeInTheDocument();
+    expect(screen.getByText(/2026-10-16 · UTC/)).not.toHaveTextContent('this device');
   });
 });
 
