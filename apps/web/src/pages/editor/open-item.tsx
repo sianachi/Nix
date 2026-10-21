@@ -25,6 +25,7 @@ import { focusSitePaneHeading } from '../../sites/site-pane';
 import { useItemHasSite } from '../../sites/use-item-site';
 import { useOpenChat } from '../../tabs/use-open-chat';
 import { DOCUMENT_VIEW, type View } from '../../views/core/container-model';
+import { ContainerViewTools } from '../../views/core/container-view';
 import { useContainer } from '../../views/core/use-container';
 import { useViewState } from '../../views/core/view-state';
 import { ViewSwitcher } from '../../views/core/view-switcher';
@@ -394,6 +395,19 @@ export function OpenItem({
           unrenderable={unrenderable}
           activeViewId={showingDocument ? DOCUMENT_VIEW : showChildren ? '' : activeId}
           trailing={narrow ? mobileItemControls : undefined}
+          tools={
+            // An empty fragment, not undefined: a defined slot keeps the row's markup (and so the
+            // tabs) from being rebuilt every time the document is chosen.
+            showingDocument ? (
+              <></>
+            ) : (
+              <ContainerViewTools
+                container={container}
+                view={showChildren ? null : active}
+                placement="row"
+              />
+            )
+          }
           documentLabel={narrow ? 'Body' : 'Document'}
           documentHidden={documentHidden}
           defaultViewId={storedDefault}
@@ -453,6 +467,7 @@ export function OpenItem({
           onOpen={onOpen}
           onOpenBeside={onOpenBeside}
           onOpenPinned={onOpenPinned}
+          toolsInRow={views.length > 0 && !zen}
         />
 
         {zen ? null : (

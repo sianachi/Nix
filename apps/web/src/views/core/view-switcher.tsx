@@ -53,6 +53,12 @@ export interface ViewSwitcherProps {
    * held at the end of the row and kept in place while the tabs scroll.
    */
   readonly trailing?: ReactNode;
+
+  /**
+   * Search and view options, held in the same row as the switcher: after the tabs on a wide
+   * screen, between the picker and the item controls on a phone.
+   */
+  readonly tools?: ReactNode;
 }
 
 export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
@@ -65,6 +71,7 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
     documentHidden,
     defaultViewId,
     trailing,
+    tools,
   } = props;
 
   // Nothing to choose between. An item nobody has configured a view on shows its body and no
@@ -84,20 +91,25 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
       {...(documentHidden === undefined ? {} : { documentHidden })}
       {...(defaultViewId === undefined ? {} : { defaultViewId })}
       {...(trailing === undefined ? {} : { trailing })}
+      {...(tools === undefined ? {} : { tools })}
     />
   );
 }
 
 function ViewStrip(props: ViewSwitcherProps): ReactNode {
-  const { trailing } = props;
+  const { trailing, tools } = props;
   const narrow = useNarrowViewport();
   const strip = narrow ? <ViewSelect {...props} /> : <ViewTabs {...props} />;
-  return trailing === undefined ? (
-    strip
-  ) : (
-    <div className="flex min-w-0 items-center">
+  if (trailing === undefined && tools === undefined) return strip;
+  // Wraps so a tool's second line (an open phone search field) can drop below the row. The strip
+  // gives up width first: tabs scroll and the picker shrinks, the tools and item controls do not.
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1 pr-3 sm:pr-8">
       <div className="min-w-0 flex-1">{strip}</div>
-      <div className="flex shrink-0 items-center gap-1 pr-3">{trailing}</div>
+      {tools}
+      {trailing === undefined ? null : (
+        <div className="flex shrink-0 items-center gap-1">{trailing}</div>
+      )}
     </div>
   );
 }

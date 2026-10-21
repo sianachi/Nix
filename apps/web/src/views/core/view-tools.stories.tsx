@@ -65,3 +65,41 @@ function Switcher(): ReactNode {
 }
 export const SwitcherPhone = { ...PHONE, render: (): ReactNode => <Switcher /> };
 export const SwitcherDarkPhone = { ...SwitcherPhone, globals: { ground: 'dark' } };
+
+function RowInner(): ReactNode {
+  const state = useViewState();
+  return (
+    <ViewSwitcher
+      views={VIEWS}
+      unrenderable={[]}
+      activeViewId="all"
+      documentLabel="Body"
+      onSelect={() => undefined}
+      trailing={<button type="button">Details</button>}
+      tools={
+        <ViewTools
+          placement="row"
+          view={VIEW}
+          schema={[]}
+          viewState={state}
+          onSave={() => Promise.resolve(null)}
+        />
+      }
+    />
+  );
+}
+
+function Row({ url = '/' }: { readonly url?: string }): ReactNode {
+  return (
+    <MemoryRouter initialEntries={[url]}>
+      <RowInner />
+    </MemoryRouter>
+  );
+}
+/** The tools share the switcher's row: tabs, then search and options at the end. */
+export const ToolsInRow = { render: (): ReactNode => <Row /> };
+export const ToolsInRowPhone = { ...PHONE, render: (): ReactNode => <Row /> };
+export const ToolsInRowPhoneSearching = {
+  ...PHONE,
+  render: (): ReactNode => <Row url="/?search=Water" />,
+};

@@ -39,6 +39,8 @@ interface ItemBodyProps {
   readonly proseEditor: ReactNode;
   readonly editorHostsControls: boolean;
   readonly mobileItemControls: ReactNode;
+  /** The view switcher's row carries the search and options, so the primary view omits them. */
+  readonly toolsInRow: boolean;
   readonly onOpen: (itemId: string) => void;
   readonly onOpenBeside?: ((itemId: string) => void) | undefined;
   readonly onOpenPinned?: ((itemId: string) => void) | undefined;
@@ -62,6 +64,7 @@ export function ItemBody({
   proseEditor,
   editorHostsControls,
   mobileItemControls,
+  toolsInRow,
   onOpen,
   onOpenBeside,
   onOpenPinned,
@@ -163,6 +166,7 @@ export function ItemBody({
                 onOpen={onOpen}
                 onOpenBeside={onOpenBeside}
                 onOpenPinned={onOpenPinned}
+                toolsInRow={toolsInRow}
               />
             ) : (
               <CompanionViewPair
@@ -182,6 +186,7 @@ export function ItemBody({
                     onOpen={onOpen}
                     onOpenBeside={onOpenBeside}
                     onOpenPinned={onOpenPinned}
+                    toolsInRow={toolsInRow}
                   />
                 }
                 companion={

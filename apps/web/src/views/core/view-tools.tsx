@@ -8,7 +8,11 @@ import { TITLE_COLUMN_KEY } from './columns';
 import type { PropertyDefinition, View, ViewFilterRule } from './container-model';
 import type { SortDirection, ViewStateControl } from './view-state';
 
+export type ViewToolsPlacement = 'row' | 'inline';
+
 export interface ViewToolsProps {
+  /** `row`: a fragment for the view switcher's flex-wrap row. `inline`: its own row above the contents. */
+  readonly placement?: ViewToolsPlacement;
   readonly view: View | null;
   readonly schema: readonly PropertyDefinition[];
   readonly viewState: Pick<
@@ -35,7 +39,13 @@ const DIRECTIONS = [
  * "View options" popover; on a phone the search field opens only when asked for, so the row costs
  * one line rather than the stack of label, field, hint and button it used to.
  */
-export function ViewTools({ view, schema, viewState, onSave }: ViewToolsProps): ReactNode {
+export function ViewTools({
+  placement = 'inline',
+  view,
+  schema,
+  viewState,
+  onSave,
+}: ViewToolsProps): ReactNode {
   const narrow = useNarrowViewport();
   const searchInput = useRef<HTMLInputElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -96,8 +106,22 @@ export function ViewTools({ view, schema, viewState, onSave }: ViewToolsProps): 
   );
   const hasSearch = viewState.search.length > 0;
 
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2 pb-3">
+  const clearLinkFilters =
+    viewState.filters.length === 0 ? null : (
+      <Button
+        variant="ghost"
+        onClick={() => {
+          viewState.clearFilters();
+          searchInput.current?.focus();
+        }}
+      >
+        Clear link filters ({String(viewState.filters.length)})
+      </Button>
+    );
+  const secondLine = narrow && (showSearch || clearLinkFilters !== null);
+
+  const tools = (
+    <>
       {narrow ? (
         <Button
           variant="icon"
@@ -184,24 +208,23 @@ export function ViewTools({ view, schema, viewState, onSave }: ViewToolsProps): 
           </div>
         )}
       </Popover>
-      {viewState.filters.length === 0 ? null : (
-        <Button
-          variant="ghost"
-          onClick={() => {
-            viewState.clearFilters();
-            searchInput.current?.focus();
-          }}
+      {narrow ? null : clearLinkFilters}
+      {secondLine ? (
+        <div
+          className={`order-last flex basis-full items-center gap-2 ${placement === 'row' ? 'pb-1 pl-4 sm:pl-8' : ''}`}
         >
-          Clear link filters ({String(viewState.filters.length)})
-        </Button>
-      )}
-      {narrow && showSearch ? (
-        <div className="order-last flex basis-full items-center gap-2">
-          {search}
-          {hasSearch ? clearSearch : null}
+          {showSearch ? search : null}
+          {showSearch && hasSearch ? clearSearch : null}
+          {clearLinkFilters}
         </div>
       ) : null}
-    </div>
+    </>
+  );
+
+  return placement === 'row' ? (
+    tools
+  ) : (
+    <div className="flex min-w-0 flex-wrap items-center gap-2 pb-3">{tools}</div>
   );
 }
 

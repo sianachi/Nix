@@ -17,7 +17,7 @@ import { useItemSelection, useSelectionShortcuts } from './use-item-selection';
 import { capabilitiesOf, DRAG_EFFECT_COPY } from './view-capabilities';
 import { findViewKind } from './view-kinds';
 import { ViewItemVisibility } from './view-item-visibility';
-import { ViewTools } from './view-tools';
+import { ViewTools, type ViewToolsPlacement } from './view-tools';
 import { useViewState } from './view-state';
 
 /**
@@ -41,6 +41,9 @@ export interface ContainerViewProps {
 
   /** Opens as a pinned document tab, for views set to open in a new tab. */
   readonly onOpenPinned?: ((itemId: string) => void) | undefined;
+
+  /** The screen around this view draws its search and options in the view switcher's row. */
+  readonly toolsInRow?: boolean;
 }
 
 export function ContainerView({
@@ -49,6 +52,7 @@ export function ContainerView({
   onOpen,
   onOpenBeside,
   onOpenPinned,
+  toolsInRow = false,
 }: ContainerViewProps): ReactNode {
   const openDialog = useItemDialog();
   const narrow = useNarrowViewport();
@@ -70,8 +74,6 @@ export function ContainerView({
     none: onOpen,
   }[mode];
   const [grid, setGrid] = useState(false);
-  const viewState = useViewState();
-  const descriptor = view === null ? null : findViewKind(view.kind);
 
   // One selection for whatever the view draws (requirement 7). Rows that leave the container -
   // moved, deleted, filtered by somebody else - leave the selection with them.
@@ -153,28 +155,9 @@ export function ContainerView({
     openBeside: roomForPane ? onOpenBeside : undefined,
     setTrayActions,
   };
-  const tools =
-    container.status === 'ready' &&
-    !container.locked &&
-    (view === null || descriptor?.appliesSavedFilters === true || view.kind === 'query') ? (
-      <ViewTools
-        key={`${container.itemId ?? 'root'}:${view?.id ?? 'default'}`}
-        view={view}
-        schema={container.schema?.properties ?? []}
-        viewState={viewState}
-        onSave={async (filters) => {
-          const stored = container.views?.views ?? [];
-          if (view === null || !stored.some((candidate) => candidate.id === view.id)) {
-            return 'This view is no longer available. Reload it before saving filters.';
-          }
-          return container.setViews(
-            stored.map((candidate) =>
-              candidate.id === view.id ? { ...candidate, filters: [...filters] } : candidate,
-            ),
-          );
-        }}
-      />
-    ) : null;
+  const tools = toolsInRow ? null : (
+    <ContainerViewTools container={container} view={view} placement="inline" />
+  );
   if (narrow && view?.kind === 'sheet')
     return (
       <div className={VIEW_GUTTER}>
@@ -212,6 +195,50 @@ export function ContainerView({
         </div>
       </ItemSelectionContext>
     </ClickSelectsContext>
+  );
+}
+
+/**
+ * Search, sort and saved filters for a view. Drawn inline above the contents, or - with
+ * `placement="row"` - handed to the view switcher so they share its row.
+ */
+export function ContainerViewTools({
+  container,
+  view,
+  placement,
+}: {
+  readonly container: ContainerData;
+  readonly view: View | null;
+  readonly placement: ViewToolsPlacement;
+}): ReactNode {
+  const viewState = useViewState();
+  const descriptor = view === null ? null : findViewKind(view.kind);
+  if (
+    container.status !== 'ready' ||
+    container.locked ||
+    !(view === null || descriptor?.appliesSavedFilters === true || view.kind === 'query')
+  ) {
+    return null;
+  }
+  return (
+    <ViewTools
+      key={`${container.itemId ?? 'root'}:${view?.id ?? 'default'}`}
+      placement={placement}
+      view={view}
+      schema={container.schema?.properties ?? []}
+      viewState={viewState}
+      onSave={async (filters) => {
+        const stored = container.views?.views ?? [];
+        if (view === null || !stored.some((candidate) => candidate.id === view.id)) {
+          return 'This view is no longer available. Reload it before saving filters.';
+        }
+        return container.setViews(
+          stored.map((candidate) =>
+            candidate.id === view.id ? { ...candidate, filters: [...filters] } : candidate,
+          ),
+        );
+      }}
+    />
   );
 }
 

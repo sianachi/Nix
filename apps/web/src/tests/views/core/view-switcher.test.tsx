@@ -197,4 +197,20 @@ describe('the view switcher', () => {
       stubViewport(true);
     }
   });
+
+  it('holds tools and item controls in its own row, after the views', () => {
+    render(
+      <ViewSwitcher
+        views={VIEWS}
+        unrenderable={[]}
+        activeViewId="all"
+        onSelect={vi.fn()}
+        tools={<button type="button">Search titles</button>}
+        trailing={<button type="button">Details</button>}
+      />,
+    );
+
+    const names = screen.getAllByRole('button').map((button) => button.textContent);
+    expect(names.slice(-2)).toEqual(['Search titles', 'Details']);
+  });
 });
