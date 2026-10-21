@@ -4,13 +4,12 @@
 // sits on screen is the caller's `layout`; everything inside is the same in all of them.
 import { type PetProfile, type PetSettings } from '@nix/api-client';
 import { Button, Text, focusRing } from '@nix/ui';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useApiClient } from '../../api/api-client-provider';
 import { useNarrowViewport } from '../../layout/viewport';
 import { useZenActive } from '../../lib/zen-mode';
 import { usePaneIndex } from '../../panes/pane-context';
-import { earlierPieces } from '../../openui/fence';
 import { selectedItemParam } from '../../routing/selected-item';
 import { NewChatNote } from '../../views/chat/new-chat-note';
 import { SaveInsightNote } from '../../views/chat/save-insight-note';
@@ -33,6 +32,8 @@ import { ConversationHeader } from './header/conversation-header';
 import { conversationMenuItems } from './header/conversation-menu';
 import { petSuggestions } from './messages/empty-state';
 import { MessageList } from './messages/message-list';
+import { useReplyAnnouncer } from './state/use-reply-announcer';
+import { useStablePieces } from './state/use-stable-pieces';
 import { HistoryPanel } from './panels/history-panel';
 import { PetSettingsPanel } from './panels/settings-panel';
 import { useApplySwitch } from './state/use-apply-switch';
@@ -134,7 +135,7 @@ export function Conversation({
   const messages = runtime?.messages ?? [];
   // Each message's view of the generated-UI blocks before it, so a patch can find what it changes.
   const runtimeMessages = runtime?.messages;
-  const piecesBefore = useMemo(() => earlierPieces(runtimeMessages ?? []), [runtimeMessages]);
+  const piecesBefore = useStablePieces(runtimeMessages ?? []);
   const running = runtime?.state === 'thinking';
   const approvalPending = needsDecisionIds.length > 0;
   const { applyWithoutAsking, applyExemptToolIds, setApplyWithoutAsking } = useApplySwitch({
@@ -156,6 +157,12 @@ export function Conversation({
           : 'idle';
   const errored = Boolean(error) || runtime?.state === 'error';
   const connected = runtime?.status === 'connected';
+  const announcement = useReplyAnnouncer({
+    messages,
+    petName: pet.name,
+    ready: connected,
+    approvalPending,
+  });
 
   // Stable identity: `PetWorkTools` re-fires its own reporting effect whenever the callback it
   // was given changes identity, so a plain function redefined on every render here would make
@@ -292,6 +299,9 @@ export function Conversation({
       aria-label={`Conversation with ${pet.name}`}
       className={dialogClass(layout)}
     >
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </div>
       {insight !== null ? (
         <SaveInsightNote
           text={insight}

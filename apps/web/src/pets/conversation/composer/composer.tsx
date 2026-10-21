@@ -141,7 +141,7 @@ export function Composer({
   }
 
   return (
-    <div className="mx-auto flex min-w-0 w-full max-h-[50%] max-w-4xl shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-divider p-3">
+    <div className="mx-auto flex min-w-0 w-full max-h-[50%] max-w-2xl shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-divider p-3">
       <ContextChips
         chips={chips}
         onRemove={onRemoveChip}

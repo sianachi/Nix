@@ -5,9 +5,12 @@ import { useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } 
 /** One scroll surface: responses and their approvals stay together above the composer. */
 export function PetChatViewport({
   latestKey,
+  quiet = false,
   children,
 }: {
   readonly latestKey: string;
+  /** The conversation has its own announcer, so the log itself stays silent. */
+  readonly quiet?: boolean;
   readonly children: ReactNode;
 }): ReactElement {
   const viewport = useRef<HTMLDivElement | null>(null);
@@ -38,12 +41,12 @@ export function PetChatViewport({
   }, [latestKey]);
 
   return (
-    <div className="relative mx-auto flex min-h-0 min-w-0 w-full max-w-4xl flex-1 flex-col">
+    <div className="relative mx-auto flex min-h-0 min-w-0 w-full max-w-2xl flex-1 flex-col">
       <div
         ref={viewport}
         role="log"
         aria-label="Conversation messages"
-        aria-live="polite"
+        aria-live={quiet ? 'off' : 'polite'}
         // Scrollable conversation content must be reachable for keyboard scrolling.
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}

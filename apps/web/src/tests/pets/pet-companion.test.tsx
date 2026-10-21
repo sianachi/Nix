@@ -273,7 +273,7 @@ describe('companion workflow', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Plan my reading' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Find notes about' })).toBeVisible();
   });
 
   async function openSettings(user: ReturnType<typeof userEvent.setup>) {

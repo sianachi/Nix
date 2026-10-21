@@ -1,17 +1,19 @@
 import { Button, Icon, Text } from '@nix/ui';
 import { type PetConnection } from '@nix/api-client';
-import { type LucideIcon } from 'lucide-react';
-import { type ReactElement } from 'react';
+import { FilePlus, Pencil, RefreshCw } from 'lucide-react';
+import { memo, type ReactElement } from 'react';
 import { type ProgramPiece } from '../../../openui/fence';
 import { PetMessageText } from '../../pet-message-text';
 
-export function PetMessageRow({
+function PetMessageRowView({
   message,
   petName,
   workspaceId,
   latest,
   editor,
-  action,
+  onEdit,
+  onRegenerate,
+  onSave,
   onAsk,
   applyWithoutAsking,
   earlierPieces,
@@ -24,9 +26,11 @@ export function PetMessageRow({
   readonly latest: boolean;
   /** Replaces the message text while the message is being edited. */
   readonly editor?: ReactElement | undefined;
-  /** The one thing the last turn offers: "Edit" on the user message, "Regenerate" on the reply. */
-  readonly action?:
-    { readonly label: string; readonly icon: LucideIcon; readonly onClick: () => void } | undefined;
+  /** Quiet icon actions, offered only when the chat is idle: Edit on the last user message,
+   * Save as note on a finished reply, Regenerate on the last reply. */
+  readonly onEdit?: ((message: { readonly id: string; readonly text: string }) => void) | undefined;
+  readonly onRegenerate?: (() => void) | undefined;
+  readonly onSave?: ((text: string) => void) | undefined;
   /** A generated-UI button's request to the pet, which goes to the composer rather than out. */
   readonly onAsk?: ((message: string) => void) | undefined;
   readonly applyWithoutAsking: boolean;
@@ -88,12 +92,65 @@ export function PetMessageRow({
           />
         ) : null}
       </div>
-      {action ? (
-        <Button variant="ghost" onClick={action.onClick}>
-          <Icon icon={action.icon} size="sm" />
-          {action.label}
-        </Button>
+      {onEdit || onSave || onRegenerate ? (
+        <div className="flex items-center">
+          {onSave ? (
+            <IconAction
+              label="Save as note"
+              icon={FilePlus}
+              onClick={() => {
+                onSave(message.text);
+              }}
+            />
+          ) : null}
+          {onRegenerate ? (
+            <IconAction label="Regenerate" icon={RefreshCw} onClick={onRegenerate} />
+          ) : null}
+          {onEdit ? (
+            <IconAction
+              label="Edit message"
+              icon={Pencil}
+              onClick={() => {
+                onEdit(message);
+              }}
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
 }
+
+function IconAction({
+  label,
+  icon,
+  onClick,
+}: {
+  readonly label: string;
+  readonly icon: typeof FilePlus;
+  readonly onClick: () => void;
+}): ReactElement {
+  return (
+    <Button
+      variant="ghost"
+      className="w-(--control-md) px-0 any-pointer-coarse:w-(--control-lg)"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
+      <Icon icon={icon} size="sm" />
+    </Button>
+  );
+}
+
+type RowProps = Parameters<typeof PetMessageRowView>[0];
+
+/** The watch delivers new message objects on every update, so rows compare a message by what it
+ * says, not by identity; the callbacks and the rest are expected to be stable. */
+export const PetMessageRow = memo(PetMessageRowView, (a: RowProps, b: RowProps) => {
+  if (a.message.id !== b.message.id || a.message.text !== b.message.text) return false;
+  if (a.message.role !== b.message.role) return false;
+  return (Object.keys(a) as (keyof RowProps)[]).every(
+    (key) => key === 'message' || Object.is(a[key], b[key]),
+  );
+});

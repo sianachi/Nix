@@ -1,34 +1,41 @@
+import { type PetProfile, type PetSettings } from '@nix/api-client';
 import { Button, Text } from '@nix/ui';
 import { type ReactElement } from 'react';
+import { PetAvatar } from '../../pet-avatar';
 
+/** The pet itself, then at most three ways to begin. */
 export function PetEmptyState({
-  petName,
+  pet,
+  settings,
   workspaceAccess,
   suggestions,
   onPick,
 }: {
-  readonly petName: string;
+  readonly pet: PetProfile;
+  readonly settings: PetSettings;
   readonly workspaceAccess: boolean;
   readonly suggestions: readonly string[];
   readonly onPick: (suggestion: string) => void;
 }): ReactElement {
-  // Must-fix 13: the chat copy points at "Workspace access" only while it is still off - once
-  // it is on, the paragraph would just be describing a control the person already turned on.
-  const copy = workspaceAccess
-    ? ''
-    : `Ask a question. Turn on Workspace access below to let ${petName} find and change your notes, or design something new to keep track of.`;
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-      {copy ? (
-        <Text variant="note" tone="muted">
-          {copy}
+    <div className="flex flex-1 flex-col items-center justify-center gap-4">
+      <PetAvatar
+        appearance={pet.appearance}
+        motion={settings.motion}
+        state="idle"
+        label={`${pet.name}: ready`}
+      />
+      {workspaceAccess ? null : (
+        <Text variant="note" tone="muted" className="text-center">
+          {`Turn on Workspace in + to let ${pet.name} use your notes.`}
         </Text>
-      ) : null}
-      <div className="flex flex-wrap justify-center gap-2">
+      )}
+      <div className="flex w-full flex-col items-stretch gap-2">
         {suggestions.map((suggestion) => (
           <Button
             key={suggestion}
             variant="secondary"
+            className="justify-start"
             onClick={() => {
               onPick(suggestion);
             }}
@@ -41,16 +48,10 @@ export function PetEmptyState({
   );
 }
 
-// Must-fix 5: "Add a status field to this list" only makes sense with an item open; "Summarize
-// this page" the same.
+// "Summarize this page" and its siblings only make sense with an item open. "Plan my week" is
+// left out until the owner confirms it.
 export function petSuggestions(hasItem: boolean): readonly string[] {
   return hasItem
-    ? [
-        'Summarize this page',
-        'Turn this note into sensible Nix views',
-        'Write a note from these views',
-        'Find my notes about...',
-        'Add a status field to this list',
-      ]
-    : ['Find my notes about...', 'Plan my reading', 'Track a job hunt'];
+    ? ['Summarize this page', 'Turn this note into views', 'Find notes about ']
+    : ['Find notes about '];
 }

@@ -1,7 +1,6 @@
 import { type PetConnection, type PetProfile, type PetSettings } from '@nix/api-client';
 import { Button, Text } from '@nix/ui';
-import { Pencil, RefreshCw } from 'lucide-react';
-import { type ReactElement } from 'react';
+import { useLayoutEffect, useMemo, useRef, type ReactElement } from 'react';
 import { type NixClient } from '@nix/api-client';
 import { type ProgramPiece } from '../../../openui/fence';
 import { PetAvatar } from '../../pet-avatar';
@@ -70,6 +69,29 @@ export function MessageList({
   readonly retryLastTurn: () => void;
   readonly onSaveInsight: (text: string) => void;
 }): ReactElement {
+  // The watch hands over a new runtime up to four times a second. Rows are memoised, so the
+  // callbacks they receive must keep one identity; they read the latest props through a ref.
+  const latestProps = useRef({ onAsk, retryLastTurn, onSaveInsight, setEditing });
+  useLayoutEffect(() => {
+    latestProps.current = { onAsk, retryLastTurn, onSaveInsight, setEditing };
+  });
+  const stable = useMemo(
+    () => ({
+      onAsk: (text: string) => {
+        latestProps.current.onAsk(text);
+      },
+      onRegenerate: () => {
+        latestProps.current.retryLastTurn();
+      },
+      onSave: (text: string) => {
+        latestProps.current.onSaveInsight(text);
+      },
+      onEdit: (message: { readonly id: string; readonly text: string }) => {
+        latestProps.current.setEditing({ id: message.id, text: message.text });
+      },
+    }),
+    [],
+  );
   const tools = (
     <PetWorkTools
       client={client}
@@ -86,20 +108,14 @@ export function MessageList({
   );
   return (
     <PetChatViewport
+      quiet
       latestKey={`${messages.at(-1)?.id ?? ''}:${runtime.tools?.at(-1)?.id ?? ''}:${running ? 'thinking' : 'idle'}`}
     >
-      {runtime.state === 'error' ? (
-        <div className="flex items-center justify-between gap-2">
-          <Text role="alert">{runtime.reason || 'The response did not finish. Try again.'}</Text>
-          <Button variant="ghost" onClick={retryLastTurn}>
-            Try again
-          </Button>
-        </div>
-      ) : null}
       {messages.length === 0 ? (
         <>
           <PetEmptyState
-            petName={pet.name}
+            pet={pet}
+            settings={settings}
             workspaceAccess={workspaceAccess}
             suggestions={suggestions}
             onPick={onPick}
@@ -119,65 +135,46 @@ export function MessageList({
           const idle = !running && !busy;
           const row = (message: Message, index: number) => {
             const edit = editing?.id === message.id ? editing : null;
+            const quiet = !idle || edit !== null;
             return (
-              <div key={message.id} className="flex flex-col gap-2">
-                <PetMessageRow
-                  key={message.id}
-                  message={message}
-                  petName={pet.name}
-                  workspaceId={workspaceId}
-                  latest={index === messages.length - 1}
-                  onAsk={onAsk}
-                  applyWithoutAsking={applyWithoutAsking}
-                  earlierPieces={piecesBefore[index]}
-                  followsLockedRead={runtime.lockedRead}
-                  noteScope={noteScope}
-                  editor={
-                    edit ? (
-                      <PetMessageEditor
-                        text={edit.text}
-                        enterToSend={enterToSend}
-                        busy={running || busy}
-                        onChange={(text) => {
-                          setEditing({ id: message.id, text });
-                        }}
-                        onSend={() => {
-                          setEditing(null);
-                          void resendTurn(edit.text, message.id);
-                        }}
-                        onCancel={() => {
-                          setEditing(null);
-                        }}
-                      />
-                    ) : undefined
-                  }
-                  action={
-                    !idle || edit
-                      ? undefined
-                      : index === lastUserIndex
-                        ? {
-                            label: 'Edit',
-                            icon: Pencil,
-                            onClick: () => {
-                              setEditing({ id: message.id, text: message.text });
-                            },
-                          }
-                        : index === lastReplyIndex
-                          ? { label: 'Regenerate', icon: RefreshCw, onClick: retryLastTurn }
-                          : undefined
-                  }
-                />
-                {message.role === 'assistant' && idle ? (
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      onSaveInsight(message.text);
-                    }}
-                  >
-                    Save insight as note
-                  </Button>
-                ) : null}
-              </div>
+              <PetMessageRow
+                key={message.id}
+                message={message}
+                petName={pet.name}
+                workspaceId={workspaceId}
+                latest={index === messages.length - 1}
+                onAsk={stable.onAsk}
+                applyWithoutAsking={applyWithoutAsking}
+                earlierPieces={piecesBefore[index]}
+                followsLockedRead={runtime.lockedRead}
+                noteScope={noteScope}
+                editor={
+                  edit ? (
+                    <PetMessageEditor
+                      text={edit.text}
+                      enterToSend={enterToSend}
+                      busy={running || busy}
+                      onChange={(text) => {
+                        setEditing({ id: message.id, text });
+                      }}
+                      onSend={() => {
+                        setEditing(null);
+                        void resendTurn(edit.text, message.id);
+                      }}
+                      onCancel={() => {
+                        setEditing(null);
+                      }}
+                    />
+                  ) : undefined
+                }
+                onEdit={!quiet && index === lastUserIndex ? stable.onEdit : undefined}
+                onRegenerate={!quiet && index === lastReplyIndex ? stable.onRegenerate : undefined}
+                onSave={
+                  !quiet && message.role === 'assistant' && !message.id.includes(':draft:')
+                    ? stable.onSave
+                    : undefined
+                }
+              />
             );
           };
           return (
@@ -189,6 +186,15 @@ export function MessageList({
           );
         })()
       )}
+      {runtime.state === 'error' ? (
+        // At the turn that failed, after the last row, where the reply would have been.
+        <div className="flex items-center justify-between gap-2">
+          <Text role="alert">{runtime.reason || 'The response did not finish. Try again.'}</Text>
+          <Button variant="ghost" onClick={retryLastTurn}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
       {running && !hasDraft && !approvalPending ? (
         // The pet itself, in its thinking pose: the avatar owns the motion preference and
         // shows a still frame under reduced motion. The header status carries the label.

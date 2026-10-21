@@ -299,7 +299,7 @@ describe('companion live wiring', () => {
         .filter((body) => body.operation === 'send');
 
     expect(await screen.findAllByRole('button', { name: 'Regenerate' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Edit message' })).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'Regenerate' }));
     // The send goes out after the click resolves, so wait for it rather than read it at once.
@@ -313,7 +313,7 @@ describe('companion live wiring', () => {
       { timeout: 4000 },
     );
 
-    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit message' }));
     const editor = screen.getByRole('textbox', { name: 'Edit your message' });
     expect(editor).toHaveValue('Second request');
     await user.clear(editor);
@@ -377,7 +377,7 @@ describe('companion live wiring', () => {
     expect(screen.queryByRole('list', { name: 'Notes sent with your message' })).toBeNull();
   });
 
-  it.each(['Turn this note into sensible Nix views', 'Write a note from these views'])(
+  it.each(['Turn this note into views'])(
     'offers %s for the open note without sending before review',
     async (prompt) => {
       client.query.mockResolvedValue({ ...base, state: 'success', messages: [], tools: [] });
@@ -422,11 +422,11 @@ describe('companion live wiring', () => {
     const composer = await screen.findByRole('textbox', { name: 'Message Cat' });
 
     await user.type(composer, '/');
-    expect(screen.getAllByRole('option')).toHaveLength(3);
-    await user.type(composer, 'plan');
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    await user.type(composer, 'find');
     expect(screen.getAllByRole('option')).toHaveLength(1);
     await user.keyboard('{Enter}');
-    expect(composer).toHaveValue('Plan my reading');
+    expect(composer).toHaveValue('Find notes about ');
     expect(screen.queryByRole('option')).toBeNull();
 
     await user.clear(composer);
@@ -494,7 +494,7 @@ describe('companion live wiring', () => {
     );
     await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
     await chooseFromPlus(user, 'Add this page');
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Edit message' }));
     expect(screen.getByRole('textbox', { name: 'Edit your message' })).toBeVisible();
 
     // A send from the composer closes the inline editor.
@@ -524,7 +524,7 @@ describe('companion live wiring', () => {
     client.query.mockResolvedValue({ ...running, state: 'success' });
     client.execute.mockResolvedValue(running);
     const user = await openCompanion();
-    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit message' }));
     client.query.mockResolvedValue(running);
     await user.click(screen.getByRole('button', { name: 'Resend' }));
     expect(

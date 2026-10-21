@@ -316,31 +316,46 @@ export function PetMessageText({
   /** Components here only read: they never offer a write. */
   readonly readOnly?: boolean;
 }): ReactElement {
-  const workspaceIds = [workspaceId, ...sourceWorkspaceIds];
+  const sourceKey = sourceWorkspaceIds.join(',');
   const parsed = useMemo(
     () => (format === 'markdown' ? markdownToDocument(text) : undefined),
     [format, text],
   );
-  if (!parsed?.ok) {
+  // The document tree is the costly part of a reply, and a streamed update re-renders every
+  // message: rebuild it only when this message's own inputs change.
+  const tree = useMemo(() => {
+    if (!parsed?.ok) return null;
+    const workspaceIds = [workspaceId, ...(sourceKey ? sourceKey.split(',') : [])];
+    return messageNode(nixSchema.nodeFromJSON(parsed.doc), workspaceIds, [], {
+      streaming,
+      onAsk,
+      messageId,
+      blocks: 0,
+      applyWithoutAsking,
+      pieces: [...(earlierPieces ?? [])],
+      followsLockedRead,
+      noteScope,
+      readOnly,
+    });
+  }, [
+    parsed,
+    workspaceId,
+    sourceKey,
+    streaming,
+    onAsk,
+    messageId,
+    applyWithoutAsking,
+    earlierPieces,
+    followsLockedRead,
+    noteScope,
+    readOnly,
+  ]);
+  if (!tree) {
     return (
       <Text className="min-w-0 whitespace-pre-wrap wrap-anywhere">
-        {plainText(text, workspaceIds)}
+        {plainText(text, [workspaceId, ...sourceWorkspaceIds])}
       </Text>
     );
   }
-  return (
-    <div className="flex min-w-0 max-w-full flex-col gap-3 wrap-anywhere">
-      {messageNode(nixSchema.nodeFromJSON(parsed.doc), workspaceIds, [], {
-        streaming,
-        onAsk,
-        messageId,
-        blocks: 0,
-        applyWithoutAsking,
-        pieces: [...(earlierPieces ?? [])],
-        followsLockedRead,
-        noteScope,
-        readOnly,
-      })}
-    </div>
-  );
+  return <div className="flex min-w-0 max-w-full flex-col gap-3 wrap-anywhere">{tree}</div>;
 }

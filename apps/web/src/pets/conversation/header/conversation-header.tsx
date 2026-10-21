@@ -149,6 +149,8 @@ export function ConversationHeader({
                     stay in the accessibility tree without taking a line. */}
                 <Text
                   role="status"
+                  // The conversation's one announcer speaks replies and approvals; this line is visual.
+                  aria-live="off"
                   variant="note"
                   tone="muted"
                   truncate
