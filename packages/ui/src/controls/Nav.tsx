@@ -104,7 +104,7 @@ const navListVariants = cva('flex list-none', {
 
 const navItemVariants = cva(
   cn(
-    'flex items-center gap-2 no-underline transition-colors',
+    'flex items-center gap-2 no-underline transition-colors any-pointer-coarse:min-h-(--control-lg)',
     'font-heading text-base font-medium tracking-slight',
     focusRing,
   ),

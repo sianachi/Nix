@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { App } from '../../app';
+import { SettingsPage } from '../../pages/settings-page';
+import { CapabilitiesProvider, NO_CAPABILITIES } from '../../session/capabilities-context';
+import { stubViewport } from '../stub-viewport';
 
 /**
  * How the settings screen is reached: by address, from the persistent rail, and through the
@@ -18,17 +21,25 @@ beforeEach(() => {
 });
 
 describe('reaching the settings screen', () => {
-  it('groups settings into named tabs at its own address', async () => {
+  it('lists sections as navigation links at its own address, under a single main landmark', async () => {
     renderAt(<App />, '/settings');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
-    expect(screen.getByRole('tablist', { name: 'Settings sections' })).toBeVisible();
-    expect(screen.getByRole('tab', { name: 'Workspace' })).toHaveAttribute('aria-selected', 'true');
+    const nav = screen.getByRole('navigation', { name: 'Settings sections' });
+    expect(within(nav).getByRole('link', { name: 'Workspace' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     expect(screen.getByRole('heading', { level: 2, name: /workspace/i })).toBeVisible();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole('tab', { name: 'Editor' }));
+    await user.click(within(nav).getByRole('link', { name: 'Editor' }));
     expect(await screen.findByRole('heading', { level: 2, name: 'Editor' })).toBeVisible();
+    expect(within(nav).getByRole('link', { name: 'Editor' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     expect(
       screen.queryByRole('heading', { level: 2, name: 'Access tokens' }),
     ).not.toBeInTheDocument();
@@ -37,22 +48,26 @@ describe('reaching the settings screen', () => {
   it('keeps an old tab address on the section it always named', async () => {
     renderAt(<App />, '/settings?tab=integrations');
 
-    expect(await screen.findByRole('tab', { name: 'Calendars' })).toHaveAttribute(
-      'aria-selected',
-      'true',
+    expect(await screen.findByRole('link', { name: 'Calendars' })).toHaveAttribute(
+      'aria-current',
+      'page',
     );
     expect(await screen.findByRole('heading', { level: 2, name: 'Calendars' })).toBeVisible();
   });
 
-  it('lists the tabs in group order without the gated ones for an ordinary account', async () => {
+  it('lists the sections in group order without the gated ones for an ordinary account', async () => {
     renderAt(<App />, '/settings');
 
-    await screen.findByRole('tablist', { name: 'Settings sections' });
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+    const nav = await screen.findByRole('navigation', { name: 'Settings sections' });
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual([
       'Workspace',
       'Daily notes',
       'Editor',
-      'Preferences',
+      'General',
       'Pets',
       'Notifications',
       'Calendars',
@@ -61,14 +76,48 @@ describe('reaching the settings screen', () => {
     ]);
   });
 
-  it('falls back to the default tab for a gated tab the account cannot see', async () => {
-    renderAt(<App />, '/settings?tab=publishing');
-
-    expect(await screen.findByRole('tab', { name: 'Workspace' })).toHaveAttribute(
-      'aria-selected',
-      'true',
+  it('sends the old publishing address to the General toggle', () => {
+    renderAt(
+      <CapabilitiesProvider value={{ ...NO_CAPABILITIES, sites: true }}>
+        <SettingsPage />
+      </CapabilitiesProvider>,
+      '/settings?tab=publishing',
     );
-    expect(screen.queryByRole('tab', { name: 'Publishing' })).not.toBeInTheDocument();
+
+    expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('checkbox', { name: 'Show publishing on pages' })).toBeVisible();
+  });
+
+  it('falls back to the default section for a gated one the account cannot see', async () => {
+    renderAt(<App />, '/settings?tab=backups');
+
+    expect(await screen.findByRole('link', { name: 'Workspace' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.queryByRole('link', { name: 'Backups' })).not.toBeInTheDocument();
+  });
+
+  describe('on a phone', () => {
+    beforeEach(() => {
+      stubViewport(false);
+    });
+
+    it('shows the list, drills into a section, and returns focus to its row', async () => {
+      const user = userEvent.setup();
+      renderAt(<App />, '/settings');
+
+      expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
+      expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument();
+      await user.click(await screen.findByRole('link', { name: 'Calendars' }));
+
+      const heading = await screen.findByRole('heading', { level: 2, name: 'Calendars' });
+      expect(heading.closest('[tabindex="-1"]')).toHaveFocus();
+
+      await user.click(screen.getByRole('link', { name: 'Settings' }));
+      expect(await screen.findByRole('link', { name: 'Calendars' })).toHaveFocus();
+      expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument();
+    });
   });
 
   it('is reachable from the profile menu as a real link', async () => {

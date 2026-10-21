@@ -1,6 +1,10 @@
-import { Tabs, Text } from '@nix/ui';
-import { type ReactElement } from 'react';
+import { Icon, Nav, Text } from '@nix/ui';
+import { ChevronLeft } from 'lucide-react';
+import { useEffect, useRef, type ReactElement } from 'react';
+import { Link, useLocation } from 'react-router';
+import { z } from 'zod';
 
+import { useNarrowViewport } from '../layout/viewport';
 import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens/access-tokens-section';
 import { AdministratorsSection } from '../settings/administrators/administrators-section';
@@ -10,94 +14,151 @@ import { McpSection } from '../settings/mcp/mcp-section';
 import { CalendarsSection } from '../settings/calendars/calendars-section';
 import { DailyNotesSection } from '../settings/daily-notes/daily-notes-section';
 import { EditorPreferencesSection } from '../settings/editor/editor-preferences-section';
-import { PublishingSection } from '../settings/publishing/publishing-section';
 import { PreferencesSection } from '../settings/preferences/PreferencesSection';
 import { NotificationsSection } from '../settings/notifications/notifications-section';
 import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
 import { PetSettingsSection } from '../pets/pet-settings-section';
 import { useCapabilities, type Capabilities } from '../session/capabilities-context';
-import { DEFAULT_SETTINGS_TAB, useSettingsTab, type SettingsTab } from './settings-tab';
+import {
+  DEFAULT_SETTINGS_TAB,
+  SETTINGS_TAB_PARAM,
+  useSettingsTab,
+  type SettingsTab,
+} from './settings-tab';
+
+const fromState = z.object({ from: z.string() });
 
 type Gate = (capabilities: Capabilities) => boolean;
 
-// Personal and place first, then connections, then the operator's own: each tab keeps its id so
-// every `?tab=` link still lands where it did.
-const settingsTabs: readonly { id: SettingsTab; label: string; closable: false; gate?: Gate }[] = [
-  { id: 'workspace', label: 'Workspace', closable: false },
-  { id: 'daily-notes', label: 'Daily notes', closable: false },
-  { id: 'editor', label: 'Editor', closable: false },
-  { id: 'preferences', label: 'Preferences', closable: false },
-  { id: 'pets', label: 'Pets', closable: false },
-  { id: 'notifications', label: 'Notifications', closable: false },
-  { id: 'integrations', label: 'Calendars', closable: false },
-  { id: 'publishing', label: 'Publishing', closable: false, gate: (c) => c.sites },
-  { id: 'access-tokens', label: 'Access tokens', closable: false },
-  { id: 'mcp', label: 'MCP', closable: false },
-  { id: 'backups', label: 'Backups', closable: false, gate: (c) => c.operator },
-  { id: 'site-approvals', label: 'Site approvals', closable: false, gate: (c) => c.siteApprover },
+// Personal and place first, then connections, then the operator's own: each section keeps its id
+// so every `?tab=` link still lands where it did. The retired `publishing` id resolves to General.
+const settingsSections: readonly { id: SettingsTab; label: string; gate?: Gate }[] = [
+  { id: 'workspace', label: 'Workspace' },
+  { id: 'daily-notes', label: 'Daily notes' },
+  { id: 'editor', label: 'Editor' },
+  { id: 'preferences', label: 'General' },
+  { id: 'pets', label: 'Pets' },
+  { id: 'notifications', label: 'Notifications' },
+  { id: 'integrations', label: 'Calendars' },
+  { id: 'access-tokens', label: 'Access tokens' },
+  { id: 'mcp', label: 'MCP' },
+  { id: 'backups', label: 'Backups', gate: (c) => c.operator },
+  { id: 'site-approvals', label: 'Site approvals', gate: (c) => c.siteApprover },
   {
     id: 'administrators',
     label: 'Administrators',
-    closable: false,
     gate: (c) => c.tenantAdministrator || c.siteApprover,
   },
 ];
 
-/** Settings grouped by the thing being managed, with workspace management first. Addressable by
- * `?tab=` so a link to a specific section survives a refresh or gets shared. */
+function SectionBody(props: { readonly id: SettingsTab }): ReactElement | null {
+  switch (props.id) {
+    case 'workspace':
+      return <WorkspaceManagementSection />;
+    case 'editor':
+      return <EditorPreferencesSection />;
+    case 'preferences':
+      return <PreferencesSection />;
+    case 'notifications':
+      return <NotificationsSection />;
+    case 'daily-notes':
+      return <DailyNotesSection />;
+    case 'pets':
+      return <PetSettingsSection />;
+    case 'integrations':
+      return <CalendarsSection />;
+    case 'access-tokens':
+      return <AccessTokensSection />;
+    case 'mcp':
+      return <McpSection />;
+    case 'backups':
+      return <BackupsSection />;
+    case 'site-approvals':
+      return <SiteApprovalsSection />;
+    case 'administrators':
+      return <AdministratorsSection />;
+  }
+}
+
+/**
+ * Settings grouped by the thing being managed, with workspace management first. Addressable by
+ * `?tab=` so a link to a specific section survives a refresh or gets shared. Wide: a rail beside
+ * the section. Phone: the list of sections, and a pushed page per section so system back returns.
+ */
 export function SettingsPage(): ReactElement {
-  const { tab: requestedTab, setTab: setActiveTab } = useSettingsTab();
+  const { requested } = useSettingsTab();
+  const narrow = useNarrowViewport();
+  const { pathname, state } = useLocation() as { pathname: string; state: unknown };
   // Display hints: Core refuses the operator, approver and administrator routes to everyone else.
   const capabilities = useCapabilities();
-  const tabs = settingsTabs.filter((tab) => tab.gate?.(capabilities) !== false);
-  const activeTab = tabs.some((tab) => tab.id === requestedTab)
-    ? requestedTab
-    : DEFAULT_SETTINGS_TAB;
+  const sections = settingsSections.filter((section) => section.gate?.(capabilities) !== false);
+  const offered = sections.some((section) => section.id === requested) ? requested : null;
+  // Wide always shows a section; the phone shows the list until one is chosen.
+  const activeTab = narrow ? offered : (offered ?? DEFAULT_SETTINGS_TAB);
+
+  const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const nav = useRef<HTMLDivElement>(null);
+  const cameFrom = fromState.safeParse(state).data?.from;
+
+  // Phone: drilling in puts focus on the section; coming back puts it on the row that was opened.
+  useEffect(() => {
+    if (!narrow) return;
+    if (activeTab !== null) {
+      if (scroller.current !== null) scroller.current.scrollTop = 0;
+      content.current?.focus({ preventScroll: true });
+    } else if (cameFrom !== undefined) {
+      nav.current
+        ?.querySelector<HTMLElement>(`a[href$="${SETTINGS_TAB_PARAM}=${cameFrom}"]`)
+        ?.focus();
+    }
+  }, [narrow, activeTab, cameFrom]);
+
+  const hrefFor = (id: SettingsTab): string => `${pathname}?${SETTINGS_TAB_PARAM}=${id}`;
+  const navigation = (
+    <div ref={nav} className={narrow ? 'p-3' : 'sticky top-0 w-48 shrink-0 self-start'}>
+      <Nav
+        label="Settings sections"
+        items={sections.map((section) => ({ href: hrefFor(section.id), label: section.label }))}
+        {...(activeTab === null ? {} : { currentHref: hrefFor(activeTab) })}
+        renderLink={({ href, ...rest }) => <Link to={href} replace={!narrow} {...rest} />}
+      />
+    </div>
+  );
 
   return (
-    <div className={`${paneScroller} flex flex-col`}>
+    <div ref={scroller} className={`${paneScroller} flex flex-col`}>
       <header className="border-b border-divider px-3 py-3 sm:px-6 sm:py-4">
-        <Text variant="h3" as="h1">
+        <Text variant="h2" as="h1" className={narrow && activeTab !== null ? 'sr-only' : ''}>
           Settings
-        </Text>
-        <Text variant="note" tone="muted" className="mt-1 hidden max-w-2xl sm:block">
-          Manage the place you work, how the editor behaves, what you publish, and the credentials
-          connected to your account.
         </Text>
       </header>
 
-      <div className="min-w-0">
-        <Tabs
-          label="Settings sections"
-          items={tabs}
-          activeId={activeTab}
-          onActivate={(id) => {
-            const selected = tabs.find((tab) => tab.id === id);
-            if (selected !== undefined) setActiveTab(selected.id);
-          }}
-        />
-      </div>
+      {narrow && activeTab !== null ? (
+        <Link
+          to={pathname}
+          state={{ from: activeTab }}
+          className="flex min-h-11 items-center gap-1 px-3 text-accent-text"
+        >
+          <Icon icon={ChevronLeft} size="sm" />
+          <Text as="span" variant="bodySmall">
+            Settings
+          </Text>
+        </Link>
+      ) : null}
 
-      <main
-        id={`settings-panel-${activeTab}`}
-        role="tabpanel"
-        aria-label={tabs.find((tab) => tab.id === activeTab)?.label}
-        className="flex min-w-0 flex-col gap-6 break-words p-3 sm:p-6"
-      >
-        {activeTab === 'workspace' ? <WorkspaceManagementSection /> : null}
-        {activeTab === 'editor' ? <EditorPreferencesSection /> : null}
-        {activeTab === 'preferences' ? <PreferencesSection /> : null}
-        {activeTab === 'notifications' ? <NotificationsSection /> : null}
-        {activeTab === 'daily-notes' ? <DailyNotesSection /> : null}
-        {activeTab === 'pets' ? <PetSettingsSection /> : null}
-        {activeTab === 'integrations' ? <CalendarsSection /> : null}
-        {activeTab === 'access-tokens' ? <AccessTokensSection /> : null}
-        {activeTab === 'mcp' ? <McpSection /> : null}
-        {activeTab === 'publishing' ? <PublishingSection /> : null}
-        {activeTab === 'backups' ? <BackupsSection /> : null}
-        {activeTab === 'site-approvals' ? <SiteApprovalsSection /> : null}
-        {activeTab === 'administrators' ? <AdministratorsSection /> : null}
-      </main>
+      <div className={narrow ? 'min-w-0' : 'flex min-w-0 gap-6 p-6'}>
+        {narrow && activeTab !== null ? null : navigation}
+        {activeTab === null ? null : (
+          <div
+            ref={content}
+            tabIndex={-1}
+            className="min-w-0 max-w-2xl flex-1 break-words p-3 outline-none sm:p-0"
+          >
+            <SectionBody id={activeTab} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

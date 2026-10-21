@@ -15,9 +15,9 @@ describe('the notifications settings tab', () => {
     stubCoreApi();
     renderAt(<App />, '/settings?tab=notifications');
 
-    expect(await screen.findByRole('tab', { name: 'Notifications' })).toHaveAttribute(
-      'aria-selected',
-      'true',
+    expect(await screen.findByRole('link', { name: 'Notifications' })).toHaveAttribute(
+      'aria-current',
+      'page',
     );
     expect(await screen.findByRole('heading', { level: 2, name: 'Notifications' })).toBeVisible();
   });

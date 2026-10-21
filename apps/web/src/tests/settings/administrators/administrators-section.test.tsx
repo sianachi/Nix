@@ -85,8 +85,8 @@ describe('Settings > Administrators', () => {
   it('is hidden from anyone who is neither an administrator nor an approver', async () => {
     stubCoreApi({});
     renderAt(<App />, '/settings?tab=administrators');
-    expect(await screen.findByRole('tab', { name: 'MCP' })).toBeVisible();
-    expect(screen.queryByRole('tab', { name: 'Administrators' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'MCP' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Administrators' })).not.toBeInTheDocument();
   });
 
   it('shows only the block the caller may use', async () => {

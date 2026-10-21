@@ -38,9 +38,9 @@ describe('Settings > Backups', () => {
     stubCoreApi({ operator: false });
     renderAt(<App />, '/settings?tab=backups');
 
-    expect(await screen.findByRole('tab', { name: 'MCP' })).toBeVisible();
-    expect(screen.queryByRole('tab', { name: 'Backups' })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Workspace' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('link', { name: 'MCP' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Backups' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Workspace' })).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByRole('region', { name: 'Backups' })).not.toBeInTheDocument();
   });
 

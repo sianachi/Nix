@@ -20,7 +20,7 @@ beforeEach(() => {
 async function renderTokens(): Promise<void> {
   renderAt(<App />, '/settings');
   const user = userEvent.setup();
-  await user.click(await screen.findByRole('tab', { name: 'Access tokens' }));
+  await user.click(await screen.findByRole('link', { name: 'Access tokens' }));
 }
 
 /** Expiries a century out and a decade past, so no test hinges on the machine's clock. */

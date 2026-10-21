@@ -1,6 +1,6 @@
 import { useId, type ReactElement } from 'react';
 
-import { Text } from '@nix/ui';
+import { Checkbox, Text } from '@nix/ui';
 
 /** Caption for a setting that never leaves this browser. */
 export function DeviceOnlyNote(): ReactElement {
@@ -27,25 +27,20 @@ export function PreferenceToggle(props: {
   const descriptionId = useId();
   return (
     <>
-      <label className="flex min-h-11 items-center gap-3">
-        <input
-          type="checkbox"
-          checked={props.checked}
-          aria-describedby={descriptionId}
-          onChange={(event) => {
-            props.onChange(event.target.checked);
-          }}
-        />
-        <Text as="span" variant="bodySmall">
-          {props.label}
-        </Text>
-      </label>
+      <Checkbox
+        label={props.label}
+        checked={props.checked}
+        aria-describedby={descriptionId}
+        onChange={(event) => {
+          props.onChange(event.target.checked);
+        }}
+      />
       <Text as="p" id={descriptionId} variant="note" tone="muted">
         {props.description}
       </Text>
       {props.deviceOnly === true ? <DeviceOnlyNote /> : null}
       {props.unsaved === null ? null : (
-        <Text as="p" variant="note" role="alert">
+        <Text as="p" variant="note">
           {props.unsaved}
         </Text>
       )}

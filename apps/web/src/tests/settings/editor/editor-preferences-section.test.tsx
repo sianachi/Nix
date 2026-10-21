@@ -11,7 +11,7 @@ import { usePageGuidePreference } from '../../../editor/page-guide-preference';
 import { readDismissals, rememberDismissal } from '../../../lib/suggestion-dismissals';
 import { memoryStorage } from '../../views/suggest/suggest-fixtures';
 import { EditorPreferencesSection } from '../../../settings/editor/editor-preferences-section';
-import { PublishingSection } from '../../../settings/publishing/publishing-section';
+import { PreferencesSection } from '../../../settings/preferences/PreferencesSection';
 import {
   usePublishingPreference,
   useSitesVisible,
@@ -120,21 +120,25 @@ describe('publishing', () => {
       </CapabilitiesProvider>,
     );
 
-    expect(screen.queryByRole('checkbox', { name: 'Publishing' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', { name: 'Show publishing on pages' }),
+    ).not.toBeInTheDocument();
   });
 
   it('is off by default, and switching it on and off shows and hides the site entry', async () => {
     const user = userEvent.setup();
     render(
       <CapabilitiesProvider value={{ ...NO_CAPABILITIES, sites: true }}>
-        <PublishingSection />
+        <PreferencesSection />
         <SiteEntryProbe />
       </CapabilitiesProvider>,
     );
 
-    const toggle = screen.getByRole('checkbox', { name: 'Publishing' });
+    const toggle = screen.getByRole('checkbox', { name: 'Show publishing on pages' });
     expect(toggle).not.toBeChecked();
-    expect(screen.getByText('Show site publishing for pages you own.')).toBeVisible();
+    expect(
+      screen.getByText('Adds Publish as a site to the page menu and the item panel'),
+    ).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Publish as a site' })).not.toBeInTheDocument();
 
     await user.click(toggle);
@@ -142,6 +146,14 @@ describe('publishing', () => {
 
     await user.click(toggle);
     expect(screen.queryByRole('button', { name: 'Publish as a site' })).not.toBeInTheDocument();
+  });
+
+  it('offers no toggle when the deployment has no sites', () => {
+    render(<PreferencesSection />);
+
+    expect(
+      screen.queryByRole('checkbox', { name: 'Show publishing on pages' }),
+    ).not.toBeInTheDocument();
   });
 
   it('shows nothing when publishing is on but the deployment has no sites', () => {
@@ -167,10 +179,15 @@ describe('device-only rows', () => {
   });
 
   it('is absent from a synced setting', () => {
-    render(<PublishingSection />);
+    render(
+      <CapabilitiesProvider value={{ ...NO_CAPABILITIES, sites: true }}>
+        <PreferencesSection />
+      </CapabilitiesProvider>,
+    );
 
-    expect(screen.getByRole('checkbox', { name: 'Publishing' })).toBeInTheDocument();
-    expect(screen.queryByText('This device only')).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Show publishing on pages' })).toBeInTheDocument();
+    // Only the status footer row, which is per browser, carries the caption.
+    expect(screen.getAllByText('This device only')).toHaveLength(1);
   });
 });
 

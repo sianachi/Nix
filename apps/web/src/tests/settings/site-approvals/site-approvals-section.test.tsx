@@ -48,8 +48,8 @@ describe('Settings > Site approvals', () => {
   it('is hidden from anyone who is not an approver', async () => {
     stubCoreApi({ siteApprover: false });
     renderAt(<App />, '/settings?tab=site-approvals');
-    expect(await screen.findByRole('tab', { name: 'MCP' })).toBeVisible();
-    expect(screen.queryByRole('tab', { name: 'Site approvals' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'MCP' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Site approvals' })).not.toBeInTheDocument();
   });
 
   it('lists waiting sites and approves one after confirmation, then refreshes', async () => {
