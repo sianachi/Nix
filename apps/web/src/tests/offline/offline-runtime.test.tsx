@@ -488,6 +488,31 @@ describe('scheduling background offline synchronization', () => {
     }
   });
 
+  it('leaves a pass held by another tab to the next scheduled sync instead of retrying', async () => {
+    let requests = 0;
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        // Another tab holds the lock for the whole test.
+        request: async (_n: string, _o: unknown, grant: (lock: unknown) => Promise<void>) => {
+          requests += 1;
+          await grant(null);
+        },
+      },
+    });
+    try {
+      const mounted = renderRuntime(core([note(1)]).client);
+      await vi.waitFor(() => expect(requests).toBe(1));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      });
+      expect(requests).toBe(1);
+      mounted.unmount();
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
   it('retries an aborted active pass when the network returns before its cleanup finishes', async () => {
     const remoteNote = note(1);
     const remote = core([remoteNote]);

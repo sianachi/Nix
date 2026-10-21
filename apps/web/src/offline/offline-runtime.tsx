@@ -772,6 +772,9 @@ export async function synchronizeOfflineNotes(initialOptions: SyncOptions): Prom
   });
 }
 
+// Passes of this tab that hold the sync lock; other tabs' passes are not counted.
+let passesHere = 0;
+
 export function OfflineRuntime(): null {
   const client = useApiClient();
   const { getAccessToken } = useAuth();
@@ -834,8 +837,16 @@ export function OfflineRuntime(): null {
               'nix-offline-sync',
               { ifAvailable: true },
               async (lock) => {
-                if (lock !== null) await run();
-                else contended = true;
+                if (lock === null) {
+                  contended = true;
+                  return;
+                }
+                passesHere += 1;
+                try {
+                  await run();
+                } finally {
+                  passesHere -= 1;
+                }
               },
             );
       void coordinated
@@ -863,12 +874,16 @@ export function OfflineRuntime(): null {
           if (rerun) {
             rerun = false;
             synchronize();
-          } else if (contended) {
-            // The lock was held (often by the pass this effect restart just aborted): try again soon
+          } else if (contended && passesHere > 0) {
+            // This tab's own aborted pass (the effect restarted) still holds the lock: try again soon
             // instead of leaving the status on "Syncing" for the whole five-minute interval.
+            // Another tab's pass is left to finish; the next scheduled pass picks up after it.
             contended = false;
             automaticTimer = setTimeout(synchronize, 1_000);
-          } else scheduleAutomatic();
+          } else {
+            contended = false;
+            scheduleAutomatic();
+          }
         });
     };
     const wentOffline = (): void => {
