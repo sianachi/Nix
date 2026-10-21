@@ -41,7 +41,8 @@ export function useApplySwitch({
   }>({ scope: applyScope, on: savedDefault, exempt: [] });
   // Adjusted during render so no card sees a waiting write before it is exempt.
   const [waiting, setWaiting] = useState<{ scope: string; ids: readonly string[] } | null>(null);
-  if (loaded && waiting?.scope !== applyScope) setWaiting({ scope: applyScope, ids: pendingToolIds });
+  if (loaded && waiting?.scope !== applyScope)
+    setWaiting({ scope: applyScope, ids: pendingToolIds });
   const waitingAtLoad = waiting?.scope === applyScope ? waiting.ids : [];
   const applyWithoutAsking =
     !readOnly && (applySwitch.scope === applyScope ? applySwitch.on : savedDefault);

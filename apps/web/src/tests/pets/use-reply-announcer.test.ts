@@ -36,7 +36,9 @@ describe('useReplyAnnouncer', () => {
     const view = setup([user('u1')]);
     view.rerender({ messages: [user('u1'), reply('a1', 'Done.')] });
     const first = view.result.current;
-    view.rerender({ messages: [user('u1'), reply('a1', 'Done.'), user('u2'), reply('a2', 'Done.')] });
+    view.rerender({
+      messages: [user('u1'), reply('a1', 'Done.'), user('u2'), reply('a2', 'Done.')],
+    });
     expect(view.result.current).not.toBe(first);
     expect(view.result.current.replace('​', '')).toBe('Cat: Done.');
   });
