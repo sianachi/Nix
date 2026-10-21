@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { Editor, LongReply, Reader } from '../../../views/chat/chat-view.stories';
+import { Editor, LongReply, Reader, Streaming } from '../../../views/chat/chat-view.stories';
 
 describe('saved conversation notes', () => {
   it('shows persisted messages and a composer when Core permits sending', async () => {
@@ -17,6 +17,13 @@ describe('saved conversation notes', () => {
     expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Change sources' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+  });
+  it('anchors the viewport on the streaming reply, not the saved message before it', async () => {
+    render(Streaming.render());
+    await screen.findByText(/Drafting the plan/);
+    const anchors = document.querySelectorAll('[data-pet-latest-message]');
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]?.tagName).toBe('ARTICLE');
   });
   it('previews the complete long reply when saving an insight', async () => {
     render(LongReply.render());

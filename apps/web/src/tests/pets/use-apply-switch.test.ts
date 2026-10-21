@@ -9,7 +9,7 @@ describe('useApplySwitch on (re)mount', () => {
     const { result, rerender } = renderHook(
       (props: { loaded: boolean; pendingToolIds: readonly string[] }) =>
         useApplySwitch({ ...base, needsDecisionIds: [], ...props }),
-      { initialProps: { loaded: false, pendingToolIds: [] } },
+      { initialProps: { loaded: false, pendingToolIds: [] as readonly string[] } },
     );
     rerender({ loaded: true, pendingToolIds: ['waiting'] });
     expect(result.current.applyWithoutAsking).toBe(true);

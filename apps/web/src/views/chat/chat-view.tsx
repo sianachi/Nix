@@ -44,6 +44,8 @@ export function ChatView({
   const pending = useRef<{ text: string; requestId: string } | null>(null);
   const tail = useRef<string | undefined>(undefined);
   const running = chat?.turn?.status === 'running';
+  const streamedText = running ? (chat?.turn?.text ?? '') : '';
+  const streaming = streamedText !== '';
   useEffect(() => {
     const controller = new AbortController();
     lifetime.current = controller;
@@ -244,13 +246,14 @@ export function ChatView({
             </fieldset>
           ) : null}
           <PetChatViewport
-            latestKey={`${messages.at(-1)?.id ?? ''}:${String(chat.turn?.text.length ?? 0)}`}
+            // Not the streamed length: the reply grows in place and the viewport must not re-anchor per token.
+            latestKey={`${messages.at(-1)?.id ?? ''}:${String(streaming)}`}
           >
             {messages.map((message, index) => (
               <ChatMessage
                 key={message.id}
                 message={message}
-                latest={index === messages.length - 1}
+                latest={index === messages.length - 1 && !streaming}
                 workspaceId={workspaceId}
                 sourceWorkspaceIds={chat.sourceWorkspaceIds}
                 earlierPieces={piecesBefore[index]}
@@ -266,10 +269,10 @@ export function ChatView({
                 Load more messages
               </Button>
             ) : null}
-            {running && chat.turn?.text ? (
+            {streaming ? (
               <article data-pet-latest-message="" aria-live="off">
                 <PetMessageText
-                  text={chat.turn.text}
+                  text={streamedText}
                   workspaceId={workspaceId}
                   sourceWorkspaceIds={chat.sourceWorkspaceIds}
                   streaming

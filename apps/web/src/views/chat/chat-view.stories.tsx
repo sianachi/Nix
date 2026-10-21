@@ -24,9 +24,12 @@ const workspace: Workspace = {
 };
 function Example({
   reader = false,
+  streaming = false,
   message = 'Research and planning share a priority: test the next release with a small group before rollout.',
 }: {
   readonly reader?: boolean;
+  /** A reply still being written, beside the saved messages. */
+  readonly streaming?: boolean;
   readonly message?: string;
 }): ReactNode {
   const base = createNixClient({
@@ -64,7 +67,9 @@ function Example({
                 revision: 1,
                 canSend: !reader,
                 canEdit: !reader,
-                turn: null,
+                turn: streaming
+                  ? { id, requestId: id, status: 'running', error: null, text: 'Drafting the plan' }
+                  : null,
               },
         ),
       ),
@@ -94,6 +99,7 @@ function Example({
 }
 export const Editor = { render: (): ReactNode => <Example /> };
 export const Reader = { render: (): ReactNode => <Example reader /> };
+export const Streaming = { render: (): ReactNode => <Example streaming /> };
 export const Dark = { ...Editor, globals: { ground: 'dark' } };
 
 export const LongReply = {

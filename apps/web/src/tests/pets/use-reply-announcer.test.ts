@@ -8,11 +8,16 @@ type Message = { id: string; role: string; text: string };
 const user = (id: string): Message => ({ id, role: 'user', text: 'hi' });
 const reply = (id: string, text = id): Message => ({ id, role: 'assistant', text });
 
+interface Props {
+  messages: Message[];
+  approvalPending?: boolean;
+  outcome?: string;
+}
 function setup(messages: Message[]) {
   return renderHook(
-    (props: { messages: Message[]; approvalPending?: boolean; outcome?: string }) =>
+    (props: Props) =>
       useReplyAnnouncer({ petName: 'Cat', ready: true, approvalPending: false, ...props }),
-    { initialProps: { messages } },
+    { initialProps: { messages } as Props },
   );
 }
 
