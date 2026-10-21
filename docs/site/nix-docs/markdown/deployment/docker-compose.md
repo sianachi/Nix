@@ -1,6 +1,10 @@
 # Docker Compose
 
+# Docker Compose
+
 The production manifest is `deploy/compose.prod.yml` in the repository. Images come from `ghcr.io/sianachi/nix/<image>:<full commit SHA>`. The packages are public, so the host needs no registry login.
+
+`deploy/install.sh` runs this manifest for you, layered with `deploy/compose.quickstart.yml`, which bundles Zitadel and puts Caddy on the public ports with automatic HTTPS: see [Install in one line](nix://item/01a16030-a2fa-76fd-bef3-cb99a1a146d0). This page describes the manifest itself and running it by hand.
 
 ## Services
 
@@ -154,4 +158,8 @@ A green health check only proves a process started. After a first start or an up
 - Never run `docker compose down -v`, `docker volume prune` or `--remove-orphans` against the Nix project. The named volumes hold your data and keys.
 - Never print `docker compose config` with resolved secrets. Use `docker compose config --quiet` to validate.
 - Never restore an old copy of a document's body in place under its existing ID. Installed apps hold local copies and would merge the removed content back. Use version history instead.
+
+## Properties
+
+- title: Docker Compose
 

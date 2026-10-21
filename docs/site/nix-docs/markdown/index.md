@@ -24,3 +24,7 @@ Everything in Nix is an item. A note, a project, a reading list and a budget are
 
 **Self-hosted software should be safe to operate.** Nix ships CI-built images for amd64 and arm64, keeps derived data rebuildable, and reports partial or lossy results instead of implying success.
 
+## Properties
+
+- title: Nix
+

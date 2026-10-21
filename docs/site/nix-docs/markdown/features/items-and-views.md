@@ -52,3 +52,7 @@ An interactive form gives people outside your workspace a way to submit somethin
 
 Nix offers suggestions that do not use a language model: possible duplicates, property values you have used before, similar items, free calendar slots and filling a series down a column. They can be switched off.
 
+## Properties
+
+- title: Items and views
+

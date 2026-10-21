@@ -29,3 +29,7 @@ The graph draws a workspace as its items and the references between them.
 
 Calendar events imported by sync are left out of the graph so they do not drown out your notes.
 
+## Properties
+
+- title: Search and the graph
+

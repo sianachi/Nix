@@ -44,3 +44,7 @@ Just before a write runs, Nix checks that the items have not changed since the p
 
 Select text in a note to ask the pet for help with it. Inline writing uses a separate, short-lived conversation with no workspace tools, and the result is a suggestion you insert yourself. It is refused inside locked notes.
 
+## Properties
+
+- title: The companion pet
+

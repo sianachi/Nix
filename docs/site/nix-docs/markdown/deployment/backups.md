@@ -51,3 +51,7 @@ That volume lives on the same node as the data, so it protects against mistakes,
 
 A `.nix` export is a faithful, portable copy of a subtree that Nix can import again. It is useful for moving content and for personal archives, but it does not contain every user, workspace, permission and history entry. Use both.
 
+## Properties
+
+- title: Backups
+

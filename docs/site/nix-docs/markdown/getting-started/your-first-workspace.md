@@ -59,3 +59,7 @@ From the workspace settings you can invite people, choose their role (owner, edi
 - Learn the [keyboard shortcuts](nix://item/01a130b0-134b-7bae-894e-c55a51ae13f8).
 - Read about [items and views](nix://item/01a130b0-0d81-79b5-8927-e37cdc15a7d3) and [properties and formulas](nix://item/01a130b0-0ec1-7341-80b5-ed137c0cbf5c).
 
+## Properties
+
+- title: Your first workspace
+

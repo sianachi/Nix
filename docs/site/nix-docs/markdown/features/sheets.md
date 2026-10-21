@@ -26,3 +26,7 @@ The spreadsheet view shows a container's children as rows and their fields as co
 
 Use the spreadsheet view when each row is a real item you also want to open, link to, put on a calendar or chart. Use a spreadsheet body when you need a free-form grid of cells.
 
+## Properties
+
+- title: Sheets
+

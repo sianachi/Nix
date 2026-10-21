@@ -35,3 +35,7 @@ For a personal site, a portfolio or a blog.
 
 The accent colour, given as `#rrggbb`, is used for links and highlights in both light and dark mode. The site name, description, navigation, footer text and language are all site settings; see [Managing a site](nix://item/01a13137-b778-7f7e-9a3a-bd1413c167bf). Custom themes and custom CSS are not supported.
 
+## Properties
+
+- title: Themes and layouts
+

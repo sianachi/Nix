@@ -1,6 +1,8 @@
 # Kubernetes
 
-The manifests in `deploy/k8s/` run a complete Nix deployment on a k3s cluster: the application, its database, broker, object store, the Zitadel identity provider and the Sites services. They are rendered with `envsubst` and applied by `deploy/k8s/deploy.sh`.
+# Kubernetes
+
+The manifests in `deploy/k8s/` run a complete Nix deployment on a Kubernetes cluster: the application, its database, broker, object store, the Zitadel identity provider and the Sites services. They are rendered with `envsubst` and applied by `deploy/k8s/deploy.sh`. `deploy/install.sh --kubernetes` runs them for you on any cluster (see [Install in one line](nix://item/01a16030-a2fa-76fd-bef3-cb99a1a146d0)); what follows describes the manifests and their defaults, which are a k3s cluster behind Cloudflare.
 
 The Kubernetes path is kept for an explicit switch. Every script in `deploy/k8s/` and `deploy/docker/build-and-push.sh` refuses to run unless you set:
 
@@ -10,10 +12,10 @@ export NIX_DEPLOY_TARGET=kubernetes
 
 ## What you need
 
-- A k3s cluster, version 1.32 or later, with its bundled Traefik v3 ingress controller. The manifests use the `traefik` ingress class and Traefik's `ipAllowList` middleware.
-- Traefik's Service set to `externalTrafficPolicy: Local`, so it sees the real client address. On k3s, set this with a `HelmChartConfig` for `traefik` in `kube-system`. Without it, the Cloudflare-only allowlist answers `403` to everyone.
-- The `local-path` storage class that k3s provides, and a `local-path-retain` class for the volumes that must outlive their claims (the object store and backups). The repository does not define the second one; create it as a copy of `local-path` with `reclaimPolicy: Retain`.
-- A domain proxied through Cloudflare, and a Cloudflare Origin CA certificate and key for it.
+- A cluster with an ingress controller and a StorageClass. By default the manifests expect k3s 1.32 or later with its bundled Traefik v3 (`INGRESS_CLASS=traefik`, the `ipAllowList` middleware and `local-path` storage); `deploy.sh` takes `INGRESS_CLASS`, `STORAGE_CLASS`, `STORAGE_CLASS_RETAIN`, `POD_CIDR`, `PUBLIC_ORIGIN`, `TLS_HOSTS` and `NIX_INGRESS_CLOUDFLARE_ONLY=false` for any other cluster, and the installer sets them from what it finds.
+- With Traefik behind Cloudflare: Traefik's Service set to `externalTrafficPolicy: Local`, so it sees the real client address. On k3s, set this with a `HelmChartConfig` for `traefik` in `kube-system`. Without it, the Cloudflare-only allowlist answers `403` to everyone.
+- With the k3s defaults: the `local-path` storage class, and a `local-path-retain` class for the volumes that must outlive their claims (the object store and backups). The repository does not define the second one; create it as a copy of `local-path` with `reclaimPolicy: Retain`.
+- A domain and a certificate for it and `*.<domain>` in the `nix-tls` secret: a Cloudflare Origin CA certificate when proxied through Cloudflare, otherwise any pair, or cert-manager through the installer's `--cluster-issuer`.
 - `kubectl`, `envsubst`, `openssl` and a checkout of the exact commit you will run.
 - Images for that commit. CI publishes multi-architecture images for every commit on `main`, so you can point `REGISTRY` at them. `deploy/docker/build-and-push.sh` builds and pushes your own instead.
 
@@ -157,4 +159,8 @@ DOMAIN=<your-domain> SITE_HOST=<slug>.<your-domain> deploy/k8s/verify.sh
 `verify.sh` runs its checks in order, each failing in its own way: pods, Core's health and status, log scans, collaboration, RabbitMQ (vhost, required and retired accounts, exact permissions), the workers, the object store (an unsigned request must be refused), Zitadel's issuer, the sites server, the public app routes, that `/internal/authorize` answers `404` publicly, that a Content Security Policy is present, that the apex is not served by Sites and, with `SITE_HOST`, that a site answers with its own policy and sets no cookie.
 
 It cannot check what needs a browser. Do these by hand: sign in end to end, edit the same note in two browsers, export a note as PDF and reload a deep link.
+
+## Properties
+
+- title: Kubernetes
 

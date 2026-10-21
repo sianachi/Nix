@@ -2,6 +2,37 @@
 
 # October 2026
 
+## Version 0.3.1
+
+### One-line install
+
+- One command installs or upgrades Nix on a machine of your own: it generates every secret, bundles the identity provider behind Caddy with automatic HTTPS, migrates the database and prints the administrator sign-in. Run it again to upgrade. `http://nix.localhost` gives a try-out without DNS, and `--kubernetes` installs into a cluster.
+- Releases now name their images `vX.Y.Z` and `latest`, so an install picks up the current release without a commit hash.
+
+### Interactive replies and artifacts
+
+- The pet and chat notes can answer with live components: calculators, quizzes, converters, forms, tables, charts and lists of your items. Lists stay live and respect permissions and locks.
+- Save any component as an artifact: a new item kind that opens in a pane, embeds in notes and keeps its values for everyone who opens it. Edit its source like a note, or ask the pet to change it, with a before and after preview.
+- Components can change your workspace through an approval card, and simple requests (titles, note text, property values, task completion) can be edited before you approve.
+- The pet can add a custom view to a collection and change its program; the approval card shows the whole program before and after.
+- Published sites show a notice in place of an interactive component.
+
+### Pet attachments
+
+- The pet reads files you attach or link in a note: text, Markdown, CSV and JSON as text, PDFs by their text, and images as pictures it can see.
+
+### Vim and Emacs modes
+
+- Vim: text objects, `.` repeat, `f`/`t` motions, search with `/` and `?`, marks, registers, macros and `:` commands.
+- Emacs: incremental search, query replace, goto-line, numeric arguments, word case and transposing commands, a mark ring, registers and keyboard macros.
+
+### Fixes
+
+- Copying spreadsheet cells that hold line breaks, tabs or quotes no longer spills into the rows below on paste.
+- A one-line text property that holds line breaks is edited as several lines, so the first edit no longer joins them.
+- Spreadsheet cells edit long text in a box that grows, and long text in list and calendar cells rests as one clean line.
+- Board and gallery cards no longer read each value twice to a screen reader.
+
 ## Version 0.3.0
 
 ### Sites
@@ -120,4 +151,36 @@
 - Sites keep serving when one stored page fails.
 - One account's settings no longer show up for another on a shared browser.
 - Workspace arrangement, provider keys and MCP tokens can be changed only interactively, not with a personal access token. Provider keys are stored protected and never shown again.
+
+## Properties
+
+- date: 2026-10-11
+- tags: offline; sites; views; charts; formulas; calendar; pets; cli; deploy
+- title: October 2026
+
+
+
+## Fields
+
+### Date
+
+- aggregate: Unset
+- expression: Unset
+- key: date
+- label: Date
+- options: 
+- required: false
+- source: Unset
+- type: date
+
+### Tags
+
+- aggregate: Unset
+- expression: Unset
+- key: tags
+- label: Tags
+- options: automations; calendar; charts; cli; deploy; editor; export; files; finance; formulas; habits; import; locks; offline; pets; pwa; reminders; sites; templates; views
+- required: false
+- source: Unset
+- type: multi\_select
 

@@ -58,3 +58,7 @@ Caddy in the web container routes one public origin:
 
 With Sites enabled, requests for one-label hosts under the sites domain go to the sites serving process instead. Anything else on that listener is refused with `421`.
 
+## Properties
+
+- title: Architecture and services
+

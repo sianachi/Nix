@@ -44,6 +44,8 @@ curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/insta
 
 **Before you run it:** point `nix.example.org` and `auth.nix.example.org` at the machine and leave
 ports 80 and 443 free. Docker with the Compose plugin, `curl`, `openssl` and `jq` must be installed.
+Give Docker at least 8 GB of memory: the stack runs Postgres, RabbitMQ, an object store, the
+identity provider and nine Nix services, and a smaller Docker VM thrashes.
 
 **What it does:** generates every secret into `~/nix/nix.env`, starts Postgres, RabbitMQ, the
 object store and a bundled identity provider (Zitadel) behind Caddy, which fetches the TLS

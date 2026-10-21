@@ -4,3 +4,7 @@ Nix is self-hosted: you run it on a machine you control and sign in through your
 
 This section takes you from nothing to a working workspace.
 
+## Properties
+
+- title: Getting started
+

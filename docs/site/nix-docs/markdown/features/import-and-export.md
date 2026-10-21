@@ -42,3 +42,7 @@ nixctl export <item-id> --format md -o note.md
 
 A `.nix` archive is a portable copy of your content, not a database backup. For instance backups, see [Backups](nix://item/01a130b0-1468-74cc-ac27-9468e85f46ff).
 
+## Properties
+
+- title: Import and export
+

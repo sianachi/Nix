@@ -96,3 +96,7 @@ nixctl site approvals reject <site-id> --note "Please remove the draft pages fir
 
 Changing a site with a personal access token needs a token with the admin scope.
 
+## Properties
+
+- title: Managing a site
+

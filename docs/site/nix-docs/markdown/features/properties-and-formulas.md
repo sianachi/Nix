@@ -93,3 +93,7 @@ A rollup folds a field across an item's children on the server: how many, total,
 
 A chart view counts items or totals a number field, grouped by a select or placed along a date. It can split a series by a choice field and stack it. Charts are computed on the server over the same permission-filtered rows the other views use, and they say when items fall outside the chosen window rather than leaving them out silently.
 
+## Properties
+
+- title: Properties and formulas
+
