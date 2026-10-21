@@ -68,13 +68,13 @@ export function WorkspaceGroupsSection({
       <div className="flex flex-col gap-1">
         <Text
           id="workspace-groups-heading"
-          variant="h4"
+          variant="h3"
           as={headingLevel ?? (groupId === undefined ? 'h3' : 'h2')}
         >
           {selectedGroup?.name ?? 'Workspace groups and pins'}
         </Text>
         <Text variant="note" tone="muted">
-          Only changes your menu. Removing a group keeps its workspaces.
+          Pin and group workspaces in your own menu.
         </Text>
       </div>
       {error === null ? null : (
@@ -170,7 +170,10 @@ export function WorkspaceGroupsSection({
 
           {managedGroups.length === 0 ? null : (
             <details open={groupId !== undefined ? true : undefined} className="text-sm">
-              <summary className="cursor-pointer py-1">Manage groups</summary>
+              <summary className="flex min-h-11 cursor-pointer items-center">Manage groups</summary>
+              <Text variant="note" tone="muted">
+                Only changes your menu. Removing a group keeps its workspaces.
+              </Text>
               <ul aria-label="Workspace groups" className="flex flex-col gap-1 pt-1">
                 {managedGroups.map((group) => (
                   <li key={group.id} className="flex items-center gap-1">

@@ -1,4 +1,4 @@
-import { Blueprint, Checkbox, Text, focusRing } from '@nix/ui';
+import { Checkbox, Text, focusRing } from '@nix/ui';
 import { useId, useState, type ReactElement } from 'react';
 import { Link } from 'react-router';
 
@@ -20,11 +20,12 @@ export function DailyNotesSwitch(): ReactElement {
   const canManage = workspace.canRename && !state.forbidden;
   const [message, setMessage] = useState<string | null>(null);
   const hintId = useId();
+  const headingId = useId();
   const { saved } = state;
 
   return (
-    <Blueprint className="flex max-w-xl flex-col gap-3 p-4">
-      <Text variant="h4" as="h3">
+    <section aria-labelledby={headingId} className="flex max-w-xl flex-col gap-2">
+      <Text id={headingId} variant="h3" as="h3">
         Daily notes
       </Text>
       {state.loading && saved === null ? (
@@ -53,10 +54,6 @@ export function DailyNotesSwitch(): ReactElement {
               });
             }}
           />
-          <Text id={hintId} variant="note" tone="muted">
-            One note per day for the whole workspace. Switching them off keeps every existing daily
-            note as an ordinary note.
-          </Text>
         </div>
       )}
       {saved !== null && !canManage ? (
@@ -74,14 +71,23 @@ export function DailyNotesSwitch(): ReactElement {
           {message}
         </Text>
       )}
-      <Link
-        to={`/w/${workspaceId}/settings?tab=daily-notes`}
-        className={`${focusRing} self-start underline`}
-      >
-        <Text variant="note" as="span">
-          Folders, titles and the template are in Daily notes settings
-        </Text>
-      </Link>
-    </Blueprint>
+      <details className="text-sm">
+        <summary className="flex min-h-11 cursor-pointer items-center">More</summary>
+        <div className="flex flex-col gap-2 pb-2">
+          <Text id={hintId} variant="note" tone="muted">
+            One note per day for the whole workspace. Switching them off keeps every existing daily
+            note as an ordinary note.
+          </Text>
+          <Link
+            to={`/w/${workspaceId}/settings?tab=daily-notes`}
+            className={`${focusRing} self-start underline`}
+          >
+            <Text variant="note" as="span">
+              Folders, titles and the template are in Daily notes settings
+            </Text>
+          </Link>
+        </div>
+      </details>
+    </section>
   );
 }
