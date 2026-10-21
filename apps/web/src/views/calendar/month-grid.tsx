@@ -45,6 +45,10 @@ export interface DayCellSpec {
 
   /** The day spelled out, for the cell's accessible name: "Monday 3 March 2026". */
   readonly name: string;
+
+  /** Where the cell sits (row, then column), for the keyboard walk over the grid. */
+  readonly week: number;
+  readonly weekday: number;
 }
 
 /**
@@ -82,6 +86,8 @@ export function buildWeeks(month: CalendarMonth): readonly (readonly DayCellSpec
         date: dayText(day),
         outside: day.month !== month.month || day.year !== month.year,
         name: `${monthEntry(WEEKDAY_NAMES, index)} ${String(day.day)} ${monthLabel(day)}`,
+        week,
+        weekday: index,
       });
     }
 

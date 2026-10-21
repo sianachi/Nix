@@ -41,7 +41,7 @@ export function UnscheduledList(props: UnscheduledListProps): ReactNode {
 
       {items.length === 0 ? (
         <Text variant="caption" tone="muted">
-          Every item in this folder has a date. Dropping a card here takes its date off again.
+          Nothing unscheduled.
         </Text>
       ) : (
         <ul className="flex flex-col gap-1">

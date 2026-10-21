@@ -93,13 +93,20 @@ export function DayCell(props: DayCellProps): ReactNode {
             `pointer-coarse:*` keeps it shown and tappable on a phone, which has neither hover nor
             focus-by-tab to reveal it with - the same trio `workspace-sidebar.tsx`'s row controls
             and `drive-view.tsx`'s own touch target already use. */}
-        <CreateItemControl
-          compact
-          label={`Add an item on ${name}`}
-          properties={{ [card.dateProperty]: cell.date }}
-          onCreate={card.onCreate}
-          className="opacity-0 pointer-events-none mt-auto self-start focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/day:pointer-events-auto group-hover/day:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
-        />
+        {/* One tab stop for the whole month's add controls: the arrow keys walk the days. */}
+        <div
+          data-roving-row={cell.week}
+          data-roving-column={cell.weekday}
+          className="mt-auto self-start"
+        >
+          <CreateItemControl
+            compact
+            label={`Add an item on ${name}`}
+            properties={{ [card.dateProperty]: cell.date }}
+            onCreate={card.onCreate}
+            className="opacity-0 pointer-events-none mt-auto self-start focus-within:pointer-events-auto focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/day:pointer-events-auto group-hover/day:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
+          />
+        </div>
       </div>
     </td>
   );

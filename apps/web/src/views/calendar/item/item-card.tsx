@@ -71,11 +71,11 @@ export function ItemCard(props: ItemCardProps): ReactNode {
     event.dataTransfer.setData('text/plain', item.id);
   };
 
-  if (compact) {
-    // The time of day, when the item is placed by a moment rather than by a day.
-    const moment = readTimestampValue(item.properties, dateProperty);
-    const time = moment === null ? null : moment.at.setZone(zone).toFormat('HH:mm');
+  // The time of day, when the item is placed by a moment rather than by a day.
+  const moment = readTimestampValue(item.properties, dateProperty);
+  const time = moment === null ? null : moment.at.setZone(zone).toFormat('HH:mm');
 
+  if (compact) {
     return (
       <CalendarEntryMenu
         itemId={item.id}
@@ -186,13 +186,15 @@ export function ItemCard(props: ItemCardProps): ReactNode {
           pane-divider technique again. */}
           <Button
             variant="ghost"
-            aria-label={`Reschedule ${item.title || 'Untitled'}`}
+            aria-label={`Reschedule ${item.title || 'Untitled'}${time === null ? '' : `, ${time}`}`}
             aria-haspopup="dialog"
-            className="relative px-0 py-0.5 before:absolute before:inset-y-0 before:-inset-x-1"
+            className="relative gap-1 px-0 py-0.5 text-xs before:absolute before:inset-y-0 before:-inset-x-1 pointer-coarse:min-w-(--control-lg)"
             onClick={() => {
               setRescheduling(item.id);
             }}
           >
+            {/* The time is the quick edit: one tap opens the dialog on it. */}
+            {time === null ? null : <span>{time}</span>}
             <Icon icon={CalendarClock} size="sm" />
           </Button>
         </div>

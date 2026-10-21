@@ -28,6 +28,8 @@ import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
 import { PhoneAgenda } from './agenda/phone-agenda';
 import type { CardContext } from './item/card-context';
+import { RovingMonth } from './month/roving-month';
+import { MonthDots } from './month/month-dots';
 import { DayCell } from './month/day-cell';
 import { NO_DATE_PROPERTY, describeUnrenderable } from './model/describe-unrenderable';
 import {
@@ -83,6 +85,8 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   const { container, view, onOpen } = props;
   const narrow = useNarrowViewport();
   const [showGrid, setShowGrid] = useState(false);
+  // The day chosen on the phone's month strip; null shows the whole month.
+  const [picked, setPicked] = useState<string | null>(null);
   const viewState = useViewState();
   const { mode: urlMode, setMode } = viewState;
 
@@ -319,13 +323,15 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // "look at this week" should open on a week.
   const mode = readMode(urlMode ?? view.mode);
   const shownDates = new Set(
-    narrow && !showGrid && mode === 'month'
-      ? [...byDate.keys()].filter((date) => date.startsWith(prefix))
-      : mode === 'month'
-        ? buildWeeks(month).flatMap((week) => week.map((cell) => cell.date))
-        : mode === 'week'
-          ? weekOf(anchor).map(dayText)
-          : [dayText(anchor)],
+    narrow && !showGrid && picked !== null
+      ? [picked]
+      : narrow && !showGrid && mode === 'month'
+        ? [...byDate.keys()].filter((date) => date.startsWith(prefix))
+        : mode === 'month'
+          ? buildWeeks(month).flatMap((week) => week.map((cell) => cell.date))
+          : mode === 'week'
+            ? weekOf(anchor).map(dayText)
+            : [dayText(anchor)],
   );
   const shownItems = [
     ...new Set([
@@ -338,6 +344,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
 
   /** One step of whatever is on screen: a month, a week, or a day. */
   function step(delta: number): void {
+    setPicked(null);
     if (mode === 'month') {
       setMonth(shiftMonth(month, delta));
       return;
@@ -368,6 +375,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         onCreate={container.create}
         onStep={step}
         onToday={() => {
+          setPicked(null);
           setAnchor(todayDay());
         }}
       />
@@ -400,29 +408,49 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         </Button>
       ) : null}
       {narrow && !showGrid ? (
-        <PhoneAgenda byDate={byDate} mode={mode} prefix={prefix} anchor={anchor} card={card} />
-      ) : mode === 'month' ? (
-        <MonthGrid
-          month={month}
-          todayText={todayText}
-          prefix={prefix}
-          // The container's gutter is bled into the scroller so those pixels belong to the scroll
-          // viewport rather than to the chrome around it - `VIEW_GUTTER_BLEED` owns the negative
-          // margin and the padding together, so the two cannot become different numbers. The
-          // collated calendar has no gutter to bleed, which is why this is the caller's to pass.
-          regionClassName={VIEW_GUTTER_BLEED}
-          renderDay={(cell, name, isToday) => (
-            <DayCell
-              key={cell.date}
-              cell={cell}
-              name={name}
-              isToday={isToday}
-              items={byDate.get(cell.date) ?? []}
-              dragged={dragged}
-              card={card}
+        <>
+          {mode === 'month' ? (
+            <MonthDots
+              month={month}
+              todayText={todayText}
+              byDate={byDate}
+              picked={picked}
+              onPick={setPicked}
             />
-          )}
-        />
+          ) : null}
+          <PhoneAgenda
+            byDate={byDate}
+            mode={mode}
+            prefix={prefix}
+            anchor={anchor}
+            card={card}
+            picked={mode === 'month' ? picked : null}
+          />
+        </>
+      ) : mode === 'month' ? (
+        <RovingMonth weeks={buildWeeks(month).length}>
+          <MonthGrid
+            month={month}
+            todayText={todayText}
+            prefix={prefix}
+            // The container's gutter is bled into the scroller so those pixels belong to the scroll
+            // viewport rather than to the chrome around it - `VIEW_GUTTER_BLEED` owns the negative
+            // margin and the padding together, so the two cannot become different numbers. The
+            // collated calendar has no gutter to bleed, which is why this is the caller's to pass.
+            regionClassName={VIEW_GUTTER_BLEED}
+            renderDay={(cell, name, isToday) => (
+              <DayCell
+                key={cell.date}
+                cell={cell}
+                name={name}
+                isToday={isToday}
+                items={byDate.get(cell.date) ?? []}
+                dragged={dragged}
+                card={card}
+              />
+            )}
+          />
+        </RovingMonth>
       ) : (
         <>
           {/* Said out loud, because the alternative is a foot that is simply not there: without

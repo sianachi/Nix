@@ -592,15 +592,19 @@ describe('the day cell create control by keyboard', () => {
     expect(control.className).not.toContain('invisible');
   });
 
-  it('is reachable by tabbing rather than existing only for a pointer', async () => {
+  it('is one tab stop for the month, with the arrow keys walking the days', async () => {
     renderCalendar({ children: [KICKOFF] });
 
-    // Tabbed to from the item inside the same cell, rather than focused by hand: `.focus()`
-    // succeeds on elements Tab can never reach, so it cannot tell a keyboard-reachable control
-    // from an unreachable one - which is the entire claim being made here.
-    screen.getByRole('button', { name: 'Kickoff' }).focus();
-    await user().tab();
-    await user().tab();
+    // Tabbed to rather than focused by hand: `.focus()` succeeds on elements Tab can never
+    // reach. The item before the grid's first add control hands focus to it.
+    const first = screen.getByRole('button', { name: 'Add an item on Monday 23 February 2026' });
+    expect(first.tabIndex).toBe(0);
+    expect(
+      screen.getByRole('button', { name: 'Add an item on Tuesday 17 March 2026' }).tabIndex,
+    ).toBe(-1);
+
+    first.focus();
+    await user().keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}');
 
     expect(
       screen.getByRole('button', { name: 'Add an item on Tuesday 17 March 2026' }),
@@ -1028,6 +1032,29 @@ describe('adding an item without a hover or a drag', () => {
       renderCalendar({ children: [KICKOFF] });
 
       expect(screen.queryByText('2026-03-17')).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Tue 17 Mar', level: 3 })).toBeVisible();
+    });
+
+    it('draws the month as day buttons with a count in their name, not a grid that scrolls sideways', () => {
+      renderCalendar({ children: [KICKOFF] });
+
+      const busy = screen.getByRole('button', { name: 'Tuesday 17 March 2026, 1 item' });
+      expect(busy).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    });
+
+    it('shows only the chosen day below the strip, empty or not, and goes back on a second tap', async () => {
+      const person = user();
+      renderCalendar({ children: [KICKOFF] });
+
+      await person.click(screen.getByRole('button', { name: 'Monday 16 March 2026' }));
+
+      expect(screen.getByRole('heading', { name: 'Mon 16 Mar', level: 3 })).toBeVisible();
+      expect(screen.getByText('Nothing on this day.')).toBeVisible();
+      expect(screen.queryByRole('heading', { name: 'Tue 17 Mar' })).not.toBeInTheDocument();
+
+      await person.click(screen.getByRole('button', { name: 'Monday 16 March 2026' }));
+
       expect(screen.getByRole('heading', { name: 'Tue 17 Mar', level: 3 })).toBeVisible();
     });
 

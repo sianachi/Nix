@@ -18,8 +18,8 @@ export function EndTimeHint(props: EndTimeHintProps): ReactNode {
     <div className="flex flex-wrap items-center gap-2">
       <Text as="p" variant="caption" tone="muted">
         {canAddEnd
-          ? 'Items here have a start but no end, so they cannot be stretched.'
-          : 'Items here have a start but no end, so they cannot be stretched. Choose an End property in this view’s settings to give them a length.'}
+          ? 'Items have no end time.'
+          : 'Items have no end time. Choose an End property in this view’s settings.'}
       </Text>
       {canAddEnd ? (
         <Button
