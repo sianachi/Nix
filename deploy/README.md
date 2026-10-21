@@ -11,9 +11,9 @@ secret, bundles Zitadel behind Caddy with automatic HTTPS (`compose.quickstart.y
 `compose.prod.yml`), registers the web application, migrates and starts. Re-running upgrades.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/sianachi/nix/main/deploy/install.sh | bash -s -- https://nix.example.org
+curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash -s -- https://nix.example.org
 # or, into the current kubectl context (deploy/k8s with generic-cluster defaults):
-curl -fsSL https://raw.githubusercontent.com/sianachi/nix/main/deploy/install.sh | bash -s -- --kubernetes https://nix.example.org
+curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash -s -- --kubernetes https://nix.example.org
 ```
 
 The header of `deploy/install.sh` lists the options. State lives in `~/nix` (`nix.env` on

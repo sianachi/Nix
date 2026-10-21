@@ -64,7 +64,7 @@ Run/Debug configurations for each service.
 One line installs Nix from the CI-built multi-architecture images at `ghcr.io/sianachi/nix`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/sianachi/nix/main/deploy/install.sh | bash -s -- https://nix.example.org
+curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash -s -- https://nix.example.org
 ```
 
 **Before you run it:** point `nix.example.org` and `auth.nix.example.org` at the machine and leave

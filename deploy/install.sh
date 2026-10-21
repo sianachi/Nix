@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One line installs or upgrades Nix:
 #
-#   curl -fsSL https://raw.githubusercontent.com/sianachi/nix/main/deploy/install.sh \
+#   curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh \
 #     | bash -s -- https://nix.example.org
 #
 # The argument is the public origin. An https origin needs DNS for it and for auth.<host>
@@ -30,7 +30,7 @@
 # NIX_SOURCE_DIR=<checkout> uses that checkout's deploy/ instead of downloading the release.
 set -euo pipefail
 
-repo=${NIX_REPO:-sianachi/nix}
+repo=${NIX_REPO:-sianachi/nixsites}
 registry=${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}
 version=
 dir=$HOME/nix
