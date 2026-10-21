@@ -40,7 +40,7 @@ export function PreferenceToggle(props: {
         }}
       />
       {/* Indented past the checkbox's hit area and gap, so the notes start under the label text. */}
-      <div className="flex flex-col gap-0.5 ps-[calc(var(--control-sm)+0.5rem)] any-pointer-coarse:ps-[calc(var(--control-lg)+0.5rem)]">
+      <div className="flex flex-col gap-0.5 ps-[calc(var(--control-sm)+--spacing(2))] any-pointer-coarse:ps-[calc(var(--control-lg)+--spacing(2))]">
         <Text as="p" id={descriptionId} variant="note" tone="muted">
           {props.description}
         </Text>
