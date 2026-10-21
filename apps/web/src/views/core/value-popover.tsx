@@ -6,7 +6,7 @@ import {
   hasDisplayValue,
   type ValueDensity,
 } from '../../properties/property-value-display';
-import type { Item, PropertyDefinition } from './container-model';
+import type { PropertyDefinition, PropertyOwner } from './container-model';
 
 /**
  * One property value on a compact face (a phone row, a gallery card), read-only until tapped.
@@ -17,7 +17,7 @@ import type { Item, PropertyDefinition } from './container-model';
  * faces with no column header to say which field a bare "Ada" belongs to (a card).
  */
 export function ValuePopover(props: {
-  readonly item: Item;
+  readonly item: PropertyOwner;
   readonly property: PropertyDefinition;
   readonly density: ValueDensity;
   readonly className?: string;
