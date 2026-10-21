@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 import { Blob as BufferBlob } from 'node:buffer';
 import { createNixClient, type NixClient } from '@nix/api-client';
 import { SCHEMA_VERSION } from '@nix/editor-schema';
+import type * as BodyCacheModule from '../../editor/body-cache';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { z } from 'zod';
@@ -24,6 +25,18 @@ import {
 } from '../../editor/draft-journal';
 import { synchronizeOfflineBody } from '../../offline/offline-body';
 import { clearOfflineData, rememberOfflineAccount } from '../../offline/offline-store';
+
+const cacheWrites = vi.hoisted(() => ({ count: 0 }));
+vi.mock('../../editor/body-cache', async (original) => {
+  const actual = await original<typeof BodyCacheModule>();
+  return {
+    ...actual,
+    writeBodyCache: (...args: Parameters<typeof actual.writeBodyCache>) => {
+      cacheWrites.count += 1;
+      return actual.writeBodyCache(...args);
+    },
+  };
+});
 
 const SUBJECT = 'offline-body-person';
 const WORKSPACE = 'b0000000-0000-4000-8000-000000000001';
@@ -330,6 +343,48 @@ describe('stateless offline body synchronization', () => {
     expect(remote.gets).toEqual([]);
     expect(remote.uploads).toEqual([]);
     expect(await readBodyCache(scope())).toBeNull();
+  });
+
+  it('makes one request and no cache write per note when nothing changed since the last pass', async () => {
+    const ids = Array.from(
+      { length: 20 },
+      (_, index) => `d0000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+    );
+    let headSeq = 10;
+    const changed = new Set<string>();
+    const server = document('Base');
+    const remote = transport(server, {
+      getPage: (request) => {
+        const id = /documents\/([0-9a-f-]+)\/updates/u.exec(request.pathname)?.[1] ?? '';
+        const after = request.searchParams.get('after');
+        if (after === '0') return page(server);
+        if (!changed.has(id)) return page(server, { checkpoint: undefined });
+        const before = Y.encodeStateVector(server);
+        const edited = document();
+        Y.applyUpdate(edited, Y.encodeStateAsUpdate(server));
+        edited.getText('body').insert(0, `${id.slice(-2)}!`);
+        return page(server, {
+          headSeq: String(headSeq),
+          checkpoint: undefined,
+          updates: [
+            { seq: String(headSeq), update: base64(Y.encodeStateAsUpdate(edited, before)) },
+          ],
+        });
+      },
+    });
+    for (const itemId of ids) await synchronize(remote.client, document(), { itemId });
+    const getsAfterSeed = remote.gets.length;
+    cacheWrites.count = 0;
+
+    for (const itemId of ids) await synchronize(remote.client, document(), { itemId });
+    expect(remote.gets.length - getsAfterSeed).toBe(20);
+    expect(cacheWrites.count).toBe(0);
+
+    headSeq = 11;
+    for (const id of ids.slice(0, 3)) changed.add(id);
+    cacheWrites.count = 0;
+    for (const itemId of ids) await synchronize(remote.client, document(), { itemId });
+    expect(cacheWrites.count).toBe(3);
   });
 
   it('downloads 250 notes without opening WebSockets', async () => {

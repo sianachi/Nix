@@ -371,13 +371,21 @@ export async function synchronizeOfflineBody(
         }
       }
     }
-    const update = await retainBody(
-      options,
-      scope,
-      remote.docId,
-      Y.encodeStateAsUpdate(remote.doc),
-      serverSeq,
-    );
+    // Nothing to merge or upload and the server has not moved: the saved copy is already current.
+    const unchanged =
+      records.length === 0 &&
+      cached?.schemaVersion === SCHEMA_VERSION &&
+      cached.docId === remote.docId &&
+      cached.serverSeq === String(serverSeq);
+    const update = unchanged
+      ? cached.update
+      : await retainBody(
+          options,
+          scope,
+          remote.docId,
+          Y.encodeStateAsUpdate(remote.doc),
+          serverSeq,
+        );
     await journal.acknowledge(acknowledged, () => admits(options, scope));
     assertAdmitted(options, scope);
     Y.applyUpdate(options.doc, update);

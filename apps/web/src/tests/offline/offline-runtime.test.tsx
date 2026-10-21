@@ -194,6 +194,7 @@ function core(
     onCreate?: (input: Creation) => Promise<void>;
     onRename?: (id: string, title: string) => Promise<void>;
     renameRefusal?: { status: number; code?: string };
+    onLock?: () => Promise<void>;
   } = {},
 ): {
   client: NixClient;
@@ -264,6 +265,7 @@ function core(
     }
     const lock = /^\/api\/v1\/items\/([0-9a-f-]+)\/lock$/u.exec(url.pathname);
     if (lock !== null) {
+      await options.onLock?.();
       const refusal = options.lockRefusals?.get(lock[1] ?? '');
       if (refusal !== undefined) return json({}, refusal);
       return json({
@@ -661,6 +663,31 @@ describe('synchronizing the offline note collection', () => {
     expect(transport.downloaded).toEqual([]);
     expect(await readBodyCache(scope(remoteNote.id))).not.toBeNull();
     expect(getOfflineSnapshot().notes[0]).toMatchObject({ bodyAvailable: true, canWrite: true });
+  });
+
+  it('reads item locks with bounded concurrency and one request per note on an unchanged pass', async () => {
+    const notes = Array.from({ length: 40 }, (_, index) => note(index + 1));
+    let inFlight = 0;
+    let peak = 0;
+    const remote = core(notes, {
+      onLock: async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 1);
+        });
+        inFlight -= 1;
+      },
+    });
+
+    await synchronize(remote.client);
+    await synchronize(remote.client);
+
+    const lockReads = remote.requests.filter((request) => request.pathname.endsWith('/lock'));
+    expect(lockReads).toHaveLength(80);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(getOfflineSnapshot().notes.every((candidate) => candidate.bodyAvailable)).toBe(true);
   });
 
   it('downloads every page and unopened descendant across all accessible workspaces', async () => {

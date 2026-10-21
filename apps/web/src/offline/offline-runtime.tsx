@@ -41,6 +41,8 @@ import {
   type OfflineNote,
 } from './offline-store';
 
+const LOCK_BATCH = 16;
+const LOCK_READS_IN_FLIGHT = 4;
 const SYNC_EVENT = 'nix:offline-sync-requested';
 const PUBLISHING = 'Publishing this note. Editing resumes when the local copy has moved.';
 
@@ -455,34 +457,58 @@ export async function synchronizeOfflineNotes(initialOptions: SyncOptions): Prom
     const parents: (string | undefined)[] = [undefined];
     while (parents.length > 0) {
       const parentId = parents.shift();
-      for await (const item of client.paginate(
-        items.listItems(workspace.id, { parentId, pageSize: 200 }),
-        { signal, forceRefresh: true },
-      )) {
-        assertAccount(options);
-        if (visited.has(item.id)) continue;
-        visited.add(item.id);
-        let lock: ItemLock;
-        try {
-          lock = await readLock(item.id);
-        } catch (error) {
+      let batch: Item[] = [];
+      const drain = async (): Promise<void> => {
+        const pending = batch;
+        batch = [];
+        // Lock reads are independent: warm the cache four at a time; failures resurface in order below.
+        for (let at = 0; at < pending.length; at += LOCK_READS_IN_FLIGHT) {
           assertAccount(options);
-          if (sessionRefused(error)) throw error;
-          if (!refused(error)) throw error;
-          await sealItemBodies(subject, item.workspaceId, item.id, refusalReason(error));
-          await sealLockedCopies(item.workspaceId);
-          failures.push(`${item.title || 'Untitled note'}: ${errorMessage(error)}`);
-          continue;
+          await Promise.allSettled(
+            pending.slice(at, at + LOCK_READS_IN_FLIGHT).map((item) => readLock(item.id)),
+          );
         }
-        if (lock.locked) {
-          await sealItemBodies(subject, item.workspaceId, item.id);
-          await sealLockedCopies(item.workspaceId);
-          continue;
+        for (const item of pending) {
+          assertAccount(options);
+          let lock: ItemLock;
+          try {
+            lock = await readLock(item.id);
+          } catch (error) {
+            assertAccount(options);
+            if (sessionRefused(error)) throw error;
+            if (!refused(error)) throw error;
+            await sealItemBodies(subject, item.workspaceId, item.id, refusalReason(error));
+            await sealLockedCopies(item.workspaceId);
+            failures.push(`${item.title || 'Untitled note'}: ${errorMessage(error)}`);
+            continue;
+          }
+          if (lock.locked) {
+            await sealItemBodies(subject, item.workspaceId, item.id);
+            await sealLockedCopies(item.workspaceId);
+            continue;
+          }
+          parentById.set(item.id, item.parentId);
+          if (item.hasChildren) parents.push(item.id);
+          if (!['canvas', 'spreadsheet', 'file'].includes(item.type)) candidates.push(item);
         }
-        parentById.set(item.id, item.parentId);
-        if (item.hasChildren) parents.push(item.id);
-        if (!['canvas', 'spreadsheet', 'file'].includes(item.type)) candidates.push(item);
+      };
+      try {
+        for await (const item of client.paginate(
+          items.listItems(workspace.id, { parentId, pageSize: 200 }),
+          { signal, forceRefresh: true },
+        )) {
+          assertAccount(options);
+          if (visited.has(item.id)) continue;
+          visited.add(item.id);
+          batch.push(item);
+          if (batch.length >= LOCK_BATCH) await drain();
+        }
+      } catch (error) {
+        // A failed page must still seal what earlier pages found locked.
+        await drain();
+        throw error;
       }
+      await drain();
     }
   }
   setOfflineProgress({ status: 'downloading', completed: 0, total: candidates.length });
