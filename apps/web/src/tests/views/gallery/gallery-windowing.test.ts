@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { galleryColumnCount } from '../../../views/gallery/gallery-view';
+import { galleryColumnCount } from '../../../views/gallery/card-size';
 
 describe('gallery responsive row geometry', () => {
   it('derives logical columns from the same breakpoints as the card classes', () => {
