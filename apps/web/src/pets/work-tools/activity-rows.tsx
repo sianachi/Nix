@@ -2,7 +2,8 @@ import type { PetToolCall } from '@nix/api-client';
 import type { WorkspaceToolArgs } from '@nix/companion/tool-args';
 import type { StructureFingerprint } from '@nix/companion';
 import type { Problem } from '@nix/structure-spec';
-import { Button, Text, cn, focusRing, inkWashStates } from '@nix/ui';
+import { Button, Icon, Text, cn, focusRing, inkWashStates } from '@nix/ui';
+import { ChevronRight } from 'lucide-react';
 import { useEffect, useRef, type ReactElement } from 'react';
 import type { EditedRequest } from '../approval/edit-request';
 import {
@@ -11,6 +12,7 @@ import {
   DECLINED_FOR_PROBLEMS_PREFIX,
   DONE_WITHOUT_ASKING,
   NOT_RUN,
+  buildOutcome,
   ranWithoutAsking,
 } from './receipts';
 import { describeReadSentence, readStatusText } from './read-sentence';
@@ -26,7 +28,7 @@ export type Resolver = (
   edited?: EditedRequest,
 ) => Promise<boolean>;
 
-/** One line: an icon-free status word or two, next to what happened. Used for every read - which
+/** One quiet line: what happened beside its outcome, with the whole line opening its details. Used for every read - which
  * never needs a decision - and for a write once it has one, so a long turn reads as a list of
  * outcomes rather than a stack of forms. */
 function ActivityRow({
@@ -45,21 +47,34 @@ function ActivityRow({
   readonly detailsExtra?: ReactElement | undefined;
   readonly actions: ReactElement | undefined;
 }): ReactElement {
+  const line = (
+    <div className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-2">
+      <Text variant="bodySmall">{sentence}</Text>
+      {/* UX fix U16: this word already sits beside its own sentence, which the row re-renders
+       * whenever it changes - a second live-region announcement here was redundant noise. */}
+      <Text variant="note" tone="muted">
+        {status}
+      </Text>
+    </div>
+  );
   return (
-    <div className="flex min-w-0 flex-col gap-1 border-b border-divider py-2 last:border-b-0">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Text variant="bodySmall">{sentence}</Text>
-        {/* UX fix U16: this word already sits beside its own sentence, which the row re-renders
-         * whenever it changes - a second live-region announcement here was redundant noise. */}
-        <Text variant="note" tone="muted">
-          {status}
-        </Text>
-      </div>
-      {actions}
+    <div className="flex min-w-0 flex-col gap-1">
       {details || detailsExtra ? (
-        <details>
-          <summary className={cn('cursor-default rounded', focusRing, inkWashStates)}>
-            <Text as="span" variant="note">
+        <details className="group">
+          <summary
+            className={cn(
+              'flex cursor-default list-none items-center gap-1 rounded any-pointer-coarse:min-h-(--control-lg)',
+              focusRing,
+              inkWashStates,
+            )}
+          >
+            <Icon
+              icon={ChevronRight}
+              size="sm"
+              className="shrink-0 text-muted motion-safe:transition-transform group-open:rotate-90"
+            />
+            {line}
+            <Text as="span" variant="note" className="sr-only">
               {detailsLabel}
             </Text>
           </summary>
@@ -73,7 +88,10 @@ function ActivityRow({
             </Text>
           ) : null}
         </details>
-      ) : null}
+      ) : (
+        line
+      )}
+      {actions}
     </div>
   );
 }
@@ -158,6 +176,7 @@ function writeStatusText(
   problemCount: number,
   petName: string,
   submitted: string | undefined,
+  incompleteBuild: boolean,
 ): string {
   if (declinedForProblems)
     return `Sent ${String(problemCount)} problem${problemCount === 1 ? '' : 's'} back to ${petName}`;
@@ -170,7 +189,8 @@ function writeStatusText(
     case 'claimed':
       return withoutAsking ? APPLYING_WITHOUT_ASKING : 'Applying…';
     case 'completed':
-      return withoutAsking ? (submitted ?? DONE_WITHOUT_ASKING) : 'Done';
+      if (withoutAsking) return submitted ?? DONE_WITHOUT_ASKING;
+      return incompleteBuild ? 'Incomplete' : 'Done';
     case 'failed':
       if (tool.result === DECLINED_BY_USER) return 'Declined';
       if (submitted === NOT_RUN) return NOT_RUN;
@@ -213,7 +233,14 @@ export function WriteReceiptRow({
   return (
     <ActivityRow
       sentence={headline}
-      status={writeStatusText(tool, declinedForProblems, problems.length, petName, submitted)}
+      status={writeStatusText(
+        tool,
+        declinedForProblems,
+        problems.length,
+        petName,
+        submitted,
+        buildOutcome(tool.result)?.complete === false,
+      )}
       details={
         declinedForProblems
           ? problems.map((problem) => problem.message).join('\n')

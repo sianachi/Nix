@@ -407,6 +407,31 @@ describe('companion work approvals', () => {
     },
   );
 
+  it('words a settled write as the request in the imperative, with the real outcome beside it', async () => {
+    const settled = {
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        status: 'completed' as const,
+        arguments: JSON.stringify({ ...JSON.parse(tool.arguments), markdown: 'Body text' }),
+      })),
+    };
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={settled}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+    );
+    expect(
+      await screen.findByText('Create a note named “Plan” at the top level of this workspace.'),
+    ).toBeVisible();
+    expect(screen.getByText('Done')).toBeVisible();
+    expect(screen.queryByText(/I will/)).not.toBeInTheDocument();
+  });
+
   it('describes the planned action before the permission buttons', async () => {
     show();
     const description = await screen.findByText(/I will create a note named “Plan”/);
@@ -1161,6 +1186,9 @@ describe('companion work approvals', () => {
     expect(
       await screen.findByText('Stopped after 1 of 2. The draft is incomplete.'),
     ).toBeInTheDocument();
+    // A build that stopped part way never reads "Done".
+    expect(screen.getByText('Incomplete')).toBeVisible();
+    expect(screen.queryByText('Done')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Move draft to trash' }));
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledWith(

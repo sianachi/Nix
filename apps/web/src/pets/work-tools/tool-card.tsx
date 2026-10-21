@@ -27,6 +27,7 @@ import { PendingWriteCard } from './pending-write-card';
 import {
   DECLINED_FOR_PROBLEMS_PREFIX,
   ranWithoutAsking,
+  receiptSentence,
   settledBodyEditHeadline,
 } from './receipts';
 
@@ -341,7 +342,9 @@ export function PetWorkToolCard({
           // A settled body edit never borrows the preview's "I will..." beside its outcome.
           settledBodyEdit
             ? settledBodyEditHeadline(args)
-            : (model?.headline ?? (state.loading ? 'Preparing a summary…' : 'This change'))
+            : receiptSentence(
+                model?.headline ?? (state.loading ? 'Preparing a summary…' : 'This change'),
+              )
         }
         problems={problems}
         petName={petName}

@@ -336,7 +336,7 @@ function PetWorkToolsView({
   return (
     <section
       aria-label={`${petName}'s activity`}
-      className="flex min-w-0 flex-col gap-3 wrap-anywhere"
+      className="flex min-w-0 flex-col gap-1 wrap-anywhere"
     >
       {tools.map((tool) => (
         <PetWorkToolCard

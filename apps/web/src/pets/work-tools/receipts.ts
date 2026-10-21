@@ -66,3 +66,16 @@ export function buildOutcome(text: string): BuildOutcome | undefined {
     return undefined;
   }
 }
+
+/** A request's headline said what the pet would do ("I will create a note ... with the content
+ * shown below"); once it has run, the receipt names the same request in the imperative and lets
+ * the status word carry the outcome. Nothing below a receipt promises text that is not there. */
+export function receiptSentence(headline: string): string {
+  if (!headline.startsWith('I will ')) return headline;
+  const request = headline
+    .slice('I will '.length)
+    .replace(/, with the content shown below(?=\.)/, '')
+    .replace(/ with the property values shown below(?=,)/, '')
+    .replace('the content below', 'content');
+  return request.charAt(0).toUpperCase() + request.slice(1);
+}
