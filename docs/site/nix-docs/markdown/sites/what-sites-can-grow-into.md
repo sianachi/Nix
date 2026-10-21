@@ -36,3 +36,7 @@ The constraints any of them must keep: a reader's request never reaches Core or 
 
 **Git sync with a text format.** *Not built, and deferred.* A site's pages could be mirrored to a Git repository as text files, and changes pulled back. This needs a stable, lossless text format for item bodies and properties first. Nix's `.nix` export is lossless but not meant to be edited by hand, and Markdown export reports what it loses.
 
+## Properties
+
+- title: What Sites can grow into
+

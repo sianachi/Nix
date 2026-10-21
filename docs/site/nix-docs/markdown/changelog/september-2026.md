@@ -52,3 +52,35 @@
 - A one-command release script with a plan, a confirmation, drift preview and a smoke test.
 - Verified backups that are restored into isolation before a release proceeds, with off-site copies and a nightly schedule.
 
+## Properties
+
+- date: 2026-09-30
+- tags: pets; locks; finance; habits; reminders; automations; files; deploy
+- title: September 2026
+
+
+
+## Fields
+
+### Date
+
+- aggregate: Unset
+- expression: Unset
+- key: date
+- label: Date
+- options: 
+- required: false
+- source: Unset
+- type: date
+
+### Tags
+
+- aggregate: Unset
+- expression: Unset
+- key: tags
+- label: Tags
+- options: automations; calendar; charts; cli; deploy; editor; export; files; finance; formulas; habits; import; locks; offline; pets; pwa; reminders; sites; templates; views
+- required: false
+- source: Unset
+- type: multi\_select
+

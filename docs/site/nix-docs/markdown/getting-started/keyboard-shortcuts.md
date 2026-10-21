@@ -66,3 +66,7 @@ The editor can also use Vim (Normal, Visual and Visual Line modes) or Emacs (kil
 
 Global shortcuts pause while a dialog is open, so typing in a dialog never triggers them.
 
+## Properties
+
+- title: Keyboard shortcuts
+

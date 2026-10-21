@@ -44,3 +44,7 @@ An instance can require an operator to approve each site's first publish, and th
 
 Creating, changing, publishing, rolling back, unpublishing and deleting a site, approval decisions, and hostname and path changes are all written to the audit log. The first publish asks the manager to confirm that the content will be public and may be copied. Unpublishing takes the site down and deletes its builds, but cannot recall copies others have made.
 
+## Properties
+
+- title: Security model
+

@@ -50,3 +50,7 @@ Automatic builds run as the manager who switched automatic mode on, and include 
 
 Every publish, rollback, unpublish and approval decision is written to the audit log, as are hostname and path changes.
 
+## Properties
+
+- title: Publishing
+

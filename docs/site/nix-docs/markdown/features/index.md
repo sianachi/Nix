@@ -4,3 +4,7 @@ Nix is built on one idea: there is one kind of item. An item has a title, an opt
 
 Everything below is built on that model.
 
+## Properties
+
+- title: Features
+

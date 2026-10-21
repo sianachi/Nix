@@ -32,3 +32,7 @@ The finance view turns a container into a personal finance workbook:
 
 Finance data lives in ordinary items, so it exports, searches and backs up like everything else. `nixctl finance` and the MCP finance tools give you the same data from scripts.
 
+## Properties
+
+- title: Tasks, habits and finance
+

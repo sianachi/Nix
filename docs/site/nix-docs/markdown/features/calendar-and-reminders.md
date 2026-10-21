@@ -67,3 +67,7 @@ Automations are rules you write for yourself. Other members never see them.
 
 Titles can include `{date}` and `{item.title}`. Every run is logged with its outcome. A dry run shows what a rule would do without writing anything. A rule that fails five times in a row is disabled automatically until you turn it back on.
 
+## Properties
+
+- title: Calendar and reminders
+

@@ -28,3 +28,7 @@ Creating, changing, publishing and unpublishing a site are workspace manager act
 
 On an instance that requires it, the first publish of a site, and the first publish after it has been unpublished, waits for an operator to approve it. See [Publishing](nix://item/01a13137-ae48-7c3e-89e7-b5aa5c945d6f).
 
+## Properties
+
+- title: Sites
+

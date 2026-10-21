@@ -74,3 +74,7 @@ frame-ancestors 'none'
 
 together with `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: strict-origin-when-cross-origin`. SVG files get a stricter policy of their own.
 
+## Properties
+
+- title: What a site contains
+
