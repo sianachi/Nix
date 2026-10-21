@@ -12,12 +12,10 @@ import {
 
 import { FILL_SERIES_SHORTCUT } from '../../keyboard/shortcut-registry';
 import { formatShortcut } from '../../lib/shortcuts';
-import { useViewSuggestionPreference } from '../../settings/editor/suggestion-preferences';
 import { type Item, type PropertyDefinition } from '../core/container-model';
 import type { PlanOutcome, PlanWrite } from '../core/use-container';
 import { type SortDirection } from '../core/view-state';
 import { CellEditor } from '../sheet/cell-editor';
-import { parseTsv, rangeToTsv } from '../sheet/clipboard';
 import {
   INITIAL_SELECTION,
   clamp,
@@ -26,23 +24,19 @@ import {
   type GridBounds,
 } from '../sheet/selection';
 import { FillSeriesOffer } from './fill-series-offer';
+import { gridCellMenuItems } from './grid-cell-menu';
+import { gridClipboardHandlers } from './grid-clipboard';
 import { GridCell } from './grid-cell';
 import { SCROLLER_HEIGHT_CLASS, cellId, pickRowHeight } from './grid-geometry';
 import { GridHeader } from './grid-header';
-import {
-  TITLE_COLUMN_KEY,
-  cellText,
-  clearPlan,
-  pastePlan,
-  rangeTextMap,
-  seriesFillOffer,
-  type SpreadsheetColumn,
-} from './grid-model';
+import { TITLE_COLUMN_KEY, cellText, type SpreadsheetColumn } from './grid-model';
 import { GridPropertyPanel } from './grid-property-panel';
 import { GridToolbar } from './grid-toolbar';
 import { canEditProperty, useGridEdit, usesPicker } from './use-grid-edit';
 import { useGridKeys } from './use-grid-keys';
+import { useFillOffer } from './use-fill-offer';
 import { useGridViewport } from './use-grid-viewport';
+import { useSelectionFollowsItem } from './use-selection-follows-item';
 
 interface SpreadsheetGridProps {
   readonly items: readonly Item[];
@@ -119,37 +113,14 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
   const activeItem = items[active.row];
   const activeProperty = properties.find((property) => property.key === activeColumn?.key);
 
-  /**
-   * The selection follows the item, not the index. Recorded and reconciled during render (the
-   * `useDraft` pattern): when `items` reorders under the grid, the active cell is moved to where
-   * its item went, so the next Delete or fill acts on the row somebody selected rather than on
-   * whichever row slid into its place. The anchor is deliberately dropped - a range of indexes
-   * over a reordered list no longer means anything.
-   */
-  const [tracked, setTracked] = useState<{
-    items: readonly Item[];
-    activeId: string | null;
-  }>({ items, activeId: activeItem?.id ?? null });
-
-  if (items !== tracked.items) {
-    const followedIndex =
-      tracked.activeId === null ? -1 : items.findIndex((item) => item.id === tracked.activeId);
-    setTracked({ items, activeId: tracked.activeId });
-
-    if (followedIndex !== -1 && followedIndex !== active.row && selection.mode === 'nav') {
-      dispatch({
-        type: 'moveTo',
-        ref: clamp({ row: followedIndex, col: active.col }, bounds),
-        extend: false,
-      });
-    }
-  } else if ((activeItem?.id ?? null) !== tracked.activeId) {
-    // The person moved the selection: record where it is, and retire whatever sentence the last
-    // cell earned - a stale notice under the grid describes an edit that is no longer where they
-    // are. Render-time adjustment, the same pattern as the block above.
-    setTracked({ items, activeId: activeItem?.id ?? null });
-    setNotice(null);
-  }
+  useSelectionFollowsItem({
+    items,
+    active,
+    bounds,
+    navigating: selection.mode === 'nav',
+    dispatch,
+    setNotice,
+  });
 
   const {
     scroll,
@@ -169,30 +140,12 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
   const range = selectedRange(selection);
   const rangeIsCell = range.startRow === range.endRow && range.startCol === range.endCol;
 
-  /**
-   * The unprompted offer to continue a pattern: detection only - the seed, its step and a short
-   * preview - and only when every target cell is empty, so the button can never overwrite. Cheap
-   * enough to derive on each render (a walk down the selected columns that stops at the first
-   * filled target), so it carries no memo and no dependency on the item list's identity; the plan
-   * itself is built only when somebody asks for it, in `fillSeries`.
-   */
-  const viewSuggestions = useViewSuggestionPreference((state) => state.setting);
-  const rangeKey = `${String(range.startRow)}:${String(range.startCol)}:${String(range.endRow)}:${String(range.endCol)}`;
-
-  // Which selection's offer was dismissed. Keyed by the range so selecting somewhere else offers
-  // again; a dismissal is about this guess, not about the feature.
-  const [dismissedFill, setDismissedFill] = useState<string | null>(null);
-  const fillOffer =
-    viewSuggestions === 'on' &&
-    selection.mode === 'nav' &&
-    range.endRow > range.startRow &&
-    dismissedFill !== rangeKey
-      ? seriesFillOffer(range, items, columns)
-      : null;
-  const patternedColumn =
-    fillOffer?.patterned === true
-      ? (fillOffer.columns.find((fill) => fill.kind !== 'repeat') ?? null)
-      : null;
+  const { fillOffer, patternedColumn, dismiss } = useFillOffer(
+    range,
+    selection.mode === 'nav',
+    items,
+    columns,
+  );
 
   const { onGridKeyDown, fillSeries } = useGridKeys({
     items,
@@ -208,6 +161,15 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
     beginEdit,
     setNotice,
   });
+
+  const clipboard = gridClipboardHandlers(
+    items,
+    columns,
+    range,
+    selection.mode === 'edit',
+    setNotice,
+    applyPlan,
+  );
 
   const gridId = useId();
   const hintId = `${gridId}-hint`;
@@ -362,52 +324,15 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
       {/* The body: the one real scroller, and the keyboard's home. */}
       <ContextMenu
         label="Spreadsheet cell actions"
-        items={() => {
-          const ref = menuCellRef.current ?? active;
-          const item = items[ref.row];
-          const column = columns[ref.col];
-          if (item === undefined || column === undefined) return [];
-          return [
-            {
-              label: `Open ${item.title || 'Untitled'}`,
-              onSelect: () => {
-                onOpen(item.id);
-              },
-            },
-            {
-              label: `Edit ${column.label}`,
-              disabled: !canEditProperty(
-                properties.find((property) => property.key === column.key),
-              ),
-              onSelect: () => {
-                if (!commitDraft('stay')) return;
-                dispatch({ type: 'moveTo', ref, extend: false });
-                beginEdit('open', cellText(item, column), ref);
-              },
-            },
-            {
-              label: `Clear ${column.label}`,
-              disabled: !column.editable || cellText(item, column).length === 0,
-              onSelect: () => {
-                if (!commitDraft('stay')) return;
-                dispatch({ type: 'moveTo', ref, extend: false });
-                applyPlan(
-                  clearPlan(
-                    {
-                      startRow: ref.row,
-                      endRow: ref.row,
-                      startCol: ref.col,
-                      endCol: ref.col,
-                    },
-                    items,
-                    columns,
-                  ),
-                  'cleared',
-                );
-              },
-            },
-          ];
-        }}
+        items={() =>
+          gridCellMenuItems(menuCellRef.current ?? active, items, columns, properties, {
+            onOpen,
+            commitDraft,
+            dispatch,
+            beginEdit,
+            applyPlan,
+          })
+        }
       >
         {(target) => (
           <div
@@ -441,37 +366,7 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                   : { top: scrollTop, left: scrollLeft },
               );
             }}
-            onCopy={(event) => {
-              if (selection.mode === 'edit') {
-                return;
-              }
-              event.preventDefault();
-              event.clipboardData.setData(
-                'text/plain',
-                rangeToTsv(rangeTextMap(range, items, columns), range),
-              );
-              const copied =
-                (range.endRow - range.startRow + 1) * (range.endCol - range.startCol + 1);
-              setNotice(copied === 1 ? 'Copied 1 cell.' : `Copied ${String(copied)} cells.`);
-            }}
-            onPaste={(event) => {
-              if (selection.mode === 'edit') {
-                return;
-              }
-              event.preventDefault();
-              const text = event.clipboardData.getData('text/plain');
-              if (text.length > 0) {
-                applyPlan(
-                  pastePlan(
-                    { row: range.startRow, col: range.startCol },
-                    parseTsv(text),
-                    items,
-                    columns,
-                  ),
-                  'taken',
-                );
-              }
-            }}
+            {...clipboard}
             className={cn(
               'relative min-w-0 max-w-full overflow-auto overscroll-contain outline-none',
               SCROLLER_HEIGHT_CLASS,
@@ -571,11 +466,11 @@ export function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
           shortcut={formatShortcut(FILL_SERIES_SHORTCUT)}
           onFill={() => {
             fillSeries();
-            setDismissedFill(rangeKey);
+            dismiss();
             scrollerRef.current?.focus({ preventScroll: true });
           }}
           onDismiss={() => {
-            setDismissedFill(rangeKey);
+            dismiss();
             scrollerRef.current?.focus({ preventScroll: true });
           }}
         />
