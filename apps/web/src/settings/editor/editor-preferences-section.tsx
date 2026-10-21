@@ -3,11 +3,12 @@ import { useMentionPreference } from '../../editor/mention-preference';
 import { useMobileToolbarPreference } from '../../editor/mobile-toolbar-preference';
 import { usePageGuidePreference } from '../../editor/page-guide-preference';
 import { Button, Field, Select, Text } from '@nix/ui';
-import { useState, type ChangeEvent, type ReactElement } from 'react';
+import { useState, type ChangeEvent, type ReactElement, type ReactNode } from 'react';
 
 import { announce } from '../../a11y/announcer';
 import { useSessionStore } from '../../auth/session-store';
 import { PreferenceToggle } from '../shared/preference-toggle';
+import { SettingsSection } from '../shared/settings-section';
 import { useOfflinePreference } from '../../offline/offline-preference';
 import { requestOfflineSync } from '../../offline/offline-runtime';
 import { rememberOfflineAccount } from '../../offline/offline-store';
@@ -17,8 +18,14 @@ import { formatShortcut } from '../../lib/shortcuts';
 import { clearSuggestionDismissals } from '../../lib/suggestion-dismissals';
 import { useChoiceOrderPreference, useViewSuggestionPreference } from './suggestion-preferences';
 
+const modeHint = {
+  standard: 'The editor and platform shortcuts shown throughout Nix',
+  vim: 'Modal editing with Normal, Insert and Visual modes',
+  emacs: 'Emacs chords to move, kill and yank',
+} as const;
+
+/** Full key reference, kept behind "More" so the field itself stays one line. */
 const modeGuidance = {
-  standard: 'Uses the editor and platform shortcuts shown throughout Nix.',
   vim: 'Normal, Insert, Visual (v) and Visual Line (V) modes; each paragraph, heading or list item is a line, and an empty one is a blank line. Motions: h/l by character, j/k by line, w/b/e by word, 0/^/$ within the line, f/t/F/T to a character with ; and , to repeat, {/} by paragraph, gg/G across the document, all with counts. Operators d, c and y take a motion, a text object (iw/aw, quotes, brackets, ip/ap) or double for whole lines (dd, cc, yy); > and < indent list items; x, X, D, C, s, S and Y are shorthands; r replaces, ~ toggles case and J joins lines; p/P paste; o/O open a line; i/a/I/A enter Insert; . repeats the last change; u and Ctrl+R undo and redo your own edits. Search with / and ? (JavaScript patterns, case-insensitive unless the pattern has a capital) and n/N. Marks m and ` or \'; registers "a-"z, "0, "_ and "+ for the clipboard; macros q and @. Commands :<line>, :s and :%s (and over Visual lines), :undo and :redo; notes save as you type, so :w only says so. Not included: Visual Block, uppercase marks, appending to a register, p over a Visual selection, * and #, search highlighting and other : commands.',
   emacs:
     'Ctrl+F/B and Alt+F/B move by character and word; Ctrl+A/E to the start or end of the paragraph and Alt+M to its indentation; Ctrl+N/P by displayed line; Alt+{ and Alt+} by paragraph; Alt+< and Alt+> to either end of the note. Ctrl+Space sets the mark, Ctrl+U Ctrl+Space returns to earlier marks, Ctrl+X Ctrl+X swaps caret and mark, Ctrl+X H marks the whole note and Ctrl+G quits. Ctrl+D deletes a character; Ctrl+K, Alt+D, Alt+Backspace, Ctrl+W and Alt+Z kill, Alt+W copies, and Ctrl+Y and Alt+Y yank from the kill ring. Alt+U/L/C change the case of a word and Ctrl+X Ctrl+U/L of the region; Ctrl+T and Alt+T transpose; Alt+\\ and Alt+Space close up blanks; Ctrl+O opens a line and Alt+^ joins one. Ctrl+U and Alt+<digits> give a numeric argument, and Ctrl+X Z repeats the last command. Ctrl+S and Ctrl+R search as you type, Alt+% replaces with a question at each match, and Alt+G G goes to a line. Ctrl+X R S/I copy to and insert from a register, Ctrl+X R Space/J save and return to a place; Ctrl+X ( and ) record a keyboard macro and Ctrl+X E (or F3 and F4) runs it. Ctrl+/ undoes and Ctrl+? redoes your own edits; notes save as you type, so Ctrl+X Ctrl+S only says so. These chords replace the editor and browser shortcuts they share a key with, such as save, reload and find; on Windows and Linux the browser keeps Ctrl+N, Ctrl+T and Ctrl+W. Not included: Alt+X commands, rectangles, regular-expression search and replace, and windows or buffers.',
@@ -61,16 +68,7 @@ export function EditorPreferencesSection(): ReactElement {
   }
 
   return (
-    <section aria-labelledby="editor-preferences-heading" className="flex flex-col gap-3">
-      <Text id="editor-preferences-heading" variant="h3" as="h2">
-        Editor
-      </Text>
-      <Text variant="note" tone="muted">
-        Personal note-body preferences. They follow your account across devices, apply at once on
-        this one even offline, and never change the shared document. Rows marked This device only
-        stay in this browser.
-      </Text>
-
+    <SettingsSection title="Editor" summary="How writing in a note behaves for you">
       <Text
         variant="note"
         role="status"
@@ -85,7 +83,7 @@ export function EditorPreferencesSection(): ReactElement {
           : ''}
       </Text>
 
-      <Field label="Keyboard mode" hint={modeGuidance[mode]} className="max-w-lg">
+      <Field label="Keyboard mode" hint={modeHint[mode]} className="max-w-lg">
         {(control) => (
           <Select {...control} value={mode} onChange={onModeChange}>
             <option value="standard">Standard</option>
@@ -94,71 +92,106 @@ export function EditorPreferencesSection(): ReactElement {
           </Select>
         )}
       </Field>
+      {mode === 'standard' ? null : <More about="keyboard mode">{modeGuidance[mode]}</More>}
+      <Text variant="h5" as="h3">
+        Writing aids
+      </Text>
       <PreferenceToggle
         label="Show page guides"
         checked={pageGuideVisibility === 'shown'}
         onChange={(checked) => {
           setPageGuideVisibility(checked ? 'shown' : 'hidden');
         }}
-        description="Draws a line where the PDF and Word exports would start a new page. The position is an estimate from the A4 export’s margins and type size; the exact break can move by a line."
+        description="Marks where PDF and Word exports start a new page"
         unsaved={
           pageGuideSaved
             ? null
             : 'The page guide preference applies to this session; browser storage is unavailable.'
         }
       />
+      <More about="page guides">
+        The position is an estimate from the A4 export’s margins and type size; the exact break can
+        move by a line.
+      </More>
       <PreferenceToggle
         label="Suggest phrase completions"
         checked={phraseSetting === 'on'}
         onChange={(checked) => {
           setPhraseSetting(checked ? 'on' : 'off');
         }}
-        description={`After a pause in typing at the end of a line, shows a likely ending for what you are writing in faded italic text. Press Right Arrow to accept it or Escape to dismiss it; it is not part of the note until you accept it. Needs a keyboard. Learned on this device, in memory only, from notes in the same workspace that this browser already keeps.`}
+        description="Shows a faded ending when you pause; needs a keyboard"
         unsaved={
           phraseSaved
             ? null
             : 'The phrase suggestion preference applies to this session; browser storage is unavailable.'
         }
       />
+      <More about="phrase completions">
+        After a pause at the end of a line, press Right Arrow to accept the faded text or Escape to
+        dismiss it; it is not part of the note until you accept it. Needs a keyboard. Learned on
+        this device, in memory only, from notes in the same workspace that this browser already
+        keeps.
+      </More>
       <PreferenceToggle
         label="Underline item names that are not linked"
         checked={mentionSetting === 'on'}
         onChange={(checked) => {
           setMentionSetting(checked ? 'on' : 'off');
         }}
-        description={`After a pause in typing, item titles from this workspace that appear in a note without a link get a dotted underline. Put the caret in one and press ${formatShortcut(LINK_MENTION_SHORTCUT)}, or choose Link to, to turn it into a link. Nothing changes in the note until you do.`}
+        description="Dotted underline on workspace item titles that have no link"
         unsaved={
           mentionSaved
             ? null
             : 'The underline preference applies to this session; browser storage is unavailable.'
         }
       />
+      <More about="underlined item names">
+        Put the caret in one and press {formatShortcut(LINK_MENTION_SHORTCUT)}, or choose Link to,
+        to turn it into a link. Nothing changes in the note until you do.
+      </More>
+      <Text variant="h5" as="h3">
+        Suggestions
+      </Text>
       <PreferenceToggle
         label="Suggestions in views"
         checked={viewSetting === 'on'}
         onChange={(checked) => {
           setViewSetting(checked ? 'on' : 'off');
         }}
-        description="Hints a view offers on its own: likely values when you create an item, a note on cards that have not moved in a while, the spreadsheet’s fill-series offer, a free time when rescheduling, and a form field’s usual value. Nothing is written until you choose one."
+        description="Hints that views offer on their own"
         unsaved={
           viewSaved
             ? null
             : 'The view suggestion preference applies to this session; browser storage is unavailable.'
         }
       />
+      <More about="suggestions in views">
+        Likely values when you create an item, a note on cards that have not moved in a while, the
+        spreadsheet’s fill-series offer, a free time when rescheduling, and a form field’s usual
+        value. Nothing is written until you choose one.
+      </More>
       <PreferenceToggle
         label="Order choices by what I pick most"
         checked={choiceSetting === 'on'}
         onChange={(checked) => {
           setChoiceSetting(checked ? 'on' : 'off');
         }}
-        description="Remembers what you pick on this device: a select property offers your usual values again in a Recent group above its options, and the slash menu and link picker list what you use most first. Off, nothing new is remembered and nothing is reordered by what you have picked."
+        description="Lists your usual picks first in menus and selects"
         unsaved={
           choiceSaved
             ? null
             : 'The choice order preference applies to this session; browser storage is unavailable.'
         }
       />
+      <More about="choice order">
+        Remembers what you pick on this device: a select property offers your usual values again in
+        a Recent group above its options, and the slash menu and link picker list what you use most
+        first. Off, nothing new is remembered and nothing is reordered by what you have picked.
+      </More>
+      <ClearDismissedSuggestions />
+      <Text variant="h5" as="h3">
+        This device
+      </Text>
       <PreferenceToggle
         label="Keep notes on this device"
         deviceOnly
@@ -169,13 +202,18 @@ export function EditorPreferencesSection(): ReactElement {
             void rememberOfflineAccount(sessionProfile).then(requestOfflineSync, () => undefined);
           }
         }}
-        description="Syncs your unlocked notes to this browser so they open offline, and shows the sync status at the foot of the window. Off hides that status and stops syncing; notes already saved here stay until you clear them from Notes on this device."
+        description="Opens your unlocked notes offline and shows sync status"
         unsaved={
           offlineSaved
             ? null
             : 'The device sync preference applies to this session; browser storage is unavailable.'
         }
       />
+      <More about="keeping notes on this device">
+        Syncs your unlocked notes to this browser and shows the sync status at the foot of the
+        window. Off hides that status and stops syncing; notes already saved here stay until you
+        clear them from Notes on this device.
+      </More>
       <PreferenceToggle
         label="Hide mobile tools while writing"
         deviceOnly
@@ -183,15 +221,28 @@ export function EditorPreferencesSection(): ReactElement {
         onChange={(checked) => {
           setToolbarVisibility(checked ? 'while-writing' : 'always');
         }}
-        description="On a phone, the formatting tools collapse once you start typing in a note."
+        description="On a phone, formatting tools collapse while you type"
         unsaved={
           toolbarSaved
             ? null
             : 'The mobile toolbar preference applies to this session; browser storage is unavailable.'
         }
       />
-      <ClearDismissedSuggestions />
-    </section>
+    </SettingsSection>
+  );
+}
+
+/** A native disclosure for the detail behind a row's one-line hint. */
+function More(props: { readonly about: string; readonly children: ReactNode }): ReactElement {
+  return (
+    <details>
+      <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+        More<span className="sr-only"> about {props.about}</span>
+      </summary>
+      <Text variant="note" tone="muted">
+        {props.children}
+      </Text>
+    </details>
   );
 }
 

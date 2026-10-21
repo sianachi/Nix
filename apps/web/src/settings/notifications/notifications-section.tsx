@@ -1,5 +1,5 @@
 import { type PreferencesInput, type PrincipalPreferencesResponse } from '@nix/api-client';
-import { Button, Field, Input, Text, cn } from '@nix/ui';
+import { Button, Checkbox, Field, Input, Text, cn } from '@nix/ui';
 import { useEffect, useState, type ReactElement } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
@@ -10,6 +10,7 @@ import {
   pushSupported,
   type PushUnavailableReason,
 } from '../../pwa/push-subscription';
+import { SettingsSection } from '../shared/settings-section';
 import { preferencesInputFrom } from '../shared/preference-defaults';
 import { useMutedContainerTitles } from './use-muted-container-titles';
 import { useNotificationPreferences } from './use-notification-preferences';
@@ -17,16 +18,7 @@ import { useNotificationPreferences } from './use-notification-preferences';
 export function NotificationsSection(): ReactElement {
   const state = useNotificationPreferences();
   return (
-    <section aria-labelledby="notifications-heading" className="flex max-w-3xl flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <Text id="notifications-heading" variant="h3" as="h2">
-          Notifications
-        </Text>
-        <Text variant="note" tone="muted">
-          Where reminders and other notices go, when they are quiet, and which devices get a push
-          alert.
-        </Text>
-      </div>
+    <SettingsSection title="Notifications" summary="Reminders, quiet hours and push alerts">
       {state.loading ? <Text role="status">Loading your notification settings…</Text> : null}
       {state.error !== null ? (
         <Text role="alert" variant="note">
@@ -41,7 +33,7 @@ export function NotificationsSection(): ReactElement {
         />
       ) : null}
       <PushDeviceSettings />
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -111,11 +103,7 @@ function NotificationPreferencesForm({ initial, saving, onSave }: FormProps): Re
       <fieldset disabled={saving} className="flex min-w-0 flex-col gap-4">
         <legend className="sr-only">Reminders and quiet hours</legend>
 
-        <Field
-          label="Time zone"
-          hint="Used to time due-task reminders, habit reminders and quiet hours."
-          className="max-w-sm"
-        >
+        <Field label="Time zone" hint="Times reminders and quiet hours" className="max-w-sm">
           {(control) => (
             <Input
               {...control}
@@ -140,19 +128,31 @@ function NotificationPreferencesForm({ initial, saving, onSave }: FormProps): Re
           )}
         </Field>
 
-        <label className="flex min-h-11 items-center gap-3">
-          <input
-            type="checkbox"
-            checked={quietHoursEnabled}
-            onChange={(event) => {
-              setQuietHoursEnabled(event.currentTarget.checked);
-              setMessage(null);
-            }}
-          />
-          <Text as="span" variant="bodySmall">
-            Quiet hours
-          </Text>
-        </label>
+        <Text variant="h5" as="h3">
+          Reminders
+        </Text>
+        <Checkbox
+          label="Remind me about due tasks"
+          checked={draft.dueReminders}
+          onChange={(event) => {
+            change({ ...draft, dueReminders: event.currentTarget.checked });
+          }}
+        />
+        <Checkbox
+          label="Remind me about habits"
+          checked={draft.habitReminders}
+          onChange={(event) => {
+            change({ ...draft, habitReminders: event.currentTarget.checked });
+          }}
+        />
+        <Checkbox
+          label="Quiet hours"
+          checked={quietHoursEnabled}
+          onChange={(event) => {
+            setQuietHoursEnabled(event.currentTarget.checked);
+            setMessage(null);
+          }}
+        />
         {quietHoursEnabled ? (
           <div className="flex flex-wrap gap-4">
             <Field label="Starts" className="max-w-xs">
@@ -182,39 +182,13 @@ function NotificationPreferencesForm({ initial, saving, onSave }: FormProps): Re
           </div>
         ) : null}
 
-        <label className="flex min-h-11 items-center gap-3">
-          <input
-            type="checkbox"
-            checked={draft.dueReminders}
-            onChange={(event) => {
-              change({ ...draft, dueReminders: event.currentTarget.checked });
-            }}
-          />
-          <Text as="span" variant="bodySmall">
-            Remind me about due tasks
-          </Text>
-        </label>
-        <label className="flex min-h-11 items-center gap-3">
-          <input
-            type="checkbox"
-            checked={draft.habitReminders}
-            onChange={(event) => {
-              change({ ...draft, habitReminders: event.currentTarget.checked });
-            }}
-          />
-          <Text as="span" variant="bodySmall">
-            Remind me about habits
-          </Text>
-        </label>
-
         <div className="flex flex-col gap-2">
-          <Text variant="bodySmall" as="h3">
+          <Text variant="h5" as="h3">
             Muted containers
           </Text>
           {mutedContainers.length === 0 ? (
             <Text variant="note" tone="muted">
-              Nothing is muted. Mute a folder or board from its own menu to stop reminders and
-              notifications from it and its contents.
+              Nothing is muted; mute a folder or board from its menu
             </Text>
           ) : (
             <ul className="flex flex-col gap-1">
@@ -314,14 +288,14 @@ function PushDeviceSettings(): ReactElement {
         'flex flex-col gap-2 border-t border-divider pt-4', // spacing-role-exempt: a top-border section divider under a form, not the bordered-panel role the p-3 convention belongs to - only its top edge pads.
       )}
     >
-      <Text variant="bodySmall" as="h3">
+      <Text variant="h5" as="h3">
         Push notifications on this device
       </Text>
       {state.status === 'checking' ? <Text variant="note">Checking…</Text> : null}
       {state.status === 'enabled' ? (
         <>
           <Text variant="note" tone="muted">
-            Reminders and notices for this account can alert this device even when Nix is not open.
+            Alerts reach this device even when Nix is closed
           </Text>
           <div>
             <Button

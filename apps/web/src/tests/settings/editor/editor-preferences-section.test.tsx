@@ -37,7 +37,9 @@ describe('editor preferences', () => {
     render(<EditorPreferencesSection />);
 
     expect(screen.getByRole('combobox', { name: 'Keyboard mode' })).toHaveValue('standard');
-    expect(screen.getByText(/follow your account across devices/i)).toBeVisible();
+    expect(
+      screen.getByText('The editor and platform shortcuts shown throughout Nix'),
+    ).toBeVisible();
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       'Standard',
       'Vim basics',
@@ -51,10 +53,14 @@ describe('editor preferences', () => {
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Keyboard mode' }), 'vim');
 
-    expect(screen.getByText(/h\/l by character, j\/k by line, w\/b\/e by word/i)).toBeVisible();
-    expect(screen.getByText(/Operators d, c and y take a motion, a text object/i)).toBeVisible();
-    expect(screen.getByText(/Visual \(v\) and Visual Line \(V\)/i)).toBeVisible();
-    expect(screen.getByText(/Not included: Visual Block, uppercase marks/i)).toBeVisible();
+    expect(
+      screen.getByText(/h\/l by character, j\/k by line, w\/b\/e by word/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Operators d, c and y take a motion, a text object/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Visual \(v\) and Visual Line \(V\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Not included: Visual Block, uppercase marks/i)).toBeInTheDocument();
   });
 
   it('applies the choice immediately and explains its scope', async () => {
@@ -64,9 +70,11 @@ describe('editor preferences', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Keyboard mode' }), 'emacs');
 
     expect(useKeyboardModeStore.getState().mode).toBe('emacs');
-    expect(screen.getByText(/Ctrl\+F\/B and Alt\+F\/B move by character and word/i)).toBeVisible();
-    expect(screen.getByText(/the browser keeps Ctrl\+N, Ctrl\+T and Ctrl\+W/i)).toBeVisible();
-    expect(screen.getByText(/Ctrl\+S and Ctrl\+R search as you type/i)).toBeVisible();
+    expect(
+      screen.getByText(/Ctrl\+F\/B and Alt\+F\/B move by character and word/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/the browser keeps Ctrl\+N, Ctrl\+T and Ctrl\+W/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ctrl\+S and Ctrl\+R search as you type/i)).toBeInTheDocument();
   });
 
   it('announces when a new choice cannot be remembered', async () => {
@@ -199,9 +207,7 @@ describe('page guides', () => {
 
     const toggle = screen.getByRole('checkbox', { name: 'Show page guides' });
     expect(toggle).toBeChecked();
-    expect(
-      screen.getByText(/where the PDF and Word exports would start a new page/i),
-    ).toBeVisible();
+    expect(screen.getByText('Marks where PDF and Word exports start a new page')).toBeVisible();
 
     await user.click(toggle);
 
@@ -218,8 +224,8 @@ describe('phrase suggestions', () => {
 
     const toggle = screen.getByRole('checkbox', { name: 'Suggest phrase completions' });
     expect(toggle).not.toBeChecked();
-    expect(screen.getByText(/Press Right Arrow to accept it or Escape/i)).toBeVisible();
-    expect(screen.getByText(/in memory only/i)).toBeVisible();
+    expect(screen.getByText(/Press Right Arrow to accept/i)).toBeInTheDocument();
+    expect(screen.getByText(/in memory only/i)).toBeInTheDocument();
 
     await user.click(toggle);
 
@@ -242,7 +248,7 @@ describe('suggestion switches', () => {
 
     const toggle = screen.getByRole('checkbox', { name: 'Suggestions in views' });
     expect(toggle).toBeChecked();
-    expect(toggle).toHaveAccessibleDescription(/fill-series offer/i);
+    expect(toggle).toHaveAccessibleDescription(/hints that views offer/i);
 
     await user.click(toggle);
 
@@ -256,8 +262,7 @@ describe('suggestion switches', () => {
 
     const toggle = screen.getByRole('checkbox', { name: 'Order choices by what I pick most' });
     expect(toggle).toBeChecked();
-    expect(toggle).toHaveAccessibleDescription(/Recent group/i);
-    expect(toggle).toHaveAccessibleDescription(/nothing is reordered by what you have picked/);
+    expect(toggle).toHaveAccessibleDescription(/usual picks first/i);
 
     await user.click(toggle);
 
@@ -313,7 +318,7 @@ describe('suggestion switches', () => {
 
     expect(
       screen.getByRole('checkbox', { name: 'Suggest phrase completions' }),
-    ).toHaveAccessibleDescription(/Needs a keyboard\./);
+    ).toHaveAccessibleDescription(/needs a keyboard/i);
   });
 
   it('read as on when nothing, or anything unexpected, is stored', () => {

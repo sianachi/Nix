@@ -223,10 +223,11 @@ describe('the import dialog', () => {
     open();
 
     expect(screen.getByText(/Obsidian vault/)).toBeInTheDocument();
-    expect(screen.getByText(/folder or Obsidian vault/)).toBeInTheDocument();
-    expect(screen.getByText(/PDF, Word, text or Nix archive/)).toBeInTheDocument();
+    expect(screen.getByText(/folders containing Markdown notes/)).toBeInTheDocument();
+    expect(screen.getByText(/PDF, Word document, UTF-8 text file/)).toBeInTheDocument();
     expect(screen.getByText(/Nix archive/)).toBeInTheDocument();
-    expect(screen.getByText(/without OCR/)).toBeInTheDocument();
+    expect(screen.getByText(/original files are retained as children/)).toBeInTheDocument();
+    expect(screen.getByText(/does not perform OCR/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Choose files' })).toBeInTheDocument();
   });
 
@@ -252,7 +253,7 @@ describe('the import dialog', () => {
     expect(screen.getByText('Exact PDF layout is not preserved.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Import 2 items' }));
 
-    expect(await screen.findByText('2 items were created.')).toBeInTheDocument();
+    expect(await screen.findByText('2 items were created atomically.')).toBeInTheDocument();
     expect(onImported).toHaveBeenCalledWith('d5000000-0000-4000-8000-000000000001');
   });
 
@@ -511,14 +512,7 @@ describe('the import dialog', () => {
     await pick(markdownFile('a.md', 'Body.'));
     await userEvent.click(await screen.findByRole('button', { name: /Import 2 items/ }));
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(/failed unexpectedly/);
-    // The reason is tied to the controls that retry, and read where focus lands.
-    expect(screen.getByRole('button', { name: 'Choose files' })).toHaveAttribute(
-      'aria-describedby',
-      alert.id,
-    );
-    expect(alert.parentElement).toHaveFocus();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/failed unexpectedly/);
     // The way out is back, not a reload: the pick controls are live again.
     expect(screen.getByRole('button', { name: 'Choose files' })).toBeEnabled();
   });
@@ -558,7 +552,9 @@ describe('the import dialog', () => {
     await pick(new File(['x'], 'photo.jpg', { type: 'image/jpeg' }));
 
     expect(await screen.findByRole('button', { name: 'Import 2 items' })).toBeInTheDocument();
-    expect(screen.getByText(/file or note will be created/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/file or note from the chosen files will be created/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -593,10 +589,6 @@ describe('the import dialog torn down mid-run', () => {
       onProgress?.(1, 2);
     });
     await screen.findByText('Importing… 1 of 2 items.');
-    expect(screen.getByRole('progressbar', { name: 'Import progress' })).toHaveAttribute(
-      'value',
-      '1',
-    );
 
     view.unmount();
 

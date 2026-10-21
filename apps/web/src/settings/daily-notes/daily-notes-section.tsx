@@ -6,6 +6,7 @@ import {
   readOpenDailyOnLaunch,
   writeOpenDailyOnLaunch,
 } from '../../lib/daily-note-device-preferences';
+import { SettingsSection } from '../shared/settings-section';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { useDailyNoteSettings } from './use-daily-note-settings';
 
@@ -38,16 +39,10 @@ export function DailyNotesSection(): ReactElement {
   const canManage = workspace.canRename && !state.forbidden;
 
   return (
-    <section aria-labelledby="daily-notes-heading" className="flex max-w-3xl flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <Text id="daily-notes-heading" variant="h3" as="h2">
-          Daily notes
-        </Text>
-        <Text variant="note" tone="muted">
-          One note per day, created the first time you open it. Shared workspaces start with daily
-          notes off until someone switches them on; a personal workspace starts with them on.
-        </Text>
-      </div>
+    <SettingsSection
+      title="Daily notes"
+      summary="One note per day, created the first time you open it"
+    >
       {state.loading ? <Text role="status">Loading daily note settings…</Text> : null}
       {state.error !== null ? (
         <Text role="alert" variant="note">
@@ -65,7 +60,7 @@ export function DailyNotesSection(): ReactElement {
         />
       ) : null}
       <DeviceSettings />
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -115,8 +110,7 @@ function DailyNotesForm({ initial, saving, canManage, onSave }: FormProps): Reac
     >
       {canManage ? null : (
         <Text variant="note" role="status">
-          Only a workspace owner or an administrator can change these settings. You can see how they
-          are set here.
+          Only a workspace owner or administrator can change these settings.
         </Text>
       )}
       <fieldset disabled={saving || !canManage} className="flex min-w-0 flex-col gap-4">
@@ -132,9 +126,17 @@ function DailyNotesForm({ initial, saving, canManage, onSave }: FormProps): Reac
             }}
           />
           <Text id={enabledHintId} variant="note" tone="muted">
-            One note per day for the whole workspace. In a shared workspace, everyone who can edit
-            it shares the same day’s note.
+            Everyone who can edit a shared workspace shares the day’s note
           </Text>
+          <details>
+            <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+              More<span className="sr-only"> about daily notes</span>
+            </summary>
+            <Text variant="note" tone="muted">
+              Shared workspaces start with daily notes off until someone switches them on; a
+              personal workspace starts with them on.
+            </Text>
+          </details>
         </div>
 
         <Field label="Folders" className="max-w-sm">
@@ -177,11 +179,7 @@ function DailyNotesForm({ initial, saving, canManage, onSave }: FormProps): Reac
           )}
         </Field>
 
-        <Field
-          label="Template"
-          hint="Markdown. It is put into each new daily note the first time that note is opened."
-          className="max-w-xl"
-        >
+        <Field label="Template" hint="Markdown, added to each new daily note" className="max-w-xl">
           {(control) => (
             <Textarea
               {...control}
@@ -197,7 +195,7 @@ function DailyNotesForm({ initial, saving, canManage, onSave }: FormProps): Reac
 
         <Field
           label="The day changes at"
-          hint="Before this hour, “today” still means yesterday’s note."
+          hint="Before this hour, today is still yesterday’s note"
           className="max-w-xs"
         >
           {(control) => (
@@ -230,19 +228,19 @@ function DailyNotesForm({ initial, saving, canManage, onSave }: FormProps): Reac
             }}
           />
           <Text id={calendarHintId} variant="note" tone="muted">
-            Each day’s note appears on its date in this workspace’s calendar.
+            Each note appears on its date in the calendar
           </Text>
         </div>
 
-        <Text variant="note" tone="muted">
-          Changes apply to notes created after you save. Existing daily notes stay where they are
-          and keep their titles.
-        </Text>
-
-        <div>
-          <Button type="submit" disabled={saving || unchanged || !canManage}>
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
+        <div className="flex flex-col gap-1">
+          <div>
+            <Button type="submit" disabled={saving || unchanged || !canManage}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+          <Text variant="note" tone="muted">
+            Applies to notes created after you save; existing notes keep their place and title
+          </Text>
         </div>
         {message !== null ? (
           <Text role="status" variant="note">
@@ -266,7 +264,7 @@ function DeviceSettings(): ReactElement {
         'flex flex-col gap-2 border-t border-divider pt-4', // spacing-role-exempt: a top-border section divider, not the bordered-panel role the p-3 convention belongs to - only its top edge pads.
       )}
     >
-      <Text variant="bodySmall" as="h3">
+      <Text variant="h5" as="h3">
         Your preference
       </Text>
       <Checkbox
@@ -280,7 +278,7 @@ function DeviceSettings(): ReactElement {
         }}
       />
       <Text id={hintId} variant="note" tone="muted">
-        Follows your account across your devices. It does not change anything for other people.
+        Only changes what you see
       </Text>
     </div>
   );
