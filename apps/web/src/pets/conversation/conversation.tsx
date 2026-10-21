@@ -182,6 +182,12 @@ export function Conversation({
     [onNeedsDecisionChange],
   );
 
+  /** Closing the message editor removes the control that had focus, so focus goes to the composer. */
+  function closeEditor() {
+    setEditing(null);
+    input.current?.focus();
+  }
+
   const context = useMessageContext({ currentItem, noteScope, workspaceAccess });
   const { submit, resendTurn, retryLastTurn, retryLabel, retryError, loadErrorMessage } = useTurns({
     client,
@@ -195,9 +201,7 @@ export function Conversation({
     hasNoteScope: noteScope !== undefined,
     messages,
     contextFields: context.contextFields,
-    onSent: () => {
-      setEditing(null);
-    },
+    onSent: closeEditor,
   });
 
   const rename = useRename({
@@ -447,7 +451,10 @@ export function Conversation({
             applyExemptToolIds={applyExemptToolIds}
             noteScope={noteScope}
             editing={editing}
-            setEditing={setEditing}
+            setEditing={(value) => {
+              if (value === null) closeEditor();
+              else setEditing(value);
+            }}
             enterToSend={!touchLikeComposer}
             resendTurn={resendTurn}
             retryLastTurn={retryLastTurn}

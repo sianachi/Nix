@@ -511,6 +511,30 @@ describe('companion live wiring', () => {
     expect(sends.at(-1)).toMatchObject({ replaceFromMessageId: 'turn-1', itemIds: [item] });
   });
 
+  it.each(['Cancel', 'Resend'])(
+    'returns focus to the composer when the message editor closes with %s',
+    async (button) => {
+      const thread = {
+        ...base,
+        state: 'success',
+        messages: [
+          { id: 'turn-1', role: 'user', text: 'Summarize' },
+          { id: 'turn-1:assistant', role: 'assistant', text: 'Done' },
+        ],
+        tools: [],
+      };
+      client.query.mockResolvedValue(thread);
+      client.execute.mockResolvedValue(thread);
+      const user = await openCompanion();
+      await user.click(await screen.findByRole('button', { name: 'Edit message' }));
+      await user.click(screen.getByRole('button', { name: button }));
+      await waitFor(() => {
+        expect(screen.queryByRole('textbox', { name: 'Edit your message' })).toBeNull();
+      });
+      expect(screen.getByRole('textbox', { name: 'Message Cat' })).toHaveFocus();
+    },
+  );
+
   it('keeps Resend off while a turn runs', async () => {
     const running = {
       ...base,
