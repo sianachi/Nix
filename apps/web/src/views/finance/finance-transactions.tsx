@@ -1,4 +1,4 @@
-import { Button, Checkbox, Dialog, Field, Input, Select, Segmented, Text } from '@nix/ui';
+import { Button, Text } from '@nix/ui';
 import {
   finance as financeApi,
   type Finance,
@@ -9,11 +9,19 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useOptionalApiClient } from '../../api/api-client-provider';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
 import { Money, SectionHeading, WriteError } from './finance-shared';
-import { monthOf, parseAmount, shiftMonth } from './money';
+import { shiftMonth } from './money';
 import { useFinanceQuery, type FinanceState } from './use-finance';
 import { TransactionTable } from './transaction-table';
 import { ImportDialog } from './finance-import-dialog';
-import { QuickAddDialog, TransactionDialog, linesBySection } from './transaction-dialog';
+import { QuickAddDialog, TransactionDialog } from './transaction-dialog';
+import {
+  TransactionFilterForm,
+  type AppliedFilters,
+  type HistoryRange,
+} from './transaction-filter-form';
+import { TransactionBulkBar } from './transaction-bulk-bar';
+import { AssignPreviewDialog } from './assign-preview-dialog';
+import { SessionChanges, sameEditableTransaction, type SessionChange } from './session-changes';
 
 // Importers reach these through this module.
 export { QuickAddDialog, TransactionDialog };
@@ -49,14 +57,8 @@ export function FinanceTransactions({
   const [undoError, setUndoError] = useState<string | null>(null);
   const [accountId, setAccountId] = useState(initialAccountId);
   const [lineFilter, setLineFilter] = useState(initialLineId);
-  const [range, setRange] = useState<'month' | 'all' | 'custom'>('month');
-  const [from, setFrom] = useState(`${month}-01`);
-  const [to, setTo] = useState(monthEnd(month));
-  const [search, setSearch] = useState('');
-  const [source, setSource] = useState('');
-  const [minAmount, setMinAmount] = useState('');
-  const [maxAmount, setMaxAmount] = useState('');
-  const [filters, setFilters] = useState({
+  const [range, setRange] = useState<HistoryRange>('month');
+  const [filters, setFilters] = useState<AppliedFilters>({
     search: '',
     source: '',
     from: '',
@@ -64,7 +66,6 @@ export function FinanceTransactions({
     minAmount: '',
     maxAmount: '',
   });
-  const [filterError, setFilterError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [previewAssignment, setPreviewAssignment] = useState(false);
   const [announcement, setAnnouncement] = useState<string | null>(null);
@@ -127,32 +128,6 @@ export function FinanceTransactions({
     () => new Map(finance.accounts.map((account) => [account.id, account])),
     [finance.accounts],
   );
-  const applyFilters = (): void => {
-    const min = minAmount === '' ? null : parseAmount(minAmount);
-    const max = maxAmount === '' ? null : parseAmount(maxAmount);
-    if (
-      (minAmount !== '' && (min === null || min < 0)) ||
-      (maxAmount !== '' && (max === null || max < 0)) ||
-      (min !== null && max !== null && min > max)
-    ) {
-      setFilterError('Enter valid amounts of zero or more, with the smaller amount first.');
-      return;
-    }
-    if (range === 'custom' && (from === '' || to === '' || from > to)) {
-      setFilterError('Choose a start and end date, with the earlier date first.');
-      return;
-    }
-    setFilterError(null);
-    setOffset(0);
-    setFilters({
-      search: search.trim(),
-      source,
-      from,
-      to,
-      minAmount: min === null ? '' : String(min),
-      maxAmount: max === null ? '' : String(max),
-    });
-  };
   const visibleIds = useMemo(
     () => (query.data === null ? [] : query.data.transactions.map((row) => row.id)),
     [query.data],
@@ -254,194 +229,41 @@ export function FinanceTransactions({
           </>
         }
       />
-      <form
-        className="flex flex-col gap-3 rounded-lg border border-divider p-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          applyFilters();
+      <TransactionFilterForm
+        finance={finance}
+        month={month}
+        monthEnd={monthEnd(month)}
+        range={range}
+        accountId={accountId}
+        lineFilter={lineFilter}
+        unassigned={unassigned}
+        filters={filters}
+        onRange={(value, from, to) => {
+          setRange(value);
+          setOffset(0);
+          if (value === 'custom') setFilters((current) => ({ ...current, from, to }));
         }}
-      >
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Search transactions" className="min-w-0 flex-1 basis-48">
-            {(control) => (
-              <Input
-                {...control}
-                type="search"
-                placeholder="Payee or description"
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                }}
-              />
-            )}
-          </Field>
-          <Segmented<'month' | 'all' | 'custom'>
-            className="min-w-0 flex-wrap"
-            label="History period"
-            options={[
-              { value: 'month', label: 'Selected month' },
-              { value: 'all', label: 'All history' },
-              { value: 'custom', label: 'Date range' },
-            ]}
-            value={range}
-            onChange={(value) => {
-              setRange(value);
-              setOffset(0);
-              if (value === 'custom') setFilters((current) => ({ ...current, from, to }));
-            }}
-          />
-          <Button type="submit">Search</Button>
-          {filters.search !== '' ||
-          filters.source !== '' ||
-          accountId !== '' ||
-          lineFilter !== '' ||
-          unassigned ||
-          filters.minAmount !== '' ||
-          filters.maxAmount !== '' ? (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setSearch('');
-                setSource('');
-                setMinAmount('');
-                setMaxAmount('');
-                setAccountId('');
-                setLineFilter('');
-                setUnassigned(false);
-                setOffset(0);
-                setFilterError(null);
-                setFilters({ search: '', source: '', from, to, minAmount: '', maxAmount: '' });
-              }}
-            >
-              Clear filters
-            </Button>
-          ) : null}
-        </div>
-        {range === 'custom' ? (
-          <div className="grid min-w-0 grid-cols-1 gap-3 @sm:grid-cols-2">
-            <Field label="From date" className="min-w-0">
-              {(control) => (
-                <Input
-                  {...control}
-                  type="date"
-                  value={from}
-                  onChange={(event) => {
-                    setFrom(event.target.value);
-                  }}
-                />
-              )}
-            </Field>
-            <Field label="To date" className="min-w-0">
-              {(control) => (
-                <Input
-                  {...control}
-                  type="date"
-                  value={to}
-                  onChange={(event) => {
-                    setTo(event.target.value);
-                  }}
-                />
-              )}
-            </Field>
-          </div>
-        ) : null}
-        <details>
-          <summary className="cursor-pointer text-muted any-pointer-coarse:min-h-(--control-lg)">
-            Filter by account, category or amount
-          </summary>
-          <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 @lg:grid-cols-2">
-            <Field label="Account">
-              {(control) => (
-                <Select
-                  {...control}
-                  value={accountId}
-                  onChange={(event) => {
-                    setAccountId(event.target.value);
-                    setOffset(0);
-                  }}
-                >
-                  <option value="">Every account</option>
-                  {finance.accounts
-                    .filter((account) => account.type !== 'loan')
-                    .map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                      </option>
-                    ))}
-                </Select>
-              )}
-            </Field>
-            <Field label="Category">
-              {(control) => (
-                <Select
-                  {...control}
-                  value={unassigned ? 'unassigned' : lineFilter}
-                  onChange={(event) => {
-                    setUnassigned(event.target.value === 'unassigned');
-                    setLineFilter(event.target.value === 'unassigned' ? '' : event.target.value);
-                    setOffset(0);
-                  }}
-                >
-                  <option value="">Every category</option>
-                  <option value="unassigned">Unassigned</option>
-                  {finance.lines.map((line) => (
-                    <option key={line.id} value={line.id}>
-                      {line.name}
-                      {line.archived ? ' (archived)' : ''}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-            <Field label="Source">
-              {(control) => (
-                <Select
-                  {...control}
-                  value={source}
-                  onChange={(event) => {
-                    setSource(event.target.value);
-                  }}
-                >
-                  <option value="">Every source</option>
-                  <option value="manual">By hand</option>
-                  <option value="import">Imported statement</option>
-                  <option value="scheduled">Posted from plan</option>
-                </Select>
-              )}
-            </Field>
-            <div className="grid min-w-0 grid-cols-1 gap-3 @sm:grid-cols-2">
-              <Field label="Amount from" hint={currency} className="min-w-0">
-                {(control) => (
-                  <Input
-                    {...control}
-                    inputMode="decimal"
-                    value={minAmount}
-                    onChange={(event) => {
-                      setMinAmount(event.target.value);
-                    }}
-                  />
-                )}
-              </Field>
-              <Field label="Amount to" hint="Money in or out" className="min-w-0">
-                {(control) => (
-                  <Input
-                    {...control}
-                    inputMode="decimal"
-                    value={maxAmount}
-                    onChange={(event) => {
-                      setMaxAmount(event.target.value);
-                    }}
-                  />
-                )}
-              </Field>
-            </div>
-          </div>
-          <Button type="submit" variant="secondary" className="mt-3">
-            Apply filters
-          </Button>
-        </details>
-        <WriteError message={filterError} />
-      </form>
+        onAccount={(id) => {
+          setAccountId(id);
+          setOffset(0);
+        }}
+        onCategory={(value) => {
+          setUnassigned(value === 'unassigned');
+          setLineFilter(value === 'unassigned' ? '' : value);
+          setOffset(0);
+        }}
+        onApply={(next) => {
+          setOffset(0);
+          setFilters(next);
+        }}
+        onClear={(from, to) => {
+          setAccountId('');
+          setLineFilter('');
+          setUnassigned(false);
+          setOffset(0);
+          setFilters({ search: '', source: '', from, to, minAmount: '', maxAmount: '' });
+        }}
+      />
       {query.data === null ? (
         query.status === 'error' ? (
           <ErrorPanel title="The transactions could not be loaded" detail={query.error ?? ''} />
@@ -492,62 +314,25 @@ export function FinanceTransactions({
             </dl>
           </div>
           {query.data.transactions.length === 0 ? null : (
-            <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-raised p-3">
-              <Checkbox
-                label={`Select all ${String(visibleIds.length)} visible`}
-                checked={allVisibleSelected}
-                disabled={query.status !== 'ready' || assigning}
-                indeterminate={someVisibleSelected && !allVisibleSelected}
-                onChange={(event) => {
-                  toggleAllVisible(event.target.checked);
-                }}
-              />
-              {selected.size === 0 ? null : (
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <Text as="span" variant="bodySmall">
-                    {String(selected.size)} selected
-                  </Text>
-                  <Select
-                    className="min-w-0 flex-1 basis-48"
-                    aria-label="Assign to line"
-                    value={assignLineId}
-                    disabled={assigning}
-                    onChange={(event) => {
-                      setAssignLineId(event.target.value);
-                    }}
-                  >
-                    <option value="">Choose a line</option>
-                    {linesBySection(finance.lines).map(([section, sectionLines]) => (
-                      <optgroup key={section} label={section}>
-                        {sectionLines.map((sectionLine) => (
-                          <option key={sectionLine.id} value={sectionLine.id}>
-                            {sectionLine.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </Select>
-                  <Button
-                    disabled={assignLineId === '' || assigning || query.status !== 'ready'}
-                    onClick={() => {
-                      setPreviewAssignment(true);
-                    }}
-                  >
-                    Preview change
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={assigning}
-                    onClick={() => {
-                      setSelected(new Set());
-                      setAssignError(null);
-                    }}
-                  >
-                    Clear selection
-                  </Button>
-                </div>
-              )}
-            </div>
+            <TransactionBulkBar
+              lines={finance.lines}
+              visibleCount={visibleIds.length}
+              selectedCount={selected.size}
+              allVisibleSelected={allVisibleSelected}
+              someVisibleSelected={someVisibleSelected}
+              ready={query.status === 'ready'}
+              assigning={assigning}
+              assignLineId={assignLineId}
+              onToggleAll={toggleAllVisible}
+              onAssignLine={setAssignLineId}
+              onPreview={() => {
+                setPreviewAssignment(true);
+              }}
+              onClear={() => {
+                setSelected(new Set());
+                setAssignError(null);
+              }}
+            />
           )}
           <WriteError message={assignError} />
           <TransactionTable
@@ -589,42 +374,15 @@ export function FinanceTransactions({
           </div>
         </>
       )}
-      {changes.length === 0 ? null : (
-        <details className="rounded-lg border border-divider p-3">
-          <summary className="cursor-pointer text-muted any-pointer-coarse:min-h-(--control-lg)">
-            Changes in this visit ({String(changes.length)})
-          </summary>
-          <Text variant="caption" tone="muted" className="mt-2">
-            Recent edits made in this history screen. This list clears when you leave or reload;
-            saved records remain in your finances.
-          </Text>
-          <ul className="mt-3 flex flex-col gap-3">
-            {changes.map((change, index) => (
-              <li
-                key={`${change.before.id}-${String(index)}`}
-                className="flex flex-wrap items-center justify-between gap-3"
-              >
-                <Text variant="bodySmall">
-                  {change.before.description}:{' '}
-                  <Money amount={change.before.amount} currency={currency} signed /> to{' '}
-                  <Money amount={change.after.amount} currency={currency} signed />;{' '}
-                  {lines.get(change.before.lineId ?? '')?.name ?? 'Unassigned'} to{' '}
-                  {lines.get(change.after.lineId ?? '')?.name ?? 'Unassigned'}
-                </Text>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setUndoError(null);
-                    setRestoring(change);
-                  }}
-                >
-                  Review undo
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      <SessionChanges
+        changes={changes}
+        lines={lines}
+        currency={currency}
+        onReview={(change) => {
+          setUndoError(null);
+          setRestoring(change);
+        }}
+      />
       <WriteError message={undoError} />
       {restoring === null ? null : (
         <TransactionDialog
@@ -664,58 +422,19 @@ export function FinanceTransactions({
         </Text>
       )}
       {previewAssignment ? (
-        <Dialog
-          open
-          title="Review category change"
+        <AssignPreviewDialog
+          finance={finance}
+          lines={lines}
+          rows={query.data?.transactions}
+          selected={selected}
+          assignLineId={assignLineId}
+          onApply={() => {
+            void applyAssignment();
+          }}
           onClose={() => {
             setPreviewAssignment(false);
           }}
-        >
-          <div className="flex flex-col gap-4">
-            <Text variant="body">
-              Move {String(selected.size)} transactions to {lines.get(assignLineId)?.name}. Amounts
-              and accounts stay the same; category totals will update.
-            </Text>
-            <ul className="flex flex-col gap-2">
-              {query.data?.transactions
-                .filter((row) => selected.has(row.id))
-                .map((row) => (
-                  <li key={row.id}>
-                    <Text variant="bodySmall">
-                      {row.description}:{' '}
-                      {row.lineId === null ? 'Unassigned' : lines.get(row.lineId)?.name} to{' '}
-                      {lines.get(assignLineId)?.name}
-                      {finance.closedMonths.includes(monthOf(row.date)) ? ' (closed month)' : ''}
-                    </Text>
-                  </li>
-                ))}
-            </ul>
-            {query.data?.transactions.some(
-              (row) => selected.has(row.id) && finance.closedMonths.includes(monthOf(row.date)),
-            ) ? (
-              <Text variant="bodySmall" role="alert">
-                Some selected transactions belong to closed months. Correct these individually first
-                so you can reopen and close each month safely.
-              </Text>
-            ) : (
-              <Button
-                onClick={() => {
-                  void applyAssignment();
-                }}
-              >
-                Apply category change
-              </Button>
-            )}
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setPreviewAssignment(false);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </Dialog>
+        />
       ) : null}
       <QuickAddDialog
         state={state}
@@ -749,22 +468,6 @@ export function FinanceTransactions({
         }}
       />
     </div>
-  );
-}
-
-interface SessionChange {
-  readonly before: FinanceTransaction;
-  readonly after: FinanceTransaction;
-}
-
-function sameEditableTransaction(left: FinanceTransaction, right: FinanceTransaction): boolean {
-  return (
-    left.description === right.description &&
-    left.amount === right.amount &&
-    left.date === right.date &&
-    left.accountId === right.accountId &&
-    left.lineId === right.lineId &&
-    left.cleared === right.cleared
   );
 }
 
