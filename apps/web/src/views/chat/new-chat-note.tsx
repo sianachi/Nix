@@ -7,8 +7,7 @@ import {
   type CreateConversationInput,
   type Conversation,
 } from '@nix/api-client';
-import { Button, Checkbox, Dialog, Field, Icon, Input, Select, Text } from '@nix/ui';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Button, Checkbox, Dialog, Field, Input, Select, Text } from '@nix/ui';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useWorkspaceArrangement } from '../../workspaces/use-workspace-arrangement';
 import { PetMessageText } from '../../pets/pet-message-text';
@@ -16,91 +15,10 @@ import { Link, useNavigate } from 'react-router';
 import { useApiClient } from '../../api/api-client-provider';
 import { useAccessibleWorkspaces, useOptionalWorkspace } from '../../workspaces/workspace-context';
 import { readLastWorkspaceId } from '../../workspaces/last-workspace';
+import { ChatSaveTo } from './chat-save-to';
+import { ChatSources } from './chat-sources';
 
-export function ChatDestination({
-  workspaceId,
-  parentId,
-  onChange,
-}: {
-  readonly workspaceId: string;
-  readonly parentId: string | null;
-  readonly onChange: (id: string | null) => void;
-}): ReactNode {
-  const client = useApiClient();
-  const [choices, setChoices] = useState<readonly Item[]>([]);
-  const [parentTitle, setParentTitle] = useState('');
-  const [error, setError] = useState('');
-  useEffect(() => {
-    const controller = new AbortController();
-    queueMicrotask(() => {
-      if (!controller.signal.aborted) {
-        setError('');
-        setChoices([]);
-      }
-    });
-    if (!workspaceId)
-      return () => {
-        controller.abort();
-      };
-    void (async () => {
-      if (parentId) {
-        const parent = await client.query(items.itemById(parentId), {
-          signal: controller.signal,
-          forceRefresh: true,
-        });
-        if (parent.workspaceId !== workspaceId)
-          throw new Error('Destination belongs to another workspace.');
-        if (!controller.signal.aborted) setParentTitle(parent.title || 'Untitled note');
-      }
-      const found: Item[] = [];
-      for await (const page of client.paginate(
-        items.listItems(workspaceId, parentId ? { parentId } : {}),
-        { signal: controller.signal },
-      ))
-        found.push(page);
-      if (!controller.signal.aborted) setChoices(found);
-    })().catch(() => {
-      if (!controller.signal.aborted) setError('Destination notes could not be loaded.');
-    });
-    return () => {
-      controller.abort();
-    };
-  }, [client, workspaceId, parentId]);
-  return (
-    <div className="flex flex-col gap-2">
-      <Text variant="note">
-        {parentId
-          ? `Save inside ${parentTitle || 'the selected note'}. Choose a child to navigate further.`
-          : 'Save at the workspace root, or choose a parent note.'}
-      </Text>
-      {parentId ? (
-        <Button
-          variant="secondary"
-          onClick={() => {
-            onChange(null);
-          }}
-        >
-          Use workspace root
-        </Button>
-      ) : null}
-      <Select
-        aria-label="Destination parent note"
-        value=""
-        onChange={(event) => {
-          if (event.currentTarget.value) onChange(event.currentTarget.value);
-        }}
-      >
-        <option value="">{parentId ? parentTitle || 'Selected note' : 'Workspace root'}</option>
-        {choices.map((item) => (
-          <option key={item.id} value={item.id}>
-            {item.title || 'Untitled note'}
-          </option>
-        ))}
-      </Select>
-      {error ? <Text role="alert">{error}</Text> : null}
-    </div>
-  );
-}
+export { ChatDestination } from './chat-destination';
 
 export function NewChatNote({
   sourceWorkspaceIds,
@@ -128,12 +46,7 @@ export function NewChatNote({
   const [profiles, setProfiles] = useState<readonly PetProfile[]>([]);
   const [petId, setPetId] = useState('');
   const [sources, setSources] = useState<readonly string[]>(sourceWorkspaceIds);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
-  const [sourceSearch, setSourceSearch] = useState('');
-  const [destinationOpen, setDestinationOpen] = useState(false);
   const formId = useId();
-  const sourcesId = useId();
-  const destinationId = useId();
   const titleRef = useRef<HTMLInputElement>(null);
   const [chosenDestination, setChosenDestination] = useState<{
     workspaceId: string;
@@ -214,17 +127,7 @@ export function NewChatNote({
     (parentItem?.id === parentId &&
       parentItem.workspaceId === workspaceId &&
       unavailableParentId !== parentId);
-  const selectedSources = active.filter((entry) => sources.includes(entry.id));
-  const sourceSummary =
-    selectedSources.length === 0
-      ? 'Choose workspaces'
-      : selectedSources.length === 1
-        ? selectedSources[0]?.name
-        : `${String(selectedSources.length)} workspaces`;
   const unavailableSources = sources.filter((id) => !active.some((entry) => entry.id === id));
-  const filteredSources = active.filter((entry) =>
-    entry.name.toLocaleLowerCase().includes(sourceSearch.toLocaleLowerCase().trim()),
-  );
   const disabled =
     busy ||
     !title.trim() ||
@@ -357,151 +260,32 @@ export function NewChatNote({
               </Select>
             )}
           </Field>
-          <div className="flex flex-col gap-2">
-            <Button
-              variant="secondary"
-              className="justify-between"
-              aria-expanded={sourcesOpen}
-              aria-controls={sourcesOpen ? sourcesId : undefined}
-              onClick={() => {
-                setSourcesOpen(!sourcesOpen);
-              }}
-            >
-              <Text as="span" variant="bodySmall" className="truncate">
-                Sources: {workspaceStatus === 'loading' ? 'Loading…' : sourceSummary}
-              </Text>
-              <Icon icon={sourcesOpen ? ChevronUp : ChevronDown} />
-            </Button>
-            {sourcesOpen ? (
-              <div id={sourcesId} className="flex flex-col gap-2 rounded border border-divider p-3">
-                <Input
-                  type="search"
-                  aria-label="Find a source workspace"
-                  placeholder="Find a workspace…"
-                  value={sourceSearch}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.preventDefault();
-                  }}
-                  onChange={(event) => {
-                    setSourceSearch(event.currentTarget.value);
-                  }}
-                />
-                <fieldset
-                  aria-label="Source workspaces"
-                  className="flex max-h-40 flex-col gap-1 overflow-y-auto"
-                >
-                  {filteredSources.map((entry) => (
-                    <Checkbox
-                      key={entry.id}
-                      label={entry.name}
-                      checked={sources.includes(entry.id)}
-                      onChange={(event) => {
-                        setSources(
-                          event.currentTarget.checked
-                            ? [...sources, entry.id]
-                            : sources.filter((id) => id !== entry.id),
-                        );
-                        setConfirmed(false);
-                      }}
-                    />
-                  ))}
-                  {!filteredSources.length ? (
-                    <Text variant="note">No matching workspaces.</Text>
-                  ) : null}
-                </fieldset>
-              </div>
-            ) : null}
-            {unavailableSources.length > 0 && workspaceStatus !== 'loading' ? (
-              <div>
-                <Text role="alert">Some source workspaces are no longer available.</Text>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setSources(selectedSources.map((entry) => entry.id));
-                    setConfirmed(false);
-                  }}
-                >
-                  Remove unavailable sources
-                </Button>
-              </div>
-            ) : null}
-            <Text variant="note" tone="muted">
-              Your pet can read these workspaces, without changing their notes.
-            </Text>
-          </div>
+          <ChatSources
+            active={active}
+            sources={sources}
+            loading={workspaceStatus === 'loading'}
+            onChange={(next) => {
+              setSources(next);
+              setConfirmed(false);
+            }}
+          />
           {!existingItemId ? (
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <Text variant="kicker">Save to</Text>
-                  <Text variant="bodySmall" className="break-words">
-                    {parentId
-                      ? `${parentReady ? (parentItem?.title ?? 'Untitled note') : 'Checking destination…'} · `
-                      : ''}
-                    {destination?.name ?? 'Choose a workspace'}
-                    {current?.id === workspaceId && !parentId ? ' (this workspace)' : ''}
-                  </Text>
-                </div>
-                <Button
-                  variant="ghost"
-                  className="shrink-0"
-                  aria-expanded={destinationOpen}
-                  aria-controls={destinationOpen ? destinationId : undefined}
-                  onClick={() => {
-                    setDestinationOpen(!destinationOpen);
-                  }}
-                >
-                  {destinationOpen ? 'Done' : 'Somewhere else…'}
-                </Button>
-              </div>
-              {destinationOpen ? (
-                <div
-                  id={destinationId}
-                  className="flex flex-col gap-3 rounded border border-divider p-3"
-                >
-                  <Field label="Destination workspace">
-                    {(control) => (
-                      <Select
-                        {...control}
-                        value={workspaceId}
-                        onChange={(event) => {
-                          setWorkspaceId(event.currentTarget.value);
-                          setConfirmed(false);
-                        }}
-                      >
-                        <option value="">Choose where to save</option>
-                        {active.map((entry) => (
-                          <option key={entry.id} value={entry.id}>
-                            {entry.name}
-                          </option>
-                        ))}
-                      </Select>
-                    )}
-                  </Field>
-                  {workspaceId ? (
-                    <ChatDestination
-                      workspaceId={workspaceId}
-                      parentId={parentId}
-                      onChange={(id) => {
-                        setParentId(id);
-                        setConfirmed(false);
-                      }}
-                    />
-                  ) : null}
-                  {current && (workspaceId !== current.id || parentId !== null) ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        setWorkspaceId(current.id);
-                        setConfirmed(false);
-                      }}
-                    >
-                      Use this workspace
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+            <ChatSaveTo
+              active={active}
+              current={current}
+              destination={destination}
+              workspaceId={workspaceId}
+              parentId={parentId}
+              parentTitle={parentId && !parentReady ? null : (parentItem?.title ?? 'Untitled note')}
+              onWorkspace={(id) => {
+                setWorkspaceId(id);
+                setConfirmed(false);
+              }}
+              onParent={(id) => {
+                setParentId(id);
+                setConfirmed(false);
+              }}
+            />
           ) : null}
           {existingItemId ? (
             <>
