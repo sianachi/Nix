@@ -189,6 +189,7 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
           <Button
             key={option.value}
             variant={section === option.value ? 'primary' : 'ghost'}
+            className="shrink-0 whitespace-nowrap"
             aria-current={section === option.value ? 'page' : undefined}
             onClick={() => {
               setSection(option.value);
