@@ -1,11 +1,12 @@
 import type { CalendarConnection, CalendarLink } from '@nix/api-client';
 import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CalendarsSection } from '../../../settings/calendars/calendars-section';
 import { useCalendarSync } from '../../../settings/calendars/use-calendar-sync';
 import { renderAt } from '../../render-with-router';
+import { stubViewport } from '../../stub-viewport';
 
 vi.mock('../../../settings/calendars/use-calendar-sync');
 
@@ -89,5 +90,22 @@ describe('calendar settings menus', () => {
     expect(within(menu).queryByRole('menuitem', { name: 'Sync now' })).not.toBeInTheDocument();
     await userEvent.click(within(menu).getByRole('menuitem', { name: 'Resume syncing' }));
     expect(update).toHaveBeenCalledWith(paused, { status: 'active' });
+  });
+});
+
+describe('calendar settings on a phone', () => {
+  afterEach(() => {
+    stubViewport(true);
+  });
+
+  it('lists accounts and calendars as cards instead of tables', async () => {
+    stubViewport(false);
+    renderAt(<CalendarsSection />);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    const cards = screen.getByRole('list', { name: 'Linked calendars' });
+    expect(within(cards).getByText('Writing time')).toBeInTheDocument();
+    await userEvent.click(within(cards).getByRole('button', { name: 'Actions for Writing time' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Pause syncing' }));
+    expect(update).toHaveBeenCalledWith(LINK, { status: 'paused' });
   });
 });

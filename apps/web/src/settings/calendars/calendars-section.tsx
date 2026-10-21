@@ -1,9 +1,10 @@
 import type { WorkspaceCalendarLink, CalendarConnection, CalendarLink } from '@nix/api-client';
 import { Button, Dialog, Icon, Menu, Select, Table, Text, type MenuEntry } from '@nix/ui';
 import { MoreHorizontal } from 'lucide-react';
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 
+import { useNarrowViewport } from '../../layout/viewport';
 import { ErrorPanel } from '../../components/states/status-panels';
 import {
   connectionTag,
@@ -12,10 +13,12 @@ import {
   providerName,
   RETURN_NOTICES,
 } from './calendar-labels';
+import { ConnectionCards, LinkCards, OthersCards } from './calendar-cards';
 import { ConfirmDisconnectDialog } from './disconnect-dialog';
 import { LinkCalendarDialog } from './link-calendar-dialog';
 import { SyncLogDialog } from './sync-log-dialog';
 import { UnlinkDialog } from './unlink-dialog';
+import { SettingsSection } from '../shared/settings-section';
 import { useCalendarSync } from './use-calendar-sync';
 
 /**
@@ -33,6 +36,7 @@ import { useCalendarSync } from './use-calendar-sync';
 
 export function CalendarsSection(): ReactElement {
   const sync = useCalendarSync();
+  const narrow = useNarrowViewport();
   const { status, providers, connections, links, othersLinks, error, reload } = sync;
   const location = useLocation();
   const [search, setSearch] = useSearchParams();
@@ -158,6 +162,16 @@ export function CalendarsSection(): ReactElement {
     return actions;
   }
 
+  // Narrowing to import-only is applied at once. Widening sends this workspace's edits to the
+  // calendar, so it is confirmed first, with what that means said plainly.
+  function changeDirection(link: CalendarLink, direction: string): void {
+    if (direction === 'two_way') {
+      setWidening(link);
+      return;
+    }
+    void act(() => sync.update(link, { direction }));
+  }
+
   const connectionColumns = [
     {
       key: 'account',
@@ -218,13 +232,7 @@ export function CalendarsSection(): ReactElement {
           value={link.direction}
           disabled={busy}
           onChange={(event) => {
-            // Narrowing to import-only is applied at once. Widening sends this workspace's edits
-            // to the calendar, so it is confirmed first, with what that means said plainly.
-            if (event.target.value === 'two_way') {
-              setWidening(link);
-              return;
-            }
-            void act(() => sync.update(link, { direction: event.target.value }));
+            changeDirection(link, event.target.value);
           }}
         >
           <option value="two_way">Both ways</option>
@@ -265,16 +273,20 @@ export function CalendarsSection(): ReactElement {
   ] as const;
 
   return (
-    <section aria-labelledby="calendars-heading" className="flex flex-col gap-3">
-      <Text id="calendars-heading" variant="h3" as="h2">
-        Calendars
-      </Text>
-      <Text variant="note" tone="muted">
-        Connect a Google or Outlook account, then link its calendars into this workspace. Each
-        linked calendar becomes an item holding one note per event, and shows on the workspace
-        calendar with everything else. Events are removed at the calendar or by unlinking here,
-        never from the workspace tree.
-      </Text>
+    <SettingsSection
+      title="Calendars"
+      summary="Sync Google or Outlook calendars into this workspace."
+    >
+      <details>
+        <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+          How linked calendars work
+        </summary>
+        <Text variant="note" tone="muted">
+          Each linked calendar becomes an item holding one note per event, and shows on the
+          workspace calendar. Events are removed at the calendar or by unlinking here, never from
+          the workspace tree.
+        </Text>
+      </details>
 
       {returned === null ? null : (
         <Text variant="note" role="status">
@@ -329,99 +341,102 @@ export function CalendarsSection(): ReactElement {
             </Text>
           ) : null}
 
-          <div
-            className="min-w-0 overflow-x-auto"
-            role="region"
-            aria-label="Calendar accounts table"
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll account columns horizontally.
-            tabIndex={0}
-          >
-            <Table
-              caption="Accounts connected for calendar sync."
-              columns={connectionColumns}
-              rows={connections}
-              rowKey={(connection) => connection.id}
-              rowContextMenu={connectionActions}
-              rowContextMenuLabel={(connection) => `Actions for ${connection.accountEmail}`}
+          {narrow ? (
+            <ConnectionCards
               loading={status === 'loading'}
-              loadingMessage="Loading your connected accounts."
-              emptyMessage="No account is connected. Connect one to link its calendars."
+              connections={connections}
+              actionsFor={connectionActions}
             />
-          </div>
+          ) : (
+            <ScrollRegion label="Calendar accounts table">
+              <Table
+                caption="Connected accounts"
+                columns={connectionColumns}
+                rows={connections}
+                rowKey={(connection) => connection.id}
+                rowContextMenu={connectionActions}
+                rowContextMenuLabel={(connection) => `Actions for ${connection.accountEmail}`}
+                loading={status === 'loading'}
+                loadingMessage="Loading your connected accounts."
+                emptyMessage="No account is connected. Connect one to link its calendars."
+              />
+            </ScrollRegion>
+          )}
 
-          <Text variant="h4" as="h3" className="mt-3">
+          <Text variant="h5" as="h3" className="mt-3">
             Linked calendars
           </Text>
-          <div
-            className="min-w-0 overflow-x-auto"
-            role="region"
-            aria-label="Linked calendars table"
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll calendar columns horizontally.
-            tabIndex={0}
-          >
-            <Table
-              caption="Calendars linked into your workspaces."
-              columns={linkColumns}
-              rows={links}
-              rowKey={(link) => link.id}
-              rowContextMenu={linkActions}
-              rowContextMenuLabel={(link) => `Actions for ${link.name}`}
+          {narrow ? (
+            <LinkCards
               loading={status === 'loading'}
-              loadingMessage="Loading your linked calendars."
-              emptyMessage="No calendar is linked yet."
+              links={links}
+              busy={busy}
+              actionsFor={linkActions}
+              onDirection={changeDirection}
             />
-          </div>
+          ) : (
+            <ScrollRegion label="Linked calendars table">
+              <Table
+                caption="Linked calendars"
+                columns={linkColumns}
+                rows={links}
+                rowKey={(link) => link.id}
+                rowContextMenu={linkActions}
+                rowContextMenuLabel={(link) => `Actions for ${link.name}`}
+                loading={status === 'loading'}
+                loadingMessage="Loading your linked calendars."
+                emptyMessage="No calendar is linked yet."
+              />
+            </ScrollRegion>
+          )}
 
           {/* Only drawn when there is something in it: Core fills it for somebody who manages the
               workspace and for nobody else, so an empty heading would promise a power most
               readers do not have. */}
           {othersLinks.length === 0 ? null : (
             <>
-              <Text variant="h4" as="h3" className="mt-3">
+              <Text variant="h5" as="h3" className="mt-3">
                 Linked by other members
               </Text>
               <Text variant="note" tone="muted">
-                Calendars other members linked into this workspace. You manage the workspace, so you
-                can unlink them; their items cannot be deleted while the link stands.
+                You manage this workspace, so you can unlink these.
               </Text>
-              <div
-                className="min-w-0 overflow-x-auto"
-                role="region"
-                aria-label="Other members' calendars table"
-                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll calendar columns horizontally.
-                tabIndex={0}
-              >
-                <Table
-                  caption="Calendars other members linked into this workspace."
-                  columns={
-                    [
-                      {
-                        key: 'title',
-                        header: 'Item',
-                        rowHeader: true,
-                        cell: (entry: WorkspaceCalendarLink) => entry.title || 'Untitled',
-                      },
-                      {
-                        key: 'actions',
-                        header: 'Actions',
-                        cell: (entry: WorkspaceCalendarLink) => (
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              setUnlinkingOthers(entry);
-                            }}
-                          >
-                            Unlink {entry.title || 'Untitled'}
-                          </Button>
-                        ),
-                      },
-                    ] as const
-                  }
-                  rows={othersLinks}
-                  rowKey={(entry) => entry.containerItemId}
-                  emptyMessage="No other member has linked a calendar here."
-                />
-              </div>
+              {narrow ? (
+                <OthersCards entries={othersLinks} onUnlink={setUnlinkingOthers} />
+              ) : (
+                <ScrollRegion label="Other members' calendars table">
+                  <Table
+                    caption="Calendars linked by other members"
+                    columns={
+                      [
+                        {
+                          key: 'title',
+                          header: 'Item',
+                          rowHeader: true,
+                          cell: (entry: WorkspaceCalendarLink) => entry.title || 'Untitled',
+                        },
+                        {
+                          key: 'actions',
+                          header: 'Actions',
+                          cell: (entry: WorkspaceCalendarLink) => (
+                            <Button
+                              variant="ghost"
+                              onClick={() => {
+                                setUnlinkingOthers(entry);
+                              }}
+                            >
+                              Unlink {entry.title || 'Untitled'}
+                            </Button>
+                          ),
+                        },
+                      ] as const
+                    }
+                    rows={othersLinks}
+                    rowKey={(entry) => entry.containerItemId}
+                    emptyMessage="No other member has linked a calendar here."
+                  />
+                </ScrollRegion>
+              )}
             </>
           )}
         </>
@@ -513,6 +528,24 @@ export function CalendarsSection(): ReactElement {
           }}
         />
       )}
-    </section>
+    </SettingsSection>
+  );
+}
+
+/** A table wider than its column scrolls inside this region, which keyboard users can reach. */
+function ScrollRegion(props: {
+  readonly label: string;
+  readonly children: ReactNode;
+}): ReactElement {
+  return (
+    <div
+      className="min-w-0 overflow-x-auto"
+      role="region"
+      aria-label={props.label}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll table columns horizontally.
+      tabIndex={0}
+    >
+      {props.children}
+    </div>
   );
 }

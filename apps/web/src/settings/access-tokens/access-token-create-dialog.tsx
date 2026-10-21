@@ -269,7 +269,7 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
               </span>
             </legend>
             {ACCESS_TOKEN_SCOPES.map((scope) => (
-              <label key={scope} className="flex min-h-11 items-center gap-2">
+              <label key={scope} className="flex min-h-11 flex-wrap items-center gap-x-2">
                 <input
                   type="checkbox"
                   checked={scopes.has(scope)}

@@ -2,6 +2,7 @@ import { Button, Dialog, Table, Tag, Text } from '@nix/ui';
 import { useState, type ReactElement, type ReactNode } from 'react';
 
 import { ErrorPanel } from '../../components/states/status-panels';
+import { SettingsSection } from '../shared/settings-section';
 import { AccessTokenCreateDialog } from './access-token-create-dialog';
 import { formatDay, tokenStatus, type TokenStatus } from './token-facts';
 import { useAccessTokens, type AccessToken } from './use-access-tokens';
@@ -141,11 +142,11 @@ export function AccessTokensSection(): ReactElement {
   ] as const;
 
   return (
-    <section aria-labelledby="access-tokens-heading" className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Text id="access-tokens-heading" variant="h3" as="h2">
-          Access tokens
-        </Text>
+    <SettingsSection
+      title="Access tokens"
+      summary="Let a script or machine act as you, within the scopes you choose."
+    >
+      <div>
         <Button
           onClick={() => {
             setCreateOpen(true);
@@ -154,11 +155,15 @@ export function AccessTokensSection(): ReactElement {
           Create token
         </Button>
       </div>
-      <Text variant="note" tone="muted">
-        Tokens let a script or machine act as you, within the scopes and lifetime you choose here.
-        Every token you have issued is listed, including revoked and expired ones: this is the audit
-        of what has been able to act as your account.
-      </Text>
+      <details>
+        <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+          About this list
+        </summary>
+        <Text variant="note" tone="muted">
+          Every token you have issued is listed, including revoked and expired ones: this is the
+          audit of what has been able to act as your account.
+        </Text>
+      </details>
 
       {status === 'error' ? (
         <ErrorPanel
@@ -185,7 +190,7 @@ export function AccessTokensSection(): ReactElement {
             tabIndex={0}
           >
             <Table
-              caption="Your personal access tokens, newest first."
+              caption="Your personal access tokens, newest first"
               columns={columns}
               rows={tokens}
               rowKey={(token) => token.id}
@@ -267,7 +272,7 @@ export function AccessTokensSection(): ReactElement {
           </div>
         </Dialog>
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -326,7 +331,7 @@ function MobileTokenList({
                 ))}
               </div>
             </div>
-            <dl className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
+            <dl className="grid grid-cols-1 gap-x-3 gap-y-2">
               <div>
                 <dt>
                   <Text variant="caption" tone="muted">
