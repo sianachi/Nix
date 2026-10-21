@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderAt } from '../../render-with-router';
 import { aView } from '../../view-fixture';
 import { aContainer, views } from '../../container-fixture';
-import { fileImageReference } from '../../../properties/image-value';
+import { fileImageReference } from '../../../properties/inputs/image-reference';
 import type {
   EffectiveSchema,
   Item,

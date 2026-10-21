@@ -2,7 +2,8 @@ import { Duotone } from '@nix/ui';
 import { useEffect, type ReactNode } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
-import { fileImageReferenceItemId, useFileImagePreview } from '../../properties/image-value';
+import { fileImageReferenceItemId } from '../../properties/inputs/image-reference';
+import { useFileImagePreview } from '../../properties/inputs/use-file-image-preview';
 import { useFileThumbnail } from '../../thumbnails';
 
 /**

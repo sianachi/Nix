@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
 import { PartialNotice } from '../../components/states/status-panels';
 import { mediaTypeForFile } from '../../lib/file-kind';
-import { fileImageReference } from '../../properties/image-value';
+import { fileImageReference } from '../../properties/inputs/image-reference';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { readPropertyText } from '../core/container-model';
 import { ShownItems } from '../core/item-selection-context';
