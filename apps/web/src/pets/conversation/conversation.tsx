@@ -146,6 +146,7 @@ export function Conversation({
     readOnly: noteScope?.readOnly ?? false,
     needsDecisionIds,
     loaded: runtime !== null,
+    conversationKey: messages[0]?.id ?? '',
     pendingToolIds: (runtime?.tools ?? [])
       .filter((tool) => tool.status === 'pending')
       .map((tool) => tool.id),

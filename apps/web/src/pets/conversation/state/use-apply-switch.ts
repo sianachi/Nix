@@ -17,6 +17,7 @@ export function useApplySwitch({
   readOnly,
   needsDecisionIds,
   loaded,
+  conversationKey,
   pendingToolIds,
 }: {
   readonly workspaceId: string;
@@ -26,6 +27,9 @@ export function useApplySwitch({
   readonly needsDecisionIds: readonly string[];
   /** Whether the conversation has loaded; the tools pending then are noted once. */
   readonly loaded: boolean;
+  /** Names the loaded conversation (its first message id); a new value is another conversation,
+   * resumed from History or started anew, whose waiting writes are noted afresh. */
+  readonly conversationKey: string;
   /** Ids of every tool call still pending in the loaded conversation. */
   readonly pendingToolIds: readonly string[];
 }): {
@@ -41,9 +45,10 @@ export function useApplySwitch({
   }>({ scope: applyScope, on: savedDefault, exempt: [] });
   // Adjusted during render so no card sees a waiting write before it is exempt.
   const [waiting, setWaiting] = useState<{ scope: string; ids: readonly string[] } | null>(null);
-  if (loaded && waiting?.scope !== applyScope)
-    setWaiting({ scope: applyScope, ids: pendingToolIds });
-  const waitingAtLoad = waiting?.scope === applyScope ? waiting.ids : [];
+  const waitingScope = `${applyScope}:${conversationKey}`;
+  if (loaded && waiting?.scope !== waitingScope)
+    setWaiting({ scope: waitingScope, ids: pendingToolIds });
+  const waitingAtLoad = waiting?.scope === waitingScope ? waiting.ids : [];
   const applyWithoutAsking =
     !readOnly && (applySwitch.scope === applyScope ? applySwitch.on : savedDefault);
   const applyExemptToolIds = applyWithoutAsking ? [...waitingAtLoad, ...applySwitch.exempt] : [];
