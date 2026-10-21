@@ -61,9 +61,47 @@ Run/Debug configurations for each service.
 
 ## Run it for real
 
-Production is Docker Compose with CI-built multi-architecture images at `ghcr.io/sianachi/nix`.
-Follow the [deployment guide](deploy/README.md) and the
-[backup and restore guide](deploy/backup/production.md). Back up before every upgrade.
+One line installs Nix from the CI-built multi-architecture images at `ghcr.io/sianachi/nix`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash -s -- https://nix.example.org
+```
+
+**Before you run it:** point `nix.example.org` and `auth.nix.example.org` at the machine and leave
+ports 80 and 443 free. Docker with the Compose plugin, `curl`, `openssl` and `jq` must be installed.
+
+**What it does:** generates every secret into `~/nix/nix.env`, starts Postgres, RabbitMQ, the
+object store and a bundled identity provider (Zitadel) behind Caddy, which fetches the TLS
+certificates itself; registers the web application with the identity provider; runs the database
+migrations; starts every service; prints the administrator sign-in (`admin@nix.auth.<host>` and
+a one-time password you must change at first sign-in).
+
+**Options**
+
+| Flag | Meaning |
+| --- | --- |
+| `--version vX.Y.Z` | Install that release instead of the latest; the same flag upgrades a running install |
+| `--dir <path>` | State directory (default `~/nix`) |
+| `--kubernetes` | Install into the current `kubectl` context (namespace `nix`) instead of Docker |
+
+**Upgrade:** run the same line again with `--version <newer release>`. The env file is kept,
+migrations run, and services restart on the new images. Back up `~/nix/nix.env` together with the
+Docker volumes (`nix-*`); the env file holds every secret and cannot be regenerated.
+
+**Try it without DNS:** pass `http://nix.localhost`. Chrome and Firefox resolve `.localhost`
+names on their own; Safari needs `nix.localhost` and `auth.nix.localhost` in `/etc/hosts`.
+
+**Kubernetes:** the cluster needs an ingress controller listening on the origin's port and a
+default StorageClass; the installer reads the IngressClass, StorageClass and pod CIDR from the
+cluster (`--ingress-class`, `--storage-class`, `--pod-cidr` override). Certificates: pass
+`--tls-cert`/`--tls-key` with a PEM pair covering `<host>` and `*.<host>`, or
+`--cluster-issuer <name>` for cert-manager (no wildcard then, so published sites need DNS-01),
+or let it make a self-signed pair for a try-out. State is `~/nix/kubernetes.env` plus the
+secrets in the namespace. The manifests are in `deploy/k8s`.
+
+**Images and tags:** every commit on `main` is published as `ghcr.io/sianachi/nix/<image>:<sha>`;
+pushing a `vX.Y.Z` tag names that commit's images `vX.Y.Z` and `latest`, which the installer
+uses by default. `--version` also accepts a full commit SHA.
 
 ## Stack
 

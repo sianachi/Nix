@@ -335,11 +335,11 @@ fi
 # Client address: Caddy trusts the pod network for CF-Connecting-IP; the ingress admits Cloudflare only.
 grep -Fq 'name: NIX_TRUSTED_PROXY_CIDR' "$RENDERED_WEB"
 grep -Fq 'value: "10.42.0.0/16"' "$RENDERED_WEB"
-grep -Fq 'router.middlewares: nix-cloudflare-only@kubernetescrd' "$RENDERED_INGRESS"
+grep -Fq 'router.middlewares: "nix-cloudflare-only@kubernetescrd"' "$RENDERED_INGRESS"
 test "$(grep -A1 -xF 'apply-file:deploy/k8s/cloudflare-only.yaml' "$KUBECTL_LOG" | tail -n 1)" = 'apply-stdin:nix,nix-sites,nix-sites-custom-hosts'
-grep -Fq 'client_ip_headers CF-Connecting-IP' "$repo_root/deploy/k8s/Caddyfile"
+grep -Fq 'client_ip_headers {$NIX_CLIENT_IP_HEADER}' "$repo_root/deploy/k8s/Caddyfile"
 # In-cluster object store: buckets and the sites read account exist before anything uses them.
-assert_before "apply-file:deploy/k8s/objectstore.yaml" "wait:-n nix wait --for=condition=complete job/nix-storage-init-render-order"
+assert_before "apply-stdin:nix-versitygw,nix-versitygw,versitygw-ingress" "wait:-n nix wait --for=condition=complete job/nix-storage-init-render-order"
 assert_before "wait:-n nix wait --for=condition=complete job/nix-storage-init-render-order" "apply-stdin:nix-api-data-protection,nix-api,nix-api"
 grep -Fq 'handle /{$NIX_OBJECT_STORE_BUCKET}/*' "$repo_root/deploy/k8s/Caddyfile"
 grep -Fq 'name: NIX_OBJECT_STORE_BUCKET' "$RENDERED_WEB"
@@ -683,6 +683,23 @@ for incomplete in NIX_BOOTSTRAP_TENANT_NAME NIX_BOOTSTRAP_OIDC_PROJECT_ID; do
 done
 if NIX_BOOTSTRAP_IDENTITY=yes run_deploy 2>/dev/null; then
   echo 'Deployment accepted an invalid NIX_BOOTSTRAP_IDENTITY.' >&2
+  exit 1
+fi
+# A generic cluster (deploy/install.sh --kubernetes): no Cloudflare origin lock, any ingress class.
+: > "$KUBECTL_LOG"
+INGRESS_CLASS=nginx NIX_INGRESS_CLOUDFLARE_ONLY=false STORAGE_CLASS=standard STORAGE_CLASS_RETAIN=standard \
+  AUTH_PORT=80 AUTH_SECURE=false run_first_install
+grep -Fq 'ingressClassName: nginx' "$RENDERED_INGRESS"
+grep -Fq 'ssl-redirect: "true"' "$RENDERED_INGRESS"
+grep -Fq 'value: "https://nix.example.test"' "$RENDERED_API"
+grep -Fq 'https://nix.example.test|http://nix-api:8080/public/v1/auth/jwks' "$RENDERED_ALL"
+grep -Fq 'router.middlewares: ""' "$RENDERED_INGRESS"
+grep -Fq 'value: "X-Forwarded-For"' "$RENDERED_WEB"
+grep -Fq 'ZITADEL_EXTERNALSECURE: "false"' "$RENDERED_ZITADEL"
+grep -Fq '"--tlsMode", "external"' "$RENDERED_ZITADEL"
+assert_before "rollout:-n nix rollout status statefulset/nix-rabbitmq" "kubectl:-n nix rollout restart deployment/nix-worker deployment/nix-sites-worker"
+if grep -Fq 'cloudflare-only.yaml' "$KUBECTL_LOG"; then
+  echo 'Deployment applied the Cloudflare origin lock on a generic cluster.' >&2
   exit 1
 fi
 echo "deployment render-order self-test passed"

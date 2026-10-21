@@ -1,3 +1,5 @@
+using Nix.Http;
+
 namespace Nix.Authentication;
 
 /// <summary>Deployment-owned OIDC client and browser-session policy.</summary>
@@ -74,5 +76,5 @@ public sealed class BrowserAuthOptions
     }
 
     private static bool IsSafeScheme(Uri uri) =>
-        uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback);
+        uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLocal());
 }

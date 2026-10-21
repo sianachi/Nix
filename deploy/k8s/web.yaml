@@ -33,6 +33,8 @@ spec:
             # Peers allowed to name the visitor in CF-Connecting-IP: the pod network, where Traefik runs.
             - name: NIX_TRUSTED_PROXY_CIDR
               value: "${POD_CIDR}"
+            - name: NIX_CLIENT_IP_HEADER
+              value: "${CLIENT_IP_HEADER}"
           volumeMounts:
             - { name: caddyfile, mountPath: /etc/caddy, readOnly: true }
             - { name: caddy-data, mountPath: /data }

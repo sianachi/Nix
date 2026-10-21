@@ -67,7 +67,8 @@ from pathlib import Path
 edge=Path('deploy/Caddyfile.prod').read_text()
 exchange=edge.split('handle /public/v1/auth/token {',1)[1].split('\n\thandle ',1)[0]
 assert 'reverse_proxy nix-api:8080' in exchange
-assert 'header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}' in exchange
+assert 'header_up X-Forwarded-For {$NIX_CLIENT_IP}' in exchange
+assert s['nix-web']['environment']['NIX_CLIENT_IP'] == '{http.request.header.CF-Connecting-IP}'
 # Sites on a shared domain: the label suffix reaches Core, serve and the edge; no wildcard is two levels deep.
 assert s['nix-api']['environment']['Nix__Sites__DefaultHostLabelSuffix'] == ''
 assert s['nix-api']['environment']['Nix__Sites__Cloudflare__DefaultHostnameZoneId'] == ''

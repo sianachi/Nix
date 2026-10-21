@@ -110,7 +110,7 @@ spec:
             - name: Nix__Bff__ClientId
               value: "${OIDC_CLIENT_ID}"
             - name: Nix__Bff__PublicOrigin
-              value: "https://${DOMAIN}"
+              value: "${PUBLIC_ORIGIN}"
             - name: Nix__Bff__AccountPage
               value: "${OIDC_ISSUER}/ui/console/users/me?id=security"   # the IdP's password and passkey page
             # Also protects stored calendar refresh tokens (ADR-0052). Scaling Core past one
@@ -133,7 +133,7 @@ spec:
             # sites bucket with the object store's write key; serve reads it with its own read key.
             # The remote MCP endpoint (deploy/k8s/mcp.yaml) the settings page shows people.
             - name: Nix__Mcp__PublicUrl
-              value: "https://${DOMAIN}/mcp"
+              value: "${PUBLIC_ORIGIN}/mcp"
             # The explicit switch: only this designated production deployment turns sites on.
             - name: Nix__Sites__Enabled
               value: "true"
@@ -176,7 +176,7 @@ spec:
             - name: Nix__Push__VapidPublicKey
               valueFrom: { secretKeyRef: { name: nix-push-vapid, key: public-key, optional: true } }
             - name: Nix__AccessTokens__Issuer
-              value: "https://${DOMAIN}"
+              value: "${PUBLIC_ORIGIN}"
             - name: Nix__AccessTokens__Audience
               value: nix
             - name: Nix__AccessTokens__KeyId

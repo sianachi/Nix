@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Nix.Abstractions;
 using Nix.Domain.Identity;
+using Nix.Http;
 
 namespace Nix.Authentication;
 
@@ -221,7 +222,7 @@ public sealed class UserInfoClient : IUserInfoClient
 
         var sameScheme = string.Equals(endpoint.Scheme, issuer.Scheme, StringComparison.OrdinalIgnoreCase);
         var transportAllowed = endpoint.Scheme == Uri.UriSchemeHttps
-            || (endpoint.Scheme == Uri.UriSchemeHttp && endpoint.IsLoopback && issuer.IsLoopback);
+            || (endpoint.Scheme == Uri.UriSchemeHttp && endpoint.IsLocal() && issuer.IsLocal());
 
         return sameScheme
             && transportAllowed

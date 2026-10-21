@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Nix.Http;
 
 namespace Nix.Persistence.ObjectStorage;
 
@@ -260,7 +261,7 @@ public sealed class S3CapabilitySigner
         {
             throw new InvalidOperationException("Nix:ObjectStorage:Endpoint must be an absolute HTTP endpoint without credentials, query, or fragment.");
         }
-        if (options.Endpoint.Scheme == "http" && !options.Endpoint.IsLoopback)
+        if (options.Endpoint.Scheme == "http" && !options.Endpoint.IsLocal())
         {
             throw new InvalidOperationException("Nix:ObjectStorage:Endpoint must use HTTPS outside loopback development.");
         }
@@ -277,7 +278,7 @@ public sealed class S3CapabilitySigner
             {
                 throw new InvalidOperationException("Nix:ObjectStorage:PublicOrigin must be an absolute HTTP origin without credentials, path, query, or fragment.");
             }
-            if (options.PublicOrigin.Scheme == "http" && !options.PublicOrigin.IsLoopback)
+            if (options.PublicOrigin.Scheme == "http" && !options.PublicOrigin.IsLocal())
             {
                 throw new InvalidOperationException("Nix:ObjectStorage:PublicOrigin must use HTTPS outside loopback development.");
             }

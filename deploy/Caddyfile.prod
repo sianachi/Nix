@@ -1,6 +1,7 @@
 # Nix production edge inside Docker. Cloudflare terminates public TLS and the
-# tunnel carries the request to this private HTTP listener.
-:8090 {
+# tunnel carries the request to this private HTTP listener. The app routes live in
+# the nix_app snippet so Caddyfile.quickstart can serve them on a public address too.
+(nix_app) {
 	root * /srv/nix/web
 	encode zstd gzip
 	# This stable URL announces each new build to installed clients.
@@ -14,10 +15,11 @@
 	handle /api/* {
 		reverse_proxy nix-api:8080 {
 			flush_interval -1
-			# cloudflared is the only public ingress. Preserve its authenticated client
-			# address as the sole X-Forwarded-For hop so Core's pre-authentication
-			# throttle remains per client instead of becoming global to the tunnel.
-			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			# NIX_CLIENT_IP names the placeholder that holds the real client address:
+			# behind cloudflared the authenticated CF-Connecting-IP header, on a public
+			# listener the remote host. It is the sole X-Forwarded-For hop so Core's
+			# pre-authentication throttle remains per client instead of global.
+			header_up X-Forwarded-For {$NIX_CLIENT_IP}
 		}
 	}
 
@@ -26,20 +28,20 @@
 	handle /mcp {
 		reverse_proxy {$NIX_MCP_UPSTREAM} {
 			flush_interval -1
-			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			header_up X-Forwarded-For {$NIX_CLIENT_IP}
 		}
 	}
 
 	# CLI sessions use Core's public PAT exchange, outside the browser BFF routes.
 	handle /public/v1/auth/token {
 		reverse_proxy nix-api:8080 {
-			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			header_up X-Forwarded-For {$NIX_CLIENT_IP}
 		}
 	}
 
 	handle /auth/* {
 		reverse_proxy nix-api:8080 {
-			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+			header_up X-Forwarded-For {$NIX_CLIENT_IP}
 		}
 	}
 
@@ -62,6 +64,10 @@
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
+}
+
+:8090 {
+	import nix_app
 }
 
 # Nix sites (ADR-0063): a site hostname routed here reaches this listener with the original Host

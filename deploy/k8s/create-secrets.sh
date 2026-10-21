@@ -22,7 +22,7 @@
 # NIX_BOOTSTRAP_OIDC_PROJECT_ID) are not secrets and are not stored here; pass them to
 # deploy/k8s/deploy.sh with NIX_BOOTSTRAP_IDENTITY=true (see its header).
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
+cd "$(dirname "$0")/../.."
 
 kubectl get namespace nix >/dev/null 2>&1 || kubectl apply -f deploy/k8s/namespace.yaml
 
