@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useLocation } from 'react-router';
@@ -639,6 +639,27 @@ describe('ListView on a phone', () => {
     await user.selectOptions(within(dialog).getByRole('combobox'), 'done');
 
     expect(onSet).toHaveBeenCalledExactlyOnceWith('item-p', { status: 'done' });
+    // A single choice is the whole edit: the popover closes and focus returns to the value.
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /Status for Pay rent/ })).toHaveFocus();
+  });
+
+  it('keeps the popover open after a typed value is stored', async () => {
+    stubViewport(false);
+    const user = userEvent.setup();
+    const onSet = vi.fn();
+    renderAt(listWith({ items: [row], schema, onSet }));
+
+    await user.click(screen.getByRole('button', { name: /Owner for Pay rent/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Owner for Pay rent' });
+    await user.type(within(dialog).getByRole('textbox'), 'Kim{Enter}');
+
+    await waitFor(() => {
+      expect(onSet).toHaveBeenCalled();
+    });
+    expect(screen.getByRole('dialog', { name: 'Owner for Pay rent' })).toBeInTheDocument();
   });
 
   it('shows a refused write inside the popover', async () => {
@@ -651,6 +672,7 @@ describe('ListView on a phone', () => {
     await user.selectOptions(within(dialog).getByRole('combobox'), 'done');
 
     expect(await within(dialog).findByText('You cannot edit this.')).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Status for Pay rent' })).toBeInTheDocument();
   });
 
   it('closes the popover on Escape and returns focus to the value', async () => {

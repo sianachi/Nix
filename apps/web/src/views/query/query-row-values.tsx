@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useApiClient } from '../../api/api-client-provider';
 import { PropertyInput, isKnownPropertyType } from '../../properties/property-input';
 import type { PropertyDefinition, PropertyValue } from '../core/container-model';
-import { ValuePopover } from '../core/value-popover';
+import { ValuePopover, useCommitStored } from '../core/value-popover';
 
 /**
  * One matched value of a query row, editable in place through the same popover the phone list
@@ -23,32 +23,52 @@ export function QueryRowValue(props: {
   const [refusal, setRefusal] = useState<string | null>(null);
   const owner = { title, properties };
 
-  async function write(value: PropertyValue): Promise<void> {
+  async function write(value: PropertyValue): Promise<boolean> {
     setRefusal(null);
     try {
       await client.execute(coreStructure.setItemProperties(itemId, { [property.key]: value }));
       onSaved();
+      return true;
     } catch (reason) {
       setRefusal(
         isNixApiError(reason)
           ? (reason.detail ?? 'That change could not be saved.')
           : 'That change could not be sent. Check the connection and try again.',
       );
+      return false;
     }
   }
 
   return (
     <ValuePopover item={owner} property={property} density="cell" labelled>
-      <PropertyInput
-        item={owner}
-        property={property}
-        density="panel"
-        error={refusal}
-        onCommit={(value) => {
-          void write(value);
-        }}
-      />
+      <RowEditor owner={owner} property={property} refusal={refusal} write={write} />
     </ValuePopover>
+  );
+}
+
+/** The editor inside the popover, so it can reach the popover's "stored" signal. */
+function RowEditor(props: {
+  readonly owner: {
+    readonly title: string;
+    readonly properties: Readonly<Record<string, unknown>>;
+  };
+  readonly property: PropertyDefinition;
+  readonly refusal: string | null;
+  readonly write: (value: PropertyValue) => Promise<boolean>;
+}): ReactNode {
+  const commitStored = useCommitStored();
+  return (
+    <PropertyInput
+      item={props.owner}
+      property={props.property}
+      density="panel"
+      error={props.refusal}
+      onCommit={(value) => {
+        void props.write(value).then((stored) => {
+          if (stored) commitStored();
+        });
+      }}
+    />
   );
 }
 

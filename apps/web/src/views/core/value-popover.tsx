@@ -1,5 +1,5 @@
 import { Popover, Text, cn, focusRing } from '@nix/ui';
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
 import {
   PropertyValueDisplay,
@@ -7,6 +7,29 @@ import {
   type ValueDensity,
 } from '../../properties/property-value-display';
 import type { PropertyDefinition, PropertyOwner } from './container-model';
+
+/** Single-choice fields: picking the value is the whole edit, so the popover closes once it is stored. */
+const DISCRETE_TYPES: ReadonlySet<string> = new Set([
+  'select',
+  'priority',
+  'checkbox',
+  'completion',
+  'assignee',
+  'date',
+  'due_date',
+  'start_date',
+]);
+
+const CommitStoredContext = createContext<() => void>(() => undefined);
+
+/**
+ * For the editor inside a `ValuePopover`: call this after a write was stored. It closes the popover
+ * (focus back on the trigger) for single-choice fields and does nothing for text, number or
+ * multi-select, which stay open until Escape, an outside click or Enter.
+ */
+export function useCommitStored(): () => void {
+  return useContext(CommitStoredContext);
+}
 
 /**
  * One property value on a compact face (a phone row, a gallery card), read-only until tapped.
@@ -63,9 +86,13 @@ export function ValuePopover(props: {
         </button>
       )}
     >
-      {/* The panel is a DOM child of a card or row that has a long-press menu: without this, holding
-          a finger in the editor would open that menu instead of selecting text. */}
-      <div data-context-menu-ignore>{children}</div>
+      {({ close }) => (
+        <CommitStoredContext value={DISCRETE_TYPES.has(property.type) ? close : () => undefined}>
+          {/* The panel is a DOM child of a card or row that has a long-press menu: without this, holding
+              a finger in the editor would open that menu instead of selecting text. */}
+          <div data-context-menu-ignore>{children}</div>
+        </CommitStoredContext>
+      )}
     </Popover>
   );
 }
