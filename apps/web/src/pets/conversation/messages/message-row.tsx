@@ -50,6 +50,7 @@ export function PetMessageRow({
   return (
     <div
       data-pet-latest-message={latest ? '' : undefined}
+      data-pet-from-user={fromUser ? '' : undefined}
       // Nit 16: the whole draft row - its sr-only speaker label included - opts out of the
       // viewport's live region while streaming, not only the text itself; otherwise the label
       // alone would still be announced token turn by token as the row keeps re-rendering.

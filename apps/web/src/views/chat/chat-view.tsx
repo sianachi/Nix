@@ -245,6 +245,7 @@ export function ChatView({
               <article
                 key={message.id}
                 data-pet-latest-message={index === messages.length - 1 ? '' : undefined}
+                data-pet-from-user={message.role === 'user' ? '' : undefined}
                 className="flex flex-col gap-2"
               >
                 <Text as="span" variant="kicker" tone="muted">
