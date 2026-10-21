@@ -267,11 +267,14 @@ export function HabitRow({
               <Button
                 variant={checked ? 'primary' : 'ghost'}
                 className="h-(--control-md) w-full min-w-0 p-0 any-pointer-coarse:h-(--control-lg) @lg:w-(--control-md) any-pointer-coarse:@lg:w-(--control-lg)"
-                disabled={future || (!scheduled && !hasEntry) || pending.has(key)}
+                disabled={future || (!scheduled && !hasEntry)}
+                aria-busy={pending.has(key) || undefined}
                 aria-label={`${title}, ${spokenDayName(day)}, ${future ? 'upcoming' : checked ? 'done' : scheduled ? 'not done' : 'not scheduled'}`}
                 aria-pressed={checked}
                 title={`${day}: ${future ? 'Upcoming' : stateLabel}${entry?.quantity == null ? '' : `, ${String(entry.quantity)}/${String(target)} ${unit}`}`}
                 onClick={() => {
+                  // Not `disabled` while saving: that would drop focus to the body after each tap.
+                  if (pending.has(key)) return;
                   // A plain habit is one tap; a measured one needs its quantity first.
                   if (measured || lifecycle !== 'active') setSelectedDay(day);
                   else void act(checked);

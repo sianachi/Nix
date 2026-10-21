@@ -392,6 +392,23 @@ describe('habit tracker user flows', () => {
     expect(saveCheckIn).toHaveBeenCalledWith('habit-1', '2026-03-18', true, null);
   });
 
+  it('keeps focus on a week cell while its check-in saves', async () => {
+    tracker = { ...tracker, target: 1, unit: 'times', checkIns: [] };
+    saveCheckIn.mockImplementation(() => new Promise(() => undefined));
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Show week' }));
+    const cell = screen.getByRole('button', {
+      name: `Read, ${spokenDayName('2026-03-18')}, not done`,
+    });
+    cell.focus();
+    await act(async () => {
+      fireEvent.click(cell);
+      await Promise.resolve();
+    });
+    expect(cell).toBeEnabled();
+    expect(cell).toHaveFocus();
+  });
+
   it('shows a refused mutation without claiming completion', async () => {
     tracker = { ...tracker, target: 1, unit: 'times', checkIns: [] };
     saveCheckIn.mockResolvedValue('Permission changed. Reload the habit.');
