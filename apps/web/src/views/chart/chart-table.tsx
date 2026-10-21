@@ -22,6 +22,8 @@ export interface ChartTableProps {
   readonly rowHeader: string;
   readonly rows: readonly ChartTableRow[];
   readonly columns: readonly ChartTableColumn[];
+  /** Fold the table behind a disclosure so a long one does not push the page down on a phone. */
+  readonly collapse?: boolean;
 }
 
 /**
@@ -37,7 +39,13 @@ export interface ChartTableProps {
  * a focusable region when a chart has many series, so a phone never scrolls the page and a keyboard
  * can still reach the columns past the edge.
  */
-export function ChartTable({ caption, rowHeader, rows, columns }: ChartTableProps): ReactNode {
+export function ChartTable({
+  caption,
+  rowHeader,
+  rows,
+  columns,
+  collapse = false,
+}: ChartTableProps): ReactNode {
   const indexed = rows.map((row, index) => ({ ...row, index }));
   const tableColumns: TableColumn<(typeof indexed)[number]>[] = [
     {
@@ -62,7 +70,7 @@ export function ChartTable({ caption, rowHeader, rows, columns }: ChartTableProp
     })),
   ];
 
-  return (
+  const figures = (
     <div
       role="region"
       aria-label={caption}
@@ -78,5 +86,23 @@ export function ChartTable({ caption, rowHeader, rows, columns }: ChartTableProp
         emptyMessage="There are no figures to show."
       />
     </div>
+  );
+
+  return collapse ? (
+    <details>
+      <summary
+        className={cn(
+          'cursor-pointer rounded-sm py-1 any-pointer-coarse:min-h-(--control-lg)',
+          focusRing,
+        )}
+      >
+        <Text as="span" variant="bodySmall">
+          Show every figure
+        </Text>
+      </summary>
+      {figures}
+    </details>
+  ) : (
+    figures
   );
 }

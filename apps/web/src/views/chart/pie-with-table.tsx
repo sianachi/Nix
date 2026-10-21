@@ -20,12 +20,10 @@ import { ChartLegend, PieChart, type PieSlice } from './svg-charts';
 export function PieWithTable({
   chart,
   labels,
-  caption,
   rowHeader,
 }: {
   readonly chart: ItemChart;
   readonly labels: ChartLabels;
-  readonly caption: string;
   readonly rowHeader: string;
 }): ReactNode {
   const totals = chart.measure === 'sum';
@@ -59,9 +57,10 @@ export function PieWithTable({
       <PieChart slices={slices} />
       <ChartLegend entries={slices} lines={false} />
       <ChartTable
-        caption={`${caption}: every figure`}
+        caption="Every figure"
         rowHeader={rowHeader}
         rows={ranked}
+        collapse={ranked.length > 12}
         columns={[
           {
             key: 'value',

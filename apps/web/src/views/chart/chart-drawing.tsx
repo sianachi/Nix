@@ -92,10 +92,11 @@ export function Drawing({
 
   const table = (
     <ChartTable
-      caption={`${caption}: every figure`}
+      caption="Every figure"
       rowHeader={rowHeader}
       rows={rows}
       columns={columns}
+      collapse={rows.length > 12}
     />
   );
 
@@ -164,7 +165,7 @@ export function Drawing({
       );
 
     case 'pie':
-      return <PieWithTable chart={chart} labels={labels} caption={caption} rowHeader={rowHeader} />;
+      return <PieWithTable chart={chart} labels={labels} rowHeader={rowHeader} />;
 
     case 'year': {
       const unit = totals ? labels.property(chart.measureProperty) || 'total' : 'items';

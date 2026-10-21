@@ -90,11 +90,7 @@ export function ChartOptionsEditor({ view, fields, onChange }: ChartOptionsEdito
     <div className="flex min-w-0 flex-col gap-3">
       <Field
         label="Chart type"
-        hint={
-          dated
-            ? 'Bars, columns and a pie compare periods; a line or an area shows the trend; a year grid shades every day.'
-            : 'Group by a date to draw a line, an area or a year grid.'
-        }
+        {...(dated ? {} : { hint: 'Group by a date to draw a line, an area or a year grid.' })}
       >
         {(control) => (
           <Select
@@ -121,10 +117,7 @@ export function ChartOptionsEditor({ view, fields, onChange }: ChartOptionsEdito
       )}
 
       {dated && kind !== 'year' ? (
-        <Field
-          label="Count per"
-          hint="Each bar, slice or point is one of these. Weeks start on Monday."
-        >
+        <Field label="Count per">
           {(control) => (
             <Select
               {...control}
@@ -144,14 +137,7 @@ export function ChartOptionsEditor({ view, fields, onChange }: ChartOptionsEdito
       ) : null}
 
       {dated ? (
-        <Field
-          label="Show"
-          hint={
-            kind === 'year'
-              ? 'A year grid shows the last 53 weeks unless you choose otherwise.'
-              : 'Periods with nothing in them are drawn as zero.'
-          }
-        >
+        <Field label="Show">
           {(control) => (
             <Select
               {...control}
@@ -185,7 +171,6 @@ export function ChartOptionsEditor({ view, fields, onChange }: ChartOptionsEdito
       {dated && windowShape === 'last' ? (
         <Field
           label={kind === 'year' ? 'How many days' : 'How many periods'}
-          hint={`Including the current one. At most ${String(MAXIMUM_CHART_PERIODS)}.`}
           error={countValid ? null : `Choose from 1 to ${String(MAXIMUM_CHART_PERIODS)}.`}
         >
           {(control) => (
@@ -214,7 +199,7 @@ export function ChartOptionsEditor({ view, fields, onChange }: ChartOptionsEdito
 
       {dated && windowShape === 'range' ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="From" hint="Counted from the start of its period.">
+          <Field label="From">
             {(control) => (
               <Input
                 {...control}
@@ -226,11 +211,7 @@ export function ChartOptionsEditor({ view, fields, onChange }: ChartOptionsEdito
               />
             )}
           </Field>
-          <Field
-            label="To"
-            hint="Counted to the end of its period."
-            error={crossed ? CROSSED_WINDOW : null}
-          >
+          <Field label="To" error={crossed ? CROSSED_WINDOW : null}>
             {(control) => (
               <Input
                 {...control}
@@ -251,7 +232,7 @@ export function ChartOptionsEditor({ view, fields, onChange }: ChartOptionsEdito
           hint={
             splittable.length === 0
               ? 'There is no select, checkbox or person property to split by.'
-              : `Each value becomes its own series. The ${String(MAXIMUM_SERIES)} largest are drawn; the rest share one series, Other.`
+              : `The ${String(MAXIMUM_SERIES)} largest values are drawn; the rest share Other.`
           }
         >
           {(control) => (
