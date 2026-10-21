@@ -41,3 +41,15 @@ export function weekWindow(offset = 0): { from: string; to: string; days: readon
   });
   return { from: days[0] ?? dateText(monday), to: days[6] ?? dateText(monday), days };
 }
+
+const spokenDay = new Intl.DateTimeFormat(undefined, {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  timeZone: 'UTC',
+});
+
+/** A stored `yyyy-mm-dd` day as a person says it - "Tuesday 20 October" - for screen readers. */
+export function spokenDayName(day: string): string {
+  return spokenDay.format(new Date(`${day}T00:00:00Z`));
+}

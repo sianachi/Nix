@@ -1,11 +1,11 @@
-import { Button, ContextMenu, cn, focusRing, Input, Text } from '@nix/ui';
-import { Check, CheckCircle2, Circle, CircleAlert, Clock3 } from 'lucide-react';
+import { Button, ContextMenu, cn, focusRing, Icon, Input, Text } from '@nix/ui';
+import { Check, CheckCircle2, Circle, CircleAlert, Clock3, Pencil } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useItemOpenProps } from '../core/item-open-click';
 import { SelectCheckbox } from '../core/select-checkbox';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import type { HabitTracker } from '@nix/api-client';
-import { todayInTimezone, weekdayFor } from './habit-days';
+import { spokenDayName, todayInTimezone, weekdayFor } from './habit-days';
 
 export function HabitRow({
   itemId,
@@ -73,14 +73,16 @@ export function HabitRow({
   return (
     <tr
       className={
-        compact ? 'border-b border-divider' : 'block border-b border-divider @lg:table-row'
+        compact
+          ? 'grid grid-cols-7 border-b border-divider @lg:table-row'
+          : 'block border-b border-divider @lg:table-row'
       }
     >
       <th
         scope="row"
         className={
           compact
-            ? 'min-w-40 p-3 text-left align-top'
+            ? 'col-span-7 p-3 text-left align-top @lg:sticky @lg:left-0 @lg:z-10 @lg:table-cell @lg:min-w-40 @lg:bg-background'
             : 'block p-3 text-left align-middle @lg:table-cell'
         }
       >
@@ -118,6 +120,17 @@ export function HabitRow({
                   {lifecycle}
                 </Text>
               ) : null}
+              <button
+                type="button"
+                aria-label={`Edit ${title || 'Untitled habit'}`}
+                className={cn(
+                  'inline-flex size-(--control-sm) shrink-0 items-center justify-center text-muted hover:text-foreground any-pointer-coarse:size-(--control-lg)',
+                  focusRing,
+                )}
+                onClick={onEdit}
+              >
+                <Icon icon={Pencil} size="sm" />
+              </button>
             </div>
           )}
         </ContextMenu>
@@ -134,9 +147,6 @@ export function HabitRow({
             <Text variant="caption" tone="muted" className="px-2 capitalize">
               Status: {lifecycle}
             </Text>
-            <Button variant="ghost" onClick={onEdit}>
-              Edit schedule
-            </Button>
             {lifecycle !== 'archived' ? (
               <Button
                 variant="ghost"
@@ -247,20 +257,24 @@ export function HabitRow({
           <td
             key={day}
             className={cn(
-              compact ? 'p-2 text-center align-top' : 'block p-3 align-middle @lg:table-cell',
+              compact
+                ? cn('p-0.5 text-center align-top @lg:p-2', selectedDay === day && 'col-span-7')
+                : 'block p-3 align-middle @lg:table-cell',
               day === todayInTimezone(tracker.timezone) && compact && 'bg-accent/10',
             )}
           >
             {compact && selectedDay !== day ? (
               <Button
                 variant={checked ? 'primary' : 'ghost'}
-                className="h-10 w-10 p-0 any-pointer-coarse:size-(--control-lg)"
-                disabled={future || (!scheduled && !hasEntry)}
-                aria-label={`${title}, ${day}, ${future ? 'future' : checked ? 'completed' : scheduled ? 'not completed' : 'not scheduled'}`}
+                className="h-(--control-md) w-full min-w-0 p-0 any-pointer-coarse:h-(--control-lg) @lg:w-(--control-md) any-pointer-coarse:@lg:w-(--control-lg)"
+                disabled={future || (!scheduled && !hasEntry) || pending.has(key)}
+                aria-label={`${title}, ${spokenDayName(day)}, ${future ? 'upcoming' : checked ? 'done' : scheduled ? 'not done' : 'not scheduled'}`}
                 aria-pressed={checked}
                 title={`${day}: ${future ? 'Upcoming' : stateLabel}${entry?.quantity == null ? '' : `, ${String(entry.quantity)}/${String(target)} ${unit}`}`}
                 onClick={() => {
-                  setSelectedDay(day);
+                  // A plain habit is one tap; a measured one needs its quantity first.
+                  if (measured || lifecycle !== 'active') setSelectedDay(day);
+                  else void act(checked);
                 }}
               >
                 {checked ? (

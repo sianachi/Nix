@@ -259,6 +259,14 @@ export const Selection = {
     canvas.getByRole('toolbar', { name: 'Selected items' });
   },
 };
+/** The week grid on a phone: one-tap day cells. */
+export const WeekPhone = {
+  ...Today,
+  parameters: { viewport: { defaultViewport: 'mobile1' } },
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    await userEvent.click(within(canvasElement).getByRole('button', { name: 'Show week' }));
+  },
+};
 function InsightsStory({
   empty = false,
   year,

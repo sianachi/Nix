@@ -10,6 +10,7 @@ import type { ContainerData } from '../../../views/core/use-container';
 import { aContainer } from '../../container-fixture';
 import { stubViewport } from '../../stub-viewport';
 import { HabitTrackerView } from '../../../views/habit-tracker/habit-tracker-view';
+import { spokenDayName } from '../../../views/habit-tracker/habit-days';
 import { ContainerView } from '../../../views/core/container-view';
 import type { View } from '../../../views/core/container-model';
 
@@ -186,7 +187,7 @@ function CommandHarness({ action }: { readonly action: 'move' | 'delete' }) {
 
 function openWeekDay(day: string): void {
   fireEvent.click(screen.getByRole('button', { name: 'Show week' }));
-  fireEvent.click(screen.getByRole('button', { name: `Read, ${day}, not completed` }));
+  fireEvent.click(screen.getByRole('button', { name: `Read, ${spokenDayName(day)}, not done` }));
 }
 
 describe('habit tracker user flows', () => {
@@ -367,13 +368,28 @@ describe('habit tracker user flows', () => {
     tracker = { ...tracker, timezone: 'Asia/Tokyo', target: 1, unit: 'times' };
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Show week' }));
-    expect(screen.getByRole('button', { name: 'Read, 2026-03-20, future' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: `Read, ${spokenDayName('2026-03-20')}, upcoming` }),
+    ).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Today' }));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Check in Read, 2026-03-19' }));
       await Promise.resolve();
     });
     expect(saveCheckIn).toHaveBeenCalledWith('habit-1', '2026-03-19', true, null);
+  });
+
+  it('checks a plain habit in with one tap on its week cell, named for the spoken day', async () => {
+    tracker = { ...tracker, target: 1, unit: 'times', checkIns: [] };
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Show week' }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: `Read, ${spokenDayName('2026-03-18')}, not done` }),
+      );
+      await Promise.resolve();
+    });
+    expect(saveCheckIn).toHaveBeenCalledWith('habit-1', '2026-03-18', true, null);
   });
 
   it('shows a refused mutation without claiming completion', async () => {
@@ -479,7 +495,7 @@ describe('habit tracker user flows', () => {
 
   it('edits the habit name, timezone, and schedule on the existing item', async () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit schedule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Read' }));
     expect(screen.getByRole('textbox', { name: 'Habit name' })).toHaveValue('Read');
     fireEvent.change(screen.getByRole('textbox', { name: 'Habit name' }), {
       target: { value: 'Read nightly' },
@@ -500,7 +516,7 @@ describe('habit tracker user flows', () => {
   it('sets a reminder time, and clearing it sends no reminder', async () => {
     tracker = { ...tracker, reminderTime: '07:30' };
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit schedule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Read' }));
     const reminder = screen.getByLabelText('Reminder time');
     expect(reminder).toHaveValue('07:30');
 
@@ -513,7 +529,7 @@ describe('habit tracker user flows', () => {
       );
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit schedule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Read' }));
     fireEvent.change(screen.getByLabelText('Reminder time'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => {

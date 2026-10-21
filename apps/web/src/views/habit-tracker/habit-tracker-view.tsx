@@ -282,7 +282,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
               Next
             </Button>
             <Text as="span" variant="caption" tone="muted">
-              Select a day to check in or correct it.
+              Tap a day to check in or correct it.
             </Text>
           </div>
         ) : null}
@@ -418,13 +418,15 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           ) : null}
           <table
             className={
-              todayOnly ? 'block w-full border-collapse @lg:table' : 'w-full border-collapse'
+              todayOnly
+                ? 'block w-full border-collapse @lg:table'
+                : 'block w-full border-collapse @lg:table'
             }
             aria-label={todayOnly ? 'Today habit check-ins' : 'Weekly habit check-ins'}
           >
-            <thead className={todayOnly ? 'sr-only' : ''}>
-              <tr>
-                <th scope="col" className="p-2 text-left">
+            <thead className={todayOnly ? 'sr-only' : 'block @lg:table-header-group'}>
+              <tr className={todayOnly ? '' : 'grid grid-cols-7 @lg:table-row'}>
+                <th scope="col" className="p-2 text-left @max-lg:sr-only">
                   <Text variant="caption">Habit</Text>
                 </th>
                 {(todayOnly ? [dateText(new Date())] : window.days).map((day, index) => (
@@ -445,7 +447,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
                 ))}
               </tr>
             </thead>
-            <tbody className={todayOnly ? 'block @lg:table-row-group' : ''}>
+            <tbody className="block @lg:table-row-group">
               {habits.map((item) => (
                 <HabitRow
                   key={item.id}
