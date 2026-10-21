@@ -1452,8 +1452,9 @@ describe('companion work approvals', () => {
       );
       await screen.findByText(/Second body/);
       const names = screen
-        .getAllByRole('region')
-        .map((region) => region.getAttribute('aria-label') ?? '');
+        .getAllByRole('group')
+        .filter((group) => group.hasAttribute('aria-label'))
+        .map((group) => group.getAttribute('aria-label'));
       expect(names.length).toBeGreaterThan(1);
       expect(new Set(names).size).toBe(names.length);
     });

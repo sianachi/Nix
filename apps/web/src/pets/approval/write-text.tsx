@@ -50,7 +50,8 @@ export function WriteTextSection({
               {name} ({String(lineCount)} lines)
             </Text>
             <div
-              role="region"
+              // A group, not a landmark: two waiting cards each carry a text box of the same name.
+              role="group"
               aria-label={name}
               // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
               tabIndex={0}

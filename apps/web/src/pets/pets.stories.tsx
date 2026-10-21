@@ -210,6 +210,63 @@ export const WorkApproval = {
 };
 export const DarkWorkApproval = { ...WorkApproval, globals: { ground: 'dark' } };
 
+/** Two writes waiting at once: each card is named by its own change, and its buttons are
+ * described by that name, so the owner can tell which one Approve request approves. */
+export const TwoWritesWaiting = {
+  render: (): ReactElement => {
+    const note = (title: string) =>
+      JSON.stringify({
+        operation: 'create_note',
+        itemId: '',
+        parentId: '',
+        title,
+        markdown: '# Plan\n\n- Review priorities',
+        query: '',
+        propertiesJson: '',
+      });
+    return (
+      <MemoryRouter>
+        <PetWorkTools
+          client={previewClient}
+          workspaceId="11111111-1111-4111-8111-111111111111"
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={() => undefined}
+          runtime={petConnectionSchema.parse({
+            provider: 'chatgpt',
+            status: 'connected',
+            reason: '',
+            canConnect: false,
+            tools: [
+              {
+                id: 'waiting-a',
+                arguments: note('Weekly plan'),
+                status: 'pending',
+                result: '',
+                claimId: '',
+              },
+              {
+                id: 'waiting-b',
+                arguments: note('Monthly plan'),
+                status: 'pending',
+                result: '',
+                claimId: '',
+              },
+            ],
+          })}
+        />
+      </MemoryRouter>
+    );
+  },
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('group', { name: /Weekly plan/ }, { timeout: 10_000 });
+    await canvas.findByRole('group', { name: /Monthly plan/ });
+    if (canvas.getAllByRole('button', { name: 'Approve request' }).length !== 2)
+      throw new Error('Each waiting card has its own Approve request.');
+  },
+};
+export const DarkTwoWritesWaiting = { ...TwoWritesWaiting, globals: { ground: 'dark' } };
+
 const appliedWorkspaceId = '11111111-1111-4111-8111-111111111111';
 const appliedPetId = '22222222-2222-4222-8222-222222222222';
 /** Two writes the owner's "Apply without asking" switch ran: one that finished, one that did
@@ -218,11 +275,11 @@ const appliedPetId = '22222222-2222-4222-8222-222222222222';
 export const AppliedWithoutAsking = {
   render: (): ReactElement => {
     writeActionReceipt(
-      `tool:${appliedWorkspaceId}:${appliedPetId}:chat:applied-done`,
+      `tool:${appliedWorkspaceId}:${appliedPetId}:applied-done`,
       'Done without asking',
     );
     writeActionReceipt(
-      `tool:${appliedWorkspaceId}:${appliedPetId}:chat:applied-failed`,
+      `tool:${appliedWorkspaceId}:${appliedPetId}:applied-failed`,
       'Applying without asking…',
     );
     const note = (title: string) =>
@@ -1335,7 +1392,7 @@ const streamedTurnConnection = petConnectionSchema.parse({
       text: 'Find my reading notes and set up a tracker.',
     },
     {
-      id: 'commentary-1',
+      id: 'user-1:commentary:1',
       role: 'assistant',
       text: 'Let me look at what you already have first.',
     },
@@ -1553,7 +1610,7 @@ export const CompletedReceipt = {
   render: (): ReactElement => {
     try {
       sessionStorage.setItem(
-        `nix.pet.action.tool:${PHONE_WORKSPACE}:44444444-4444-4444-8444-444444444444:chat:completed-1`,
+        `nix.pet.action.tool:${PHONE_WORKSPACE}:44444444-4444-4444-8444-444444444444:completed-1`,
         'Completed.',
       );
     } catch {
