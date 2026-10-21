@@ -151,7 +151,7 @@ async function moveViaMenu(
   title: string,
   column: string,
 ): Promise<void> {
-  const card = screen.getByRole('button', { name: new RegExp(title, 'i') }).closest('li');
+  const card = screen.getByRole('button', { name: title }).closest('li');
   expect(card).not.toBeNull();
   fireEvent.contextMenu(card as HTMLElement, { clientX: 10, clientY: 10 });
   const entry = await screen.findByRole('menuitem', { name: `Move to ${column}` });
@@ -240,7 +240,7 @@ describe('the board view', () => {
     renderAt(boardWith({ items: [DOING, UNSET], view: viewOf({ groupOrder: ['Doing'] }) }));
 
     const unset = screen.getByRole('region', { name: 'Unset' });
-    expect(within(unset).getByRole('button', { name: /retention policy/i })).toBeVisible();
+    expect(within(unset).getByRole('button', { name: /^retention policy$/i })).toBeVisible();
   });
 
   it('keeps the unset column on screen when nothing is in it, so the board shows it has one', () => {
@@ -266,10 +266,26 @@ describe('the board view', () => {
     expect(onWrite).toHaveBeenCalledWith('i1', { status: 'Done' });
 
     const done = screen.getByRole('region', { name: 'Done' });
-    const moved = within(done).getByRole('button', { name: /search ranking/i });
+    const moved = within(done).getByRole('button', { name: /^search ranking$/i });
     expect(moved).toBeVisible();
     // Focus follows the card to its new column rather than falling to the document.
     expect(moved).toHaveFocus();
+  });
+
+  it('offers a visible per-card move button for touch and assistive technology', async () => {
+    const user = userEvent.setup();
+    const onWrite = vi.fn();
+
+    renderAt(
+      boardWith({ items: [DOING], view: viewOf({ groupOrder: ['Doing', 'Done'] }), onWrite }),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Move Search ranking to column' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Move to Done' }));
+
+    expect(onWrite).toHaveBeenCalledWith('i1', { status: 'Done' });
+    // Let the card's refocus frame run in this test rather than the next one.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
   });
 
   it('clears the property when a card is moved to the unset column', async () => {
@@ -303,7 +319,7 @@ describe('the board view', () => {
     expect(alert).toHaveTextContent(/do not have permission/i);
 
     const doing = screen.getByRole('region', { name: 'Doing' });
-    expect(within(doing).getByRole('button', { name: /search ranking/i })).toBeVisible();
+    expect(within(doing).getByRole('button', { name: /^search ranking$/i })).toBeVisible();
   });
 
   it('moves a card when it is dragged into another column', () => {
@@ -317,7 +333,7 @@ describe('the board view', () => {
     // drag-and-drop, so this fires the events the browser would fire rather than performing a
     // drag. It proves the handlers are wired to the same write; it cannot prove the gesture works.
     const card = screen
-      .getByRole('button', { name: /search ranking/i })
+      .getByRole('button', { name: /^search ranking$/i })
       .closest('[draggable="true"]');
 
     if (card === null) {
@@ -338,7 +354,7 @@ describe('the board view', () => {
 
     renderAt(boardWith({ items: [DOING], view: viewOf({ groupOrder: ['Doing'] }), onOpen }));
 
-    await user.click(screen.getByRole('button', { name: /search ranking/i }));
+    await user.click(screen.getByRole('button', { name: /^search ranking$/i }));
 
     expect(onOpen).toHaveBeenCalledWith('i1');
   });
@@ -411,8 +427,8 @@ describe('the board view', () => {
       '/?f.status=Doing',
     );
 
-    expect(screen.getByRole('button', { name: /search ranking/i })).toBeVisible();
-    expect(screen.queryByRole('button', { name: /export to csv/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^search ranking$/i })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^export to csv$/i })).not.toBeInTheDocument();
   });
 
   it('says it is loading rather than showing an empty board', () => {

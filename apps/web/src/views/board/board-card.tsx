@@ -1,4 +1,5 @@
-import { ContextMenu, Blueprint, Text, cn, focusRing } from '@nix/ui';
+import { ArrowRightLeft } from 'lucide-react';
+import { Button, ContextMenu, Blueprint, Icon, Menu, Text, cn, focusRing } from '@nix/ui';
 import { useRef, type ReactNode } from 'react';
 
 import type { StaleMember } from '../../lib/suggest/staleness';
@@ -129,32 +130,29 @@ function BoardCard(props: BoardCardProps): ReactNode {
     return definition === undefined ? [] : [definition];
   });
 
+  // Drag is desktop-only, so a column move needs a menu path for keyboard and touch. One entry per
+  // other column (not "Move to…", which is the tree move every view has). Offered twice: from the
+  // context menu, and from a visible button on the card for touch and assistive technology.
+  const moveItems = columns
+    .filter((column) => column.value !== current)
+    .map((column) => ({
+      kind: 'action' as const,
+      label: `Move to ${column.label}`,
+      onSelect: () => {
+        onMove(item, column.value);
+        // The card re-mounts in its new column; hand focus to it there, if it is on screen.
+        requestAnimationFrame(() => {
+          document
+            .querySelector<HTMLElement>(`[data-board-card="${CSS.escape(item.id)}"] button`)
+            ?.focus();
+        });
+      },
+    }));
+
   return (
     <ContextMenu
       label={`${item.title || 'Untitled'} actions`}
-      items={() =>
-        itemActions(
-          item.id,
-          item.title,
-          // Drag is desktop-only, so a column move needs a menu path for keyboard and touch. One
-          // entry per other column (not "Move to…", which is the tree move every view has).
-          columns
-            .filter((column) => column.value !== current)
-            .map((column) => ({
-              kind: 'action' as const,
-              label: `Move to ${column.label}`,
-              onSelect: () => {
-                onMove(item, column.value);
-                // The card re-mounts in its new column; hand focus to it there, if it is on screen.
-                requestAnimationFrame(() => {
-                  document
-                    .querySelector<HTMLElement>(`[data-board-card="${CSS.escape(item.id)}"] button`)
-                    ?.focus();
-                });
-              },
-            })),
-        )
-      }
+      items={() => itemActions(item.id, item.title, moveItems)}
     >
       {(contextTarget) => (
         <li
@@ -201,6 +199,19 @@ function BoardCard(props: BoardCardProps): ReactNode {
                   </Text>
                 </button>
               </div>
+              {moveItems.length === 0 ? null : (
+                <Menu label={`Move ${item.title || 'Untitled'} to column`} items={moveItems}>
+                  {(trigger) => (
+                    <Button
+                      {...trigger}
+                      variant="icon"
+                      aria-label={`Move ${item.title || 'Untitled'} to column`}
+                    >
+                      <Icon icon={ArrowRightLeft} size="sm" />
+                    </Button>
+                  )}
+                </Menu>
+              )}
             </div>
 
             {stale === undefined ? null : (
