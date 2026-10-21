@@ -112,7 +112,10 @@ export function Popover(props: PopoverProps): ReactNode {
           onClose={close}
         >
           {typeof children === 'function'
-            ? children({
+            ? // Justification: `close` reads `openRef` when an event or a late promise calls it, never
+              // while this render runs; the rule cannot see that through the render prop.
+              // eslint-disable-next-line react-hooks/refs
+              children({
                 close: () => {
                   close(true);
                 },

@@ -646,7 +646,7 @@ describe('ListView on a phone', () => {
     expect(screen.getByRole('button', { name: /Status for Pay rent/ })).toHaveFocus();
   });
 
-  it('keeps the popover open after a typed value is stored', async () => {
+  it('stores a typed value on Enter and closes the popover', async () => {
     stubViewport(false);
     const user = userEvent.setup();
     const onSet = vi.fn();
@@ -659,7 +659,7 @@ describe('ListView on a phone', () => {
     await waitFor(() => {
       expect(onSet).toHaveBeenCalled();
     });
-    expect(screen.getByRole('dialog', { name: 'Owner for Pay rent' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Owner for Pay rent' })).not.toBeInTheDocument();
   });
 
   it('shows a refused write inside the popover', async () => {

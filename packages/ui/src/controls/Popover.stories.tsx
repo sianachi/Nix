@@ -5,7 +5,7 @@ import { expect, userEvent, within } from 'storybook/test';
 import { Button } from './Button';
 import { Input } from './Input';
 import { Dialog } from './Dialog';
-import { Popover } from './Popover';
+import { Popover, type PopoverProps } from './Popover';
 
 /** A small non-modal panel of controls beside its trigger, and a bottom sheet on a phone. */
 const meta = {
@@ -62,25 +62,27 @@ export const InsideModal: Story = {
   },
 };
 
+function BlurCommitField(props: { readonly trigger: PopoverProps['trigger'] }) {
+  const [saved, setSaved] = useState('none');
+  return (
+    <>
+      <Popover label="Name" trigger={props.trigger}>
+        <Input
+          aria-label="Name"
+          onBlur={(event) => {
+            setSaved(event.currentTarget.value);
+          }}
+        />
+      </Popover>
+      <p data-testid="saved">{saved}</p>
+      <button type="button">Elsewhere</button>
+    </>
+  );
+}
+
 /** A field that commits on blur keeps what was typed when the panel is dismissed by a press outside. */
 export const KeepsTypedTextOnOutsidePress: Story = {
-  render: (args) => {
-    const [saved, setSaved] = useState('none');
-    return (
-      <>
-        <Popover {...args} label="Name">
-          <Input
-            aria-label="Name"
-            onBlur={(event) => {
-              setSaved(event.currentTarget.value);
-            }}
-          />
-        </Popover>
-        <p data-testid="saved">{saved}</p>
-        <button type="button">Elsewhere</button>
-      </>
-    );
-  },
+  render: (args) => <BlurCommitField trigger={args.trigger} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: 'Filter' }));

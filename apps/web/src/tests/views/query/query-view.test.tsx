@@ -163,7 +163,16 @@ describe('the smart list', () => {
     expect(screen.getByRole('button', { name: 'Read' })).toBeVisible();
     // Row-schema reads are separate requests; the query itself must run once.
     expect(
-      vi.mocked(fetch).mock.calls.filter(([input]) => String(input).includes('/query?view=')),
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) =>
+          (input instanceof URL
+            ? input.href
+            : typeof input === 'string'
+              ? input
+              : input.url
+          ).includes('/query?view='),
+        ),
     ).toHaveLength(1);
   });
 

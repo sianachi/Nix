@@ -55,7 +55,11 @@ export function QueryView(props: ViewRendererProps): ReactNode {
   // The itemId this view runs against is the smart list itself - the container's own id, not its
   // children. Every child the container may incidentally hold stays untouched by this view.
   const run = useQueryResults(container.itemId ?? '', view.id);
-  const rowSchemas = useRowSchemas((run.results?.results ?? []).map((row) => row.containerId));
+  const rowSchemas = useRowSchemas(
+    (run.results?.results ?? []).flatMap((row) =>
+      row.containerId === null ? [] : [row.containerId],
+    ),
+  );
 
   // Query by example: whether rows can be ticked, which ones are, and the proposal under review.
   // All of it is a gesture in progress on this screen, so it is local state and nothing else.
@@ -348,7 +352,9 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                       {[...new Set(ruleConditions(view.filters).map((rule) => rule.property))].map(
                         (key) => {
                           const definition = editableDefinition(
-                            rowSchemas.get(row.containerId) ?? [],
+                            (row.containerId === null
+                              ? undefined
+                              : rowSchemas.get(row.containerId)) ?? [],
                             key,
                           );
                           const text = readPropertyText(owner, key);
