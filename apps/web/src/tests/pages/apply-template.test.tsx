@@ -39,9 +39,7 @@ describe('adding a view by hand', () => {
     await user.selectOptions(within(panel).getByRole('combobox', { name: 'View type' }), 'list');
 
     expect(await screen.findByRole('heading', { name: /add list view/i })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /continue/i }));
-    await user.click(screen.getByRole('button', { name: /continue/i }));
+    // The studio adds from its first step; Options is optional.
     await user.click(screen.getByRole('button', { name: /add list/i }));
 
     // Building your first view and having the screen not change is the whole of the bug this
