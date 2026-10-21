@@ -39,25 +39,28 @@ export function PreferenceToggle(props: {
           props.onChange(event.target.checked);
         }}
       />
-      <Text as="p" id={descriptionId} variant="note" tone="muted">
-        {props.description}
-      </Text>
-      {props.deviceOnly === true ? <DeviceOnlyNote /> : null}
-      {props.unsaved === null ? null : (
-        <Text as="p" variant="note">
-          {props.unsaved}
+      {/* Indented past the checkbox's hit area and gap, so the notes start under the label text. */}
+      <div className="flex flex-col gap-0.5 ps-[calc(var(--control-sm)+0.5rem)] any-pointer-coarse:ps-[calc(var(--control-lg)+0.5rem)]">
+        <Text as="p" id={descriptionId} variant="note" tone="muted">
+          {props.description}
         </Text>
-      )}
-      {props.more === undefined ? null : (
-        <details>
-          <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
-            More<span className="sr-only"> about {props.label}</span>
-          </summary>
-          <Text variant="note" tone="muted">
-            {props.more}
+        {props.deviceOnly === true ? <DeviceOnlyNote /> : null}
+        {props.unsaved === null ? null : (
+          <Text as="p" variant="note">
+            {props.unsaved}
           </Text>
-        </details>
-      )}
+        )}
+        {props.more === undefined ? null : (
+          <details>
+            <summary className="min-h-11 cursor-pointer text-sm text-accent-text">
+              More<span className="sr-only"> about {props.label}</span>
+            </summary>
+            <Text variant="note" tone="muted">
+              {props.more}
+            </Text>
+          </details>
+        )}
+      </div>
     </div>
   );
 }
