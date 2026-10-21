@@ -44,6 +44,17 @@ it('browses spreadsheet records on phones while retaining an explicit grid', asy
   expect(screen.getByRole('grid')).toBeInTheDocument();
 });
 
+it('offers no calendar grid toggle in month mode on a phone, where the strip is the calendar', () => {
+  renderAt(
+    <ContainerView
+      container={aContainer({ children: [note] })}
+      view={aView({ kind: 'calendar', dateProperty: 'due' })}
+      onOpen={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole('button', { name: 'Show calendar grid' })).not.toBeInTheDocument();
+});
+
 it('shows dated calendar items in an agenda and keeps undated items available', async () => {
   const user = userEvent.setup();
   const undated = item({ id: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', title: 'Unscheduled idea' });
@@ -51,7 +62,7 @@ it('shows dated calendar items in an agenda and keeps undated items available', 
   renderAt(
     <ContainerView
       container={aContainer({ children: [note, undated] })}
-      view={aView({ kind: 'calendar', dateProperty: 'due' })}
+      view={aView({ kind: 'calendar', dateProperty: 'due', mode: 'week' })}
       onOpen={onOpen}
     />,
   );

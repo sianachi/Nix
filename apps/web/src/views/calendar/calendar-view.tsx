@@ -84,7 +84,7 @@ export interface CalendarViewProps {
 export function CalendarView(props: CalendarViewProps): ReactNode {
   const { container, view, onOpen } = props;
   const narrow = useNarrowViewport();
-  const [showGrid, setShowGrid] = useState(false);
+  const [gridWanted, setShowGrid] = useState(false);
   // The day chosen on the phone's month strip; null shows the whole month.
   const [picked, setPicked] = useState<string | null>(null);
   const viewState = useViewState();
@@ -322,6 +322,8 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // The view's own grain, overridable by the address the way the view itself is - a link saying
   // "look at this week" should open on a week.
   const mode = readMode(urlMode ?? view.mode);
+  // The phone's month strip already is the month, so the grid toggle only exists for week and day.
+  const showGrid = gridWanted && mode !== 'month';
   const shownDates = new Set(
     narrow && !showGrid && picked !== null
       ? [picked]
@@ -396,7 +398,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
         </div>
       )}
 
-      {narrow ? (
+      {narrow && mode !== 'month' ? (
         <Button
           variant="ghost"
           aria-pressed={showGrid}
