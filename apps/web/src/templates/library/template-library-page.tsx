@@ -239,9 +239,6 @@ export function TemplateLibraryPage(): ReactNode {
             <Text variant="h4" as="h1">
               Templates
             </Text>
-            <Text variant="bodySmall" tone="muted">
-              Reuse the fields, views, and starting content your team has agreed on.
-            </Text>
           </div>
           <div className="flex flex-wrap gap-2">
             {petSettings?.settings.enabled ? (
@@ -284,12 +281,15 @@ export function TemplateLibraryPage(): ReactNode {
           )}
         </Field>
         {downloadError === null ? null : (
-          <Text variant="bodySmall" role="alert" className="bg-surface px-3 py-2">
+          <Text variant="bodySmall" role="alert" className="rounded-md bg-surface px-3 py-2">
             {downloadError}
           </Text>
         )}
         {duplicateError === null ? null : (
-          <div role="alert" className="flex flex-wrap items-center gap-3 bg-surface px-3 py-2">
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-3 rounded-md bg-surface px-3 py-2"
+          >
             <Text variant="bodySmall" className="flex-1">
               {duplicateError} Retrying Duplicate will safely continue the same attempt.
             </Text>
@@ -330,7 +330,7 @@ export function TemplateLibraryPage(): ReactNode {
             detail="Try a different name, description, or view type."
           />
         ) : (
-          <div className="grid min-w-0 gap-4 @3xl/library:grid-cols-2 @6xl/library:grid-cols-3">
+          <div className="grid min-w-0 gap-3 @3xl/library:grid-cols-2 @6xl/library:grid-cols-3">
             {visible.map((template) => (
               <TemplateCard
                 key={template.id}

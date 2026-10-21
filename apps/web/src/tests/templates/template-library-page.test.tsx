@@ -205,9 +205,7 @@ describe('the workspace template library', () => {
     expect(await screen.findByRole('heading', { name: /edit weekly planning/i })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Continue' }));
 
-    expect(
-      await screen.findByText('Edit the starting content people receive with this item.'),
-    ).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Body' })).toBeVisible();
     expect(screen.getByLabelText('Note body')).toBeVisible();
   });
 

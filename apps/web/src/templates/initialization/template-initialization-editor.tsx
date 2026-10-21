@@ -1,4 +1,4 @@
-import { Blueprint, Button, Field, Input, Select, Text } from '@nix/ui';
+import { Blueprint, Button, Checkbox, Field, Input, Select, Text } from '@nix/ui';
 import { items as coreItems } from '@nix/api-client';
 import { useEffect, useState, type ReactNode } from 'react';
 
@@ -185,8 +185,8 @@ export function TemplateInitializationEditor({
           Setup and portability
         </Text>
         <Text variant="bodySmall" tone="muted">
-          Ask for the values a new item needs, then choose what happens to each captured field. Use{' '}
-          <code>{'{{input_key}}'}</code> in a title or prose body to bind text safely.
+          Ask for values when an item is created, and choose what each captured field becomes. Use{' '}
+          <code>{'{{input_key}}'}</code> in a title or text.
         </Text>
       </div>
 
@@ -216,7 +216,7 @@ export function TemplateInitializationEditor({
         {initialization.inputs.map((input, index) => (
           <div
             key={index}
-            className="grid min-w-0 gap-3 rounded-md border border-divider p-3 @2xl/setup:grid-cols-2"
+            className="grid min-w-0 gap-3 border-t border-divider pt-3 @2xl/setup:grid-cols-2"
           >
             <Field
               label="Question label"
@@ -267,6 +267,7 @@ export function TemplateInitializationEditor({
               </Field>
               <Button
                 variant="secondary"
+                aria-label={`Remove question ${input.label}`}
                 onClick={() => {
                   removeInput(index);
                 }}
@@ -274,16 +275,14 @@ export function TemplateInitializationEditor({
                 Remove
               </Button>
             </div>
-            <label className="col-span-full flex min-w-0 items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={input.required}
-                onChange={(event) => {
-                  updateInput(index, { ...input, required: event.target.checked });
-                }}
-              />
-              Required
-            </label>
+            <Checkbox
+              label="Required"
+              className="col-span-full"
+              checked={input.required}
+              onChange={(event) => {
+                updateInput(index, { ...input, required: event.target.checked });
+              }}
+            />
             <div className="col-span-full min-w-0">
               {input.type === 'member' ? (
                 <Input
@@ -324,8 +323,7 @@ export function TemplateInitializationEditor({
               Field rules
             </Text>
             <Text variant="caption" tone="muted">
-              Unlisted fields keep ordinary values. Completion resets, due and start dates clear,
-              and assignees clear unless a rule says otherwise.
+              Unlisted fields keep their values; completion resets and dates and assignees clear.
             </Text>
           </div>
           <Button
@@ -344,7 +342,7 @@ export function TemplateInitializationEditor({
           return (
             <div
               key={targetKey(rule)}
-              className="grid min-w-0 gap-3 rounded-md border border-divider p-3 @2xl/setup:grid-cols-2"
+              className="grid min-w-0 gap-3 border-t border-divider pt-3 @2xl/setup:grid-cols-2"
             >
               <Field label="Item and field">
                 {(control) => (
@@ -450,6 +448,7 @@ export function TemplateInitializationEditor({
                 <Button
                   variant="secondary"
                   className="mt-3"
+                  aria-label={`Remove rule for ${currentTarget?.label ?? rule.propertyKey}`}
                   onClick={() => {
                     onChange({
                       ...initialization,
@@ -471,7 +470,7 @@ export function TemplateInitializationEditor({
             External item links
           </Text>
           <Text variant="caption" tone="muted">
-            Choose whether each captured outside link stays, is cleared, or points to a replacement.
+            Keep, clear or replace each link to an item outside this template.
           </Text>
         </div>
         {initialization.references.length === 0 ? (
@@ -482,7 +481,7 @@ export function TemplateInitializationEditor({
         {initialization.references.map((reference) => (
           <div
             key={reference.sourceItemId}
-            className="grid min-w-0 gap-3 rounded-md border border-divider p-3 @2xl/setup:grid-cols-2"
+            className="grid min-w-0 gap-3 border-t border-divider pt-3 @2xl/setup:grid-cols-2"
           >
             <Text variant="bodySmall" className="min-w-0 self-center wrap-anywhere">
               {referenceLabels[reference.sourceItemId] ?? 'Loading linked item…'}

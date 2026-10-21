@@ -1,4 +1,4 @@
-import { Button, Field, Input, Select, Textarea } from '@nix/ui';
+import { Button, Checkbox, Field, Input, Select, Textarea } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 import type { TreeItem } from '../../items/use-workspace-tree';
@@ -26,20 +26,18 @@ export function RuleValueEditor({
       <fieldset className="flex flex-col gap-2">
         <legend className="text-sm font-medium">Fixed values</legend>
         {target.options.map((option) => (
-          <label key={option} className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={selected.includes(option)}
-              onChange={(event) => {
-                onChange(
-                  event.target.checked
-                    ? [...selected, option]
-                    : selected.filter((entry) => entry !== option),
-                );
-              }}
-            />
-            {option}
-          </label>
+          <Checkbox
+            key={option}
+            label={option}
+            checked={selected.includes(option)}
+            onChange={(event) => {
+              onChange(
+                event.target.checked
+                  ? [...selected, option]
+                  : selected.filter((entry) => entry !== option),
+              );
+            }}
+          />
         ))}
       </fieldset>
     );

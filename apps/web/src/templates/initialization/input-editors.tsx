@@ -1,4 +1,4 @@
-import { Field, Input, Select } from '@nix/ui';
+import { Checkbox, Field, Input, Select } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 import type { TreeItem } from '../../items/use-workspace-tree';
@@ -162,16 +162,13 @@ export function RelativeDateRuleEditor({
           )}
         </Field>
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={useTime}
-          onChange={(event) => {
-            onUseTimeChange(event.target.checked);
-          }}
-        />
-        Set a time and time zone
-      </label>
+      <Checkbox
+        label="Set a time and time zone"
+        checked={useTime}
+        onChange={(event) => {
+          onUseTimeChange(event.target.checked);
+        }}
+      />
       {useTime ? (
         <div className="grid min-w-0 gap-3 @lg/date-rule:grid-cols-2">
           <Field label="Time">

@@ -44,7 +44,7 @@ export function TemplateViewsEditor({
           Views
         </Text>
         <Text variant="caption" tone="muted">
-          Rename, reorder, configure, or remove the views people receive from this template.
+          The views people receive from this template.
         </Text>
       </div>
       {views.length === 0 ? (

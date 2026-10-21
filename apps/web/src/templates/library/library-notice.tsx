@@ -1,4 +1,4 @@
-import { Card, Text } from '@nix/ui';
+import { Blueprint, Text } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 export function LibraryNotice({
@@ -11,9 +11,12 @@ export function LibraryNotice({
   readonly children?: ReactNode;
 }): ReactNode {
   return (
-    <Card title={title} kicker="Template library">
+    <Blueprint className="flex flex-col items-start gap-3 p-3">
+      <Text variant="h4" as="h2">
+        {title}
+      </Text>
       <Text tone="muted">{detail}</Text>
       {children}
-    </Card>
+    </Blueprint>
   );
 }

@@ -3,7 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { useState, type ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { TemplateDraftEditor, type TemplateItemEdits } from '../../templates/draft/template-draft-editor';
+import {
+  TemplateDraftEditor,
+  type TemplateItemEdits,
+} from '../../templates/draft/template-draft-editor';
 import type { TemplateItem } from '../../templates/template-api';
 
 const CHILD: TemplateItem = {

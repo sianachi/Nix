@@ -1,4 +1,4 @@
-import { Card, ContextMenu, Button, Icon, Tag, Text, type MenuEntry } from '@nix/ui';
+import { Blueprint, Button, ContextMenu, Icon, Tag, Text, type MenuEntry } from '@nix/ui';
 import { Copy, Download, LayoutTemplate, Pencil, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -70,27 +70,39 @@ export function TemplateCard({
     <ContextMenu label={`${template.title} template actions`} items={actions}>
       {(target) => (
         <div {...target} role="group" aria-label={`${template.title} template`} className="min-w-0">
-          <Card title={template.title} kicker={originLabel(template)} headingLevel={2}>
-            <TemplateViewPreview templateId={template.id} title={template.title} />
-            <div className="flex min-h-16 flex-col gap-3">
-              <Text variant="bodySmall" tone="muted">
-                {template.description ?? 'No description yet.'}
+          <Blueprint as="section" className="flex min-w-0 flex-col gap-3 bg-surface p-3">
+            <div className="flex min-w-0 flex-col gap-1">
+              <Text variant="h4" as="h2">
+                {template.title}
               </Text>
-              <Text variant="caption" tone="muted">
-                {contents}
-              </Text>
+              <div className="flex flex-wrap gap-x-2">
+                <Text variant="caption" tone="muted">
+                  {originLabel(template)}
+                </Text>
+                <Text variant="caption" tone="muted">
+                  {contents}
+                </Text>
+              </div>
+              {template.description === null || template.description.length === 0 ? null : (
+                <Text variant="bodySmall" tone="muted" lines={2}>
+                  {template.description}
+                </Text>
+              )}
+            </div>
+            {template.includeBody || template.includeChildren ? (
               <div className="flex flex-wrap gap-1.5">
                 {template.includeBody ? <Tag tone="muted">Content</Tag> : null}
                 {template.includeChildren ? <Tag tone="muted">Children</Tag> : null}
-                {template.viewKinds.map((kind) => (
-                  <Tag key={kind}>{kind.replace('_', ' ')}</Tag>
-                ))}
               </div>
-            </div>
-
+            ) : null}
+            <TemplateViewPreview templateId={template.id} title={template.title} />
             <div className="flex flex-wrap items-center gap-2">
               {template.capabilities.canApply ? (
-                <Button aria-label={`Use ${template.title} template`} onClick={onUse}>
+                <Button
+                  aria-label={`Use ${template.title} template`}
+                  className="w-full sm:w-auto"
+                  onClick={onUse}
+                >
                   <Icon icon={LayoutTemplate} size="sm" /> Use template
                 </Button>
               ) : null}
@@ -129,7 +141,7 @@ export function TemplateCard({
                 </Button>
               ) : null}
             </div>
-          </Card>
+          </Blueprint>
         </div>
       )}
     </ContextMenu>

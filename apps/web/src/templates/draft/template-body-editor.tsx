@@ -29,9 +29,6 @@ export function TemplateBodyEditor({
         <Text variant="h3" as="h3">
           Body
         </Text>
-        <Text variant="caption" tone="muted">
-          Edit the starting content people receive with this item.
-        </Text>
       </div>
       {!item.hasBody ? (
         <Text variant="bodySmall" tone="muted" className="rounded-md bg-surface p-3">

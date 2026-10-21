@@ -15,6 +15,7 @@ import {
   type TemplateImportPreview,
 } from '../template-api';
 import { ImportCount } from './import-count';
+import { ImportNotice } from './import-notice';
 import {
   forgetDraft,
   identify,
@@ -282,50 +283,36 @@ export function TemplateImportPage(): ReactNode {
 
   if (templateStatus === 'error') {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-5">
-        <Blueprint className="flex min-w-0 max-w-lg flex-col items-start gap-3 p-3 sm:p-5">
-          <Icon icon={ShieldCheck} size="md" />
-          <Text variant="h3" as="h1">
-            Template library unavailable
-          </Text>
-          <Text tone="muted">
-            {templateLibrary.error ??
-              'The template library could not be loaded. Check the connection.'}
-          </Text>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={templateLibrary.reload}>
-              Try again
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => void navigate(`/w/${workspaceId}/templates`)}
-            >
-              Back to templates
-            </Button>
-          </div>
-        </Blueprint>
-      </div>
+      <ImportNotice
+        title="Template library unavailable"
+        detail={
+          templateLibrary.error ?? 'The template library could not be loaded. Check the connection.'
+        }
+      >
+        <Button variant="secondary" onClick={templateLibrary.reload}>
+          Try again
+        </Button>
+        <Button variant="secondary" onClick={() => void navigate(`/w/${workspaceId}/templates`)}>
+          Back to templates
+        </Button>
+      </ImportNotice>
     );
   }
 
   if (!templateCapabilities.canManage) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-5">
-        <Blueprint className="flex min-w-0 max-w-lg flex-col items-start gap-3 p-3 sm:p-5">
-          <Icon icon={ShieldCheck} size="md" />
-          <Text variant="h3" as="h1">
-            Template import unavailable
-          </Text>
-          <Text tone="muted">
-            You can browse and download workspace templates, but you cannot add or change them.
-          </Text>
-          <Button variant="secondary" onClick={() => void navigate(`/w/${workspaceId}/templates`)}>
-            Back to templates
-          </Button>
-        </Blueprint>
-      </div>
+      <ImportNotice
+        title="Template import unavailable"
+        detail="You can browse and download workspace templates, but you cannot add or change them."
+      >
+        <Button variant="secondary" onClick={() => void navigate(`/w/${workspaceId}/templates`)}>
+          Back to templates
+        </Button>
+      </ImportNotice>
     );
   }
+
+  const canAdd = !working && importId !== null && preview !== null && !commitRequiresDiscard;
 
   return (
     <div className="@container/import flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -341,82 +328,60 @@ export function TemplateImportPage(): ReactNode {
         >
           <Icon icon={ArrowLeft} size="sm" />
         </Button>
-        <div className="min-w-0 flex-1">
-          <Text variant="h4" as="h1">
-            Import template
-          </Text>
-          <Text variant="caption" tone="muted">
-            Validate before anything enters the workspace library
-          </Text>
-        </div>
+        <Text variant="h4" as="h1">
+          Import template
+        </Text>
       </header>
 
       <section
         aria-label="Template import"
         className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-5"
       >
-        <div className="mx-auto grid min-w-0 max-w-5xl gap-4 @4xl/import:grid-cols-2">
-          <section className="flex min-w-0 flex-col gap-4">
-            <div>
-              <Text variant="kicker">Template file</Text>
-              <Text variant="h3" as="h2">
-                Choose a .nix file
+        <div className="mx-auto grid min-w-0 max-w-5xl gap-3 @4xl/import:grid-cols-2">
+          <Blueprint className="flex min-w-0 flex-col items-start gap-3 p-3">
+            <Icon icon={FileUp} size="md" />
+            <label className="flex min-w-0 max-w-full flex-col gap-2">
+              <Text variant="bodySmall" as="span">
+                Template file
               </Text>
-              <Text variant="bodySmall" tone="muted">
-                Nix checks the archive version, property types, view kinds, and every entry before
-                import.
+              <input
+                type="file"
+                accept=".nix,application/x-nix-template,application/zip"
+                onChange={choose}
+                disabled={working}
+                aria-invalid={error === null ? undefined : true}
+                aria-describedby={error === null ? undefined : 'template-import-error'}
+                className={`min-h-(--control-md) min-w-0 max-w-full any-pointer-coarse:min-h-(--control-lg) ${focusRing}`}
+              />
+            </label>
+            {file === null ? null : (
+              <Text variant="caption" tone="muted">
+                Selected: {file.name}
               </Text>
-            </div>
-            <Blueprint className="flex min-w-0 flex-col items-start gap-4 p-3">
-              <Icon icon={FileUp} size="md" />
-              <label className="flex min-w-0 max-w-full flex-col gap-2">
-                <Text variant="bodySmall" as="span">
-                  Template file
-                </Text>
-                <input
-                  type="file"
-                  accept=".nix,application/x-nix-template,application/zip"
-                  onChange={choose}
-                  disabled={working}
-                  className={`min-w-0 max-w-full text-lg ${focusRing}`}
-                />
-              </label>
-              {file === null ? null : (
-                <Text variant="caption" tone="muted">
-                  Selected: {file.name}
-                </Text>
-              )}
-              {file === null && preview === null && previewFileIdentity !== null ? (
-                <Text variant="bodySmall" role="status">
-                  A previous attempt for {previewFileIdentity.name} can be resumed. Select that same
-                  file again. Nix kept the retry details, but this browser did not retain the
-                  archive bytes.
-                </Text>
-              ) : null}
-              {file === null &&
-              preview === null &&
-              importId !== null &&
-              previewFileIdentity === null ? (
-                <Text variant="bodySmall" role="status">
-                  A durable attempt is still recorded, but its local file details are unavailable.
-                  Discard it before choosing the archive again.
-                </Text>
-              ) : null}
-              <Button
-                disabled={working || file === null || preview !== null}
-                onClick={() => void validate()}
-              >
-                <Icon icon={ShieldCheck} size="sm" />{' '}
-                {activity === 'validating' ? 'Validating…' : 'Validate file'}
-              </Button>
-              {activity === 'replacing' ? (
-                <Text as="p" variant="caption" role="status" tone="muted">
-                  Releasing the previous staged import…
-                </Text>
-              ) : null}
-            </Blueprint>
+            )}
+            {file === null && preview === null && previewFileIdentity !== null ? (
+              <Text variant="bodySmall" role="status">
+                A previous attempt for {previewFileIdentity.name} can be resumed. Select that same
+                file again. Nix kept the retry details, but this browser did not retain the archive
+                bytes.
+              </Text>
+            ) : null}
+            {file === null &&
+            preview === null &&
+            importId !== null &&
+            previewFileIdentity === null ? (
+              <Text variant="bodySmall" role="status">
+                A durable attempt is still recorded, but its local file details are unavailable.
+                Discard it before choosing the archive again.
+              </Text>
+            ) : null}
+            {activity === 'replacing' ? (
+              <Text as="p" variant="caption" role="status" tone="muted">
+                Releasing the previous staged import…
+              </Text>
+            ) : null}
             {error === null ? null : (
-              <div className="flex flex-col items-start gap-2 bg-surface px-3 py-2">
+              <div id="template-import-error" className="flex flex-col items-start gap-2">
                 <Text variant="bodySmall" role="alert">
                   {error}
                 </Text>
@@ -432,24 +397,17 @@ export function TemplateImportPage(): ReactNode {
                 ) : null}
               </div>
             )}
-          </section>
+          </Blueprint>
 
-          <section aria-label="Import preview" className="flex min-w-0 flex-col gap-4">
-            <div>
-              <Text variant="kicker">Preview</Text>
-              <Text variant="h3" as="h2">
-                What will be added
-              </Text>
-            </div>
+          <section aria-label="Import preview" className="flex min-w-0 flex-col gap-3">
             {preview === null ? (
-              <Blueprint className="p-5">
+              <Blueprint className="p-3">
                 <Text tone="muted">
-                  Choose and validate a file to see its contents. Nothing is imported during
-                  validation.
+                  Choose and validate a file to preview it. Nothing is imported until you add it.
                 </Text>
               </Blueprint>
             ) : (
-              <Blueprint className="flex flex-col gap-4 p-5">
+              <Blueprint className="flex flex-col gap-3 p-3">
                 <div ref={previewHeading} tabIndex={-1} className={focusRing}>
                   <Icon icon={FileCheck2} size="md" />
                   <Text variant="h3">{preview.profile.name}</Text>
@@ -479,17 +437,25 @@ export function TemplateImportPage(): ReactNode {
                     bytes.
                   </Text>
                 ) : null}
-                <Button
-                  disabled={working || importId === null || commitRequiresDiscard}
-                  onClick={() => void finish()}
-                >
-                  {activity === 'importing' ? 'Importing…' : 'Add to library'}
-                </Button>
               </Blueprint>
             )}
           </section>
         </div>
       </section>
+
+      <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-divider bg-background px-3 py-2">
+        <Button
+          variant={preview === null ? 'primary' : 'secondary'}
+          disabled={working || file === null || preview !== null}
+          onClick={() => void validate()}
+        >
+          <Icon icon={ShieldCheck} size="sm" />{' '}
+          {activity === 'validating' ? 'Validating…' : 'Validate file'}
+        </Button>
+        <Button disabled={!canAdd} onClick={() => void finish()}>
+          {activity === 'importing' ? 'Importing…' : 'Add to library'}
+        </Button>
+      </footer>
 
       <Dialog
         open={discarding}
@@ -515,8 +481,7 @@ export function TemplateImportPage(): ReactNode {
         }
       >
         <Text variant="bodySmall">
-          Any known durable attempt will be cancelled, then the selected file and local recovery
-          details will be forgotten.
+          The staged import and the local recovery details will be removed.
         </Text>
       </Dialog>
     </div>

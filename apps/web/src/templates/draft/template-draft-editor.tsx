@@ -53,17 +53,13 @@ export function TemplateDraftEditor({
           Edit the template contents
         </Text>
         <Text variant="bodySmall" tone="muted">
-          Changes stay in a private draft until Save. Choose any included item to edit its title,
-          fields, and views.
+          Changes stay in a private draft until Save.
         </Text>
       </div>
 
       <div className="grid min-h-0 min-w-0 gap-4 @2xl/draft:grid-cols-4">
         <nav aria-label="Items in this template" className="min-w-0 rounded-md bg-surface p-2">
-          <Text variant="kicker" className="px-2 py-1">
-            Template items
-          </Text>
-          <ul className="mt-1 flex max-h-56 flex-col gap-0.5 overflow-y-auto">
+          <ul className="flex max-h-56 flex-col gap-0.5 overflow-y-auto">
             {items.map(({ item, depth }) => (
               <li key={item.sourceId}>
                 <button

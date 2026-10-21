@@ -1,4 +1,4 @@
-import { Button, Field, Icon, Input, Select, Text, Textarea, focusRing } from '@nix/ui';
+import { Button, Checkbox, Field, Icon, Input, Select, Text, Textarea } from '@nix/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -20,7 +20,7 @@ export function TemplateFieldsEditor({
           Fields
         </Text>
         <Text variant="caption" tone="muted">
-          These fields are available to every item created inside this one.
+          Available to every item created inside this one.
         </Text>
       </div>
       {fields.length === 0 ? (
@@ -124,24 +124,20 @@ export function TemplateFieldsEditor({
               )}
             </Field>
           ) : null}
-          <label className="flex items-center gap-2 text-base">
-            <input
-              type="checkbox"
-              checked={field.required}
-              className={focusRing}
-              onChange={(event) => {
-                onChange(
-                  replaceDeclaredFields(
-                    edit,
-                    fields.map((entry, position) =>
-                      position === index ? { ...entry, required: event.target.checked } : entry,
-                    ),
+          <Checkbox
+            label="Required"
+            checked={field.required}
+            onChange={(event) => {
+              onChange(
+                replaceDeclaredFields(
+                  edit,
+                  fields.map((entry, position) =>
+                    position === index ? { ...entry, required: event.target.checked } : entry,
                   ),
-                );
-              }}
-            />
-            Required
-          </label>
+                ),
+              );
+            }}
+          />
         </div>
       ))}
       <Button
