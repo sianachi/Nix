@@ -75,8 +75,9 @@ export function ShellToasts({
   const visible = [...routine, ...reminderItems].slice(0, limit);
 
   return (
-    // Above the bottom nav (measured by the shell; unset when there is none), never over it.
-    <div className="fixed inset-x-0 bottom-[var(--mobile-nav-height,0%)] z-[25] mx-auto flex max-w-sm flex-col gap-2 p-4 sm:inset-x-auto sm:left-0 sm:right-auto">
+    // Above the bottom nav (measured by the shell; unset when there is none), never over it. The
+    // padded frame lets taps through to the page; only the toasts themselves take them.
+    <div className="pointer-events-none fixed inset-x-0 bottom-[var(--mobile-nav-height,0%)] z-[25] mx-auto flex max-w-sm flex-col gap-2 p-4 *:pointer-events-auto sm:inset-x-auto sm:left-0 sm:right-auto">
       {visible.map((toast) => (
         <Toast
           key={toast.key}
