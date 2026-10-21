@@ -408,6 +408,14 @@ describe('reaching an edit by pointer alone', () => {
     expect(screen.getByRole('textbox', { name: 'Edit cell A1' })).toBeInTheDocument();
   });
 
+  it('shows the copy notice even when the active cell is an error', () => {
+    const doc = new Y.Doc();
+    writeCell(doc, { row: 0, col: 0 }, '=1/0');
+    renderGrid(doc);
+    fireEvent.copy(screen.getByRole('grid'), { clipboardData: { setData: vi.fn() } });
+    expect(screen.getByText('Copied A1')).toBeInTheDocument();
+  });
+
   it('announces what a copy did, and clears it on the next key', () => {
     const doc = new Y.Doc();
     renderGrid(doc);

@@ -23,7 +23,7 @@ export function SheetStatus({
       aria-live="polite"
       className="shrink-0 border-t border-divider px-3 py-1"
     >
-      {value === undefined || !isSheetError(value)
+      {value === undefined || !isSheetError(value) || notice !== ''
         ? notice
         : `${activeKey}: ${value.error} — ${SHEET_ERROR_HELP[value.error]}`}
     </Text>

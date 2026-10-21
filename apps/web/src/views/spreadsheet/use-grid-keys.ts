@@ -79,6 +79,8 @@ export function useGridKeys(args: GridKeysArgs): {
     if (selection.mode === 'edit') {
       return;
     }
+    // Cleared first so a repeated, identical notice (a second copy) changes the live region again.
+    setNotice(null);
     if (event.key === 'Escape') {
       // Escape releases the Tab trap; the next Tab then leaves the grid in document order, which
       // is what the hint promises.

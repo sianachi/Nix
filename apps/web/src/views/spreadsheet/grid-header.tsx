@@ -103,7 +103,7 @@ export function GridHeader(props: GridHeaderProps): ReactNode {
                 // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a window-splitter separator is focusable by its ARIA definition
                 tabIndex={0}
                 className={cn(
-                  'absolute top-0 z-10 h-full w-3 -translate-x-1/2 any-pointer-coarse:w-6 cursor-col-resize touch-none',
+                  'absolute top-0 z-10 h-full w-3 -translate-x-1/2 any-pointer-coarse:w-(--control-lg) cursor-col-resize touch-none',
                   focusRingInset,
                 )}
                 style={handleStyle}

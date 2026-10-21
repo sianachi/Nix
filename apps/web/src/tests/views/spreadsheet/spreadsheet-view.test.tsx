@@ -401,6 +401,22 @@ describe('ranges and the clipboard', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Copied 4 cells.');
   });
 
+  it('clears the copy notice on the next key so a repeated copy is announced again', () => {
+    renderAt(sheetWith({ items: [ALPHA, BETA] }));
+    grid().focus();
+    fireEvent.copy(grid(), { clipboardData: { setData: vi.fn() } });
+    expect(screen.getByRole('status')).toHaveTextContent('Copied 1 cell.');
+
+    pressOnGrid('c', { ctrlKey: true });
+
+    expect(screen.getByRole('status')).toHaveTextContent(/^$/);
+  });
+
+  it('gives the column resize handle a touch-sized target', () => {
+    renderAt(sheetWith({ items: [ALPHA, BETA] }));
+    expect(screen.getAllByRole('separator')[0]).toHaveClass('any-pointer-coarse:w-(--control-lg)');
+  });
+
   it('pastes a block as one write per row, coerced per column', () => {
     renderAt(sheetWith({ items: [ALPHA, BETA] }));
 
