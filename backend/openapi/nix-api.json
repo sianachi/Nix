@@ -21799,6 +21799,18 @@
               "null",
               "string"
             ]
+          },
+          "headingMark": {
+            "type": "string",
+            "default": "square"
+          },
+          "typeface": {
+            "type": "string",
+            "default": "rounded"
+          },
+          "spacing": {
+            "type": "string",
+            "default": "comfortable"
           }
         }
       },

@@ -26,6 +26,17 @@ function confirm(confirmed: boolean, what: string): void {
   if (!confirmed) throw new Error(`${what} Pass --yes to confirm.`);
 }
 
+type Look = Site['settings'];
+const HEADING_MARKS: readonly Look['headingMark'][] = ['square', 'diamond', 'none'];
+const TYPEFACES: readonly Look['typeface'][] = ['rounded', 'serif', 'legible'];
+const SPACINGS: readonly Look['spacing'][] = ['compact', 'comfortable', 'airy'];
+
+function oneOf<T extends string>(value: string, allowed: readonly T[], flag: string): T {
+  const found = allowed.find((candidate) => candidate === value);
+  if (found === undefined) throw new Error(`${flag} must be ${allowed.join(', ')}.`);
+  return found;
+}
+
 function layoutOf(value: string): SiteLayout {
   const layout = LAYOUTS.find((candidate) => candidate === value);
   if (layout === undefined) throw new Error("Layout must be 'docs' or 'blog'.");
@@ -108,6 +119,9 @@ export interface UpdateSiteOptions {
   readonly builtWithNix?: boolean | undefined;
   readonly noindex?: boolean | undefined;
   readonly author?: string | undefined;
+  readonly typeface?: string | undefined;
+  readonly headingMark?: string | undefined;
+  readonly spacing?: string | undefined;
   readonly layout?: string | undefined;
   readonly mode?: string | undefined;
   readonly debounce?: string | undefined;
@@ -136,6 +150,17 @@ export async function updateSite(
       );
     }
   }
+  const look: Partial<Look> = {
+    ...(options.typeface === undefined
+      ? {}
+      : { typeface: oneOf(options.typeface, TYPEFACES, '--typeface') }),
+    ...(options.headingMark === undefined
+      ? {}
+      : { headingMark: oneOf(options.headingMark, HEADING_MARKS, '--heading-mark') }),
+    ...(options.spacing === undefined
+      ? {}
+      : { spacing: oneOf(options.spacing, SPACINGS, '--spacing') }),
+  };
   const added = (options.dated ?? []).map(parseDated);
   const navigation = options.nav?.map(parseNavLink);
   const debounceSeconds = options.debounce === undefined ? undefined : Number(options.debounce);
@@ -152,7 +177,8 @@ export async function updateSite(
     options.footer !== undefined ||
     options.builtWithNix !== undefined ||
     options.noindex !== undefined ||
-    options.author !== undefined;
+    options.author !== undefined ||
+    Object.keys(look).length > 0;
   const touchesDated = options.dated !== undefined || options.undated !== undefined;
   // Settings and dated collections are replaced whole, so a partial change starts from what Core
   // holds now.
@@ -176,6 +202,7 @@ export async function updateSite(
             ...(options.author === undefined
               ? {}
               : { author: options.author.trim().length > 0 ? options.author.trim() : null }),
+            ...look,
           },
         }),
     ...(options.layout === undefined ? {} : { layout: layoutOf(options.layout) }),

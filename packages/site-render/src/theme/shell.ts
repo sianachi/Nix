@@ -158,7 +158,7 @@ export function renderShell(model: SiteModel, page: ShellPage): string {
 
   const footer = [
     settings.footerText.length > 0 ? `<p>${escapeHtml(settings.footerText)}</p>` : '',
-    `<ul>${model.nodes
+    `<ul><li><a href="#top">Back to top</a></li>${model.nodes
       .filter((node) => node.collection !== null)
       .map(
         (node) =>

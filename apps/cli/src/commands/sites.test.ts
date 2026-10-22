@@ -288,6 +288,19 @@ describe('the site commands over a stubbed Core', () => {
     await done();
   });
 
+  it('refuses an unknown typeface, heading mark or spacing before calling Core', async () => {
+    const json = outputOptions(true, { isTTY: false });
+    await expect(updateSite('default', SITE, { typeface: 'comic' }, json)).rejects.toThrow(
+      /--typeface must be rounded, serif, legible/,
+    );
+    await expect(updateSite('default', SITE, { headingMark: 'star' }, json)).rejects.toThrow(
+      /--heading-mark/,
+    );
+    await expect(updateSite('default', SITE, { spacing: 'huge' }, json)).rejects.toThrow(
+      /--spacing/,
+    );
+  });
+
   it('rejects a navigation link without a label or a site path', () => {
     expect(parseNavLink('A=b=/x/')).toEqual({ label: 'A=b', path: '/x/' });
     expect(() => parseNavLink('/blog/')).toThrow(/--nav/);
