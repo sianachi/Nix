@@ -59,7 +59,8 @@ export function classify(method, path) {
     startsWithSegment(lowerPath, '/api/v1/me/pets/runtime') ||
     startsWithSegment(lowerPath, '/api/v1/me/pets/connection') ||
     startsWithSegment(lowerPath, '/api/v1/me/pets/inline') ||
-    (startsWithSegment(lowerPath, '/api/v1/conversations') && trimSlash(lowerPath).endsWith('/turns'))
+    (startsWithSegment(lowerPath, '/api/v1/conversations') &&
+      trimSlash(lowerPath).endsWith('/turns'))
   ) {
     return 'interactive';
   }
