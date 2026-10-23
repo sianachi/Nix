@@ -1091,7 +1091,12 @@ export function buildProgram(): Command {
       );
     });
 
-  const note = program.command('note').description("A note's body, as Markdown.");
+  const note = program
+    .command('note')
+    .description(
+      "A note's body, as Markdown. The same read, replace and append are " +
+        'GET, PUT and POST /api/v1/items/{itemId}/body.',
+    );
 
   note
     .command('read <itemId>')

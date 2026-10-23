@@ -701,6 +701,34 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/items/{itemId}/body': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Read a note body as Markdown
+     * @description Returns the item's prose body as Markdown, plus the losses Markdown could not carry. An item nobody has edited yet is an empty string, not an error. Exchange a personal access token at POST /public/v1/auth/token and send that session as a bearer token; reading needs the read scope. Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_not_prose' (422) for a canvas or spreadsheet, and 'items.body_unavailable' (503) when the body service cannot answer.
+     */
+    get: operations['GetItemBody'];
+    /**
+     * Replace a note body with Markdown
+     * @description Replaces the prose body with the Markdown in { "markdown": "..." }, at most 200,000 characters. An empty string clears the note. The write is a minimal Yjs update, the same diff nixctl note write applies, so a collaborator who has the note open sees it. Exchange a personal access token at POST /public/v1/auth/token and send that session as a bearer token; this route needs the write scope. Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_read_only' (403) when the caller can read but not write, 'items.body_not_prose' (422) for a canvas or spreadsheet, 'items.markdown_invalid' (422) when the Markdown is not a note, and 'items.markdown_too_large' (413) past the character ceiling.
+     */
+    put: operations['ReplaceItemBody'];
+    /**
+     * Append Markdown to a note body
+     * @description Appends the Markdown in { "markdown": "..." } as new blocks at the end of the note, at most 200,000 characters. Existing blocks are not reserialised, so marks Markdown cannot carry stay, and a collaborator who has the note open sees the new blocks. Authentication and the failure codes match replacing the body. An empty append is 'items.markdown_invalid' (422).
+     */
+    post: operations['AppendItemBody'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/files/uploads': {
     parameters: {
       query?: never;
@@ -4527,6 +4555,37 @@ export interface components {
       confirmationTitle: string;
       confirmationMessage: string;
     };
+    ItemBodyLoss: {
+      kind: string;
+      detail: string;
+    };
+    ItemBodyMarkdownChanges: {
+      /** Format: int32 */
+      unresolvedWikiLinks: number | string;
+      /** Format: int32 */
+      unresolvedObsidianEmbeds: number | string;
+      /** Format: int32 */
+      unresolvedLocalImages: number | string;
+      /** Format: int32 */
+      unsupportedImageAddresses: number | string;
+      /** Format: int32 */
+      inlineImagesFlattened: number | string;
+    };
+    ItemBodyResponse: {
+      markdown: string;
+      /** Format: int32 */
+      schemaVersion: number | string;
+      empty: boolean;
+      losses: components['schemas']['ItemBodyLoss'][];
+    };
+    ItemBodyWriteResponse: {
+      /** Format: uuid */
+      id: string;
+      seq: string;
+      /** Format: int32 */
+      updateBytes: number | string;
+      markdownChanges: components['schemas']['ItemBodyMarkdownChanges'];
+    };
     ItemLockPasswordRequest: {
       password: string;
     };
@@ -6188,6 +6247,9 @@ export interface components {
       lifecycleState: string;
       /** Format: date-time */
       archivedAt: null | string;
+    };
+    WriteItemBodyRequest: {
+      markdown: null | string;
     };
   };
   responses: never;
@@ -8199,6 +8261,278 @@ export interface operations {
       };
       /** @description Locked */
       423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetItemBody: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ItemBodyResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Locked */
+      423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ReplaceItemBody: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        'application/json': null | components['schemas']['WriteItemBodyRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ItemBodyWriteResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Payload Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Locked */
+      423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AppendItemBody: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        'application/json': null | components['schemas']['WriteItemBodyRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ItemBodyWriteResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Payload Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Locked */
+      423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
         headers: {
           [name: string]: unknown;
         };
