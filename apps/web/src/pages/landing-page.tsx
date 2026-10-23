@@ -1,8 +1,10 @@
-import { Blueprint, Button, Icon, Text } from '@nix/ui';
-import { ArrowRight } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Icon, Text } from '@nix/ui';
+import { FileText, type LucideIcon } from 'lucide-react';
+import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { selectIsBusy, useSessionStore } from '../auth/session-store';
+import { ThemeChoice } from '../theme/theme-choice';
+import { findViewKind } from '../views/core/view-kinds';
 
 export interface LandingPageProps {
   /** Starts the redirect to the identity provider. */
@@ -11,94 +13,452 @@ export interface LandingPageProps {
   readonly demo: boolean;
 }
 
-const FEATURES: readonly { readonly title: string; readonly detail: string }[] = [
+const REPOSITORY = 'https://github.com/sianachi/nixsites';
+const DOCS = 'https://nix.nixsites.com/';
+
+// design-token-exempt: the landing design's page measure, wider than any panel width on the scale.
+const PAGE = 'mx-auto w-full max-w-[1200px] px-4 sm:px-10';
+const RULE = 'border-divider';
+const BUTTON =
+  'inline-flex min-h-11 items-center rounded-md px-5 font-bold no-underline outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent';
+const PRIMARY = `${BUTTON} bg-accent-fill text-background hover:bg-accent-fill-hover`;
+const SECONDARY = `${BUTTON} border ${RULE} text-foreground hover:bg-surface`;
+const NAV_LINK = 'flex min-h-11 items-center text-muted no-underline hover:text-foreground';
+// The design's display sizes sit between the scale's steps; the phone keeps the scale's 40px and 28px.
+const HERO = 'leading-tight font-bold sm:text-[56px] sm:leading-[1.05]'; // design-token-exempt: the design's 56px display hero
+const SECTION_HEAD = 'leading-tight font-bold sm:text-[36px] sm:leading-[1.1]'; // design-token-exempt: the design's 36px section heads
+const LEAD = 'text-lg sm:text-[19px] sm:leading-normal'; // design-token-exempt: the design's 19px lead
+
+function Kicker({ children }: { readonly children: ReactNode }): ReactNode {
+  return (
+    <Text variant="kicker" as="p" tone="muted">
+      {children}
+    </Text>
+  );
+}
+
+function Shot(props: {
+  readonly src: string;
+  readonly alt: string;
+  readonly large?: boolean;
+  readonly eager?: boolean;
+}): ReactNode {
+  return (
+    <div
+      className={`overflow-hidden border ${RULE} bg-surface ${props.large === true ? 'rounded-lg' : 'rounded-md'}`}
+    >
+      <img
+        src={props.src}
+        alt={props.alt}
+        width={1600}
+        height={1000}
+        loading={props.eager === true ? 'eager' : 'lazy'}
+        className="block h-auto w-full"
+      />
+    </div>
+  );
+}
+
+function Point({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+  return (
+    <div className={`border-b ${RULE} py-5 pr-6`}>
+      <Text variant="h4" as="h3" className="mb-1 font-bold">
+        {title}
+      </Text>
+      <Text variant="bodySmall" as="p" tone="muted">
+        {children}
+      </Text>
+    </div>
+  );
+}
+
+const kindIcon = (kind: string): LucideIcon => findViewKind(kind)?.icon ?? FileText;
+
+/** Every view the hero can show, captured from the demo by apps/web/scripts/capture-landing.mjs. */
+const VIEWS: readonly {
+  readonly id: string;
+  readonly label: string;
+  readonly icon: LucideIcon;
+  readonly src: string;
+  readonly alt: string;
+}[] = [
   {
-    title: 'Notes and collections',
-    detail: 'Write notes, then see any collection as a list, board, calendar, timeline or gallery.',
+    id: 'note',
+    label: 'Notes',
+    icon: FileText,
+    src: '/landing/note.jpg',
+    alt: 'A launch brief note with headings, a list and a table',
   },
   {
-    title: 'Tasks, habits and My Day',
-    detail: 'Plan the day from one screen, with habits and synced calendars beside your tasks.',
+    id: 'board',
+    label: 'Board',
+    icon: kindIcon('board'),
+    src: '/landing/board.jpg',
+    alt: 'Launch tasks as a board, in columns by status',
   },
   {
-    title: 'A companion that can act',
-    detail: 'Ask the pet, an AI companion, to find, summarise or change things for you.',
+    id: 'list',
+    label: 'List',
+    icon: kindIcon('list'),
+    src: '/landing/list.jpg',
+    alt: 'Launch tasks as a list with status, priority and due date',
   },
   {
-    title: 'Publish as a site',
-    detail: 'Turn a set of notes into a docs site or a blog without leaving Nix.',
+    id: 'calendar',
+    label: 'Calendar',
+    icon: kindIcon('calendar'),
+    src: '/landing/calendar.jpg',
+    alt: 'Launch tasks on a month calendar by due date',
+  },
+  {
+    id: 'timeline',
+    label: 'Timeline',
+    icon: kindIcon('timeline'),
+    src: '/landing/timeline.jpg',
+    alt: 'Launch tasks as bars on a quarter timeline',
+  },
+  {
+    id: 'sheet',
+    label: 'Spreadsheet',
+    icon: kindIcon('sheet'),
+    src: '/landing/sheet.jpg',
+    alt: 'Launch tasks as an editable spreadsheet',
+  },
+  {
+    id: 'gallery',
+    label: 'Gallery',
+    icon: kindIcon('gallery'),
+    src: '/landing/gallery.jpg',
+    alt: 'Launch tasks as gallery cards',
+  },
+  {
+    id: 'checklist',
+    label: 'Checklist',
+    icon: kindIcon('checklist'),
+    src: '/landing/checklist.jpg',
+    alt: 'Launch tasks as a checklist with ticked items',
+  },
+  {
+    id: 'matrix',
+    label: 'Matrix',
+    icon: kindIcon('matrix'),
+    src: '/landing/matrix.jpg',
+    alt: 'Priorities in an urgent and important matrix',
+  },
+  {
+    id: 'outline',
+    label: 'Outline',
+    icon: kindIcon('outline'),
+    src: '/landing/outline.jpg',
+    alt: 'Launch tasks as an outline with nested steps',
+  },
+  {
+    id: 'chart',
+    label: 'Chart',
+    icon: kindIcon('chart'),
+    src: '/landing/chart.jpg',
+    alt: 'A chart counting launch tasks by status',
+  },
+  {
+    id: 'form',
+    label: 'Form',
+    icon: kindIcon('form'),
+    src: '/landing/form.jpg',
+    alt: 'A form that adds a launch task',
+  },
+  {
+    id: 'habits',
+    label: 'Habit tracker',
+    icon: kindIcon('habit_tracker'),
+    src: '/landing/habits.png',
+    alt: 'Habit tracker view in Nix',
+  },
+  {
+    id: 'companion',
+    label: 'Companion',
+    icon: kindIcon('chat'),
+    src: '/landing/companion.png',
+    alt: 'Companion chat in Nix',
   },
 ];
 
+/** The hero: one screenshot per view, chosen from a tab list (arrow keys move between tabs). */
+function ViewGallery(): ReactNode {
+  const [active, setActive] = useState(0);
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  const current = VIEWS[active] ?? VIEWS[0];
+  const select = (index: number): void => {
+    const next = (index + VIEWS.length) % VIEWS.length;
+    setActive(next);
+    tabs.current[next]?.focus();
+  };
+  const onKeyDown = (event: KeyboardEvent): void => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+    if (step !== undefined) {
+      event.preventDefault();
+      select(active + step);
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      select(event.key === 'Home' ? 0 : VIEWS.length - 1);
+    }
+  };
+  if (current === undefined) return null;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        role="tablist"
+        aria-label="Views"
+        className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0"
+      >
+        {VIEWS.map((view, index) => {
+          const selected = index === active;
+          return (
+            <button
+              key={view.id}
+              ref={(element) => {
+                tabs.current[index] = element;
+              }}
+              type="button"
+              role="tab"
+              id={`view-tab-${view.id}`}
+              aria-selected={selected}
+              aria-controls="view-panel"
+              tabIndex={selected ? 0 : -1}
+              onKeyDown={onKeyDown}
+              onClick={() => {
+                setActive(index);
+              }}
+              className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md border px-3 text-sm whitespace-nowrap outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent ${selected ? 'border-divider bg-foreground/7 text-foreground' : 'border-transparent text-muted hover:bg-foreground/5'}`}
+            >
+              <Icon icon={view.icon} size="sm" />
+              {view.label}
+            </button>
+          );
+        })}
+      </div>
+      <div id="view-panel" role="tabpanel" aria-labelledby={`view-tab-${current.id}`}>
+        <Shot src={current.src} alt={current.alt} large eager />
+      </div>
+    </div>
+  );
+}
+
 /**
- * The front door for an install that turns it on (`landing` in web-config.json): what Nix is, a
- * way in, and the demo. Shown only to an anonymous visitor at `/`; a deep link still gets sign-in.
+ * The front door for an install that turns it on (`landing` in web-config.json), after the landing
+ * design. Shown only to an anonymous visitor at `/`; a deep link still gets sign-in.
  */
 export function LandingPage({ onSignIn, demo }: LandingPageProps): ReactNode {
   const isBusy = useSessionStore(selectIsBusy);
+  const signIn = (
+    <button type="button" onClick={onSignIn} disabled={isBusy} className={SECONDARY}>
+      {isBusy ? 'Redirecting…' : 'Sign in'}
+    </button>
+  );
 
   return (
-    <main className="flex min-h-dvh flex-col bg-background">
-      <header className="flex items-center justify-between gap-4 border-b border-divider px-4 py-3 sm:px-8">
-        <Blueprint className="inline-flex size-10 items-center justify-center">
-          {/* text-primitive-exempt: the wordmark, set as on the sign-in card. */}
-          <span className="font-heading text-lg font-semibold tracking-slight">NX</span>
-        </Blueprint>
-        <Button variant="secondary" onClick={onSignIn} disabled={isBusy}>
-          {isBusy ? 'Redirecting…' : 'Sign in'}
-        </Button>
+    <div className="min-h-dvh bg-background text-md text-foreground">
+      <header className={`border-b ${RULE}`}>
+        <div className={`${PAGE} flex flex-wrap items-center justify-between gap-4 py-4`}>
+          <a
+            href="#top"
+            className="flex min-h-11 items-center font-heading text-xl font-bold text-foreground no-underline"
+          >
+            Nix
+          </a>
+          <nav aria-label="Primary" className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <a href="#views" className={NAV_LINK}>
+              Views
+            </a>
+            <a href="#companion" className={NAV_LINK}>
+              Companion
+            </a>
+            <a href="#own-it" className={NAV_LINK}>
+              Own your data
+            </a>
+            <a href={REPOSITORY} className={NAV_LINK}>
+              GitHub
+            </a>
+            <ThemeChoice inline />
+            {signIn}
+          </nav>
+        </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-10 px-4 py-12 sm:px-8 sm:py-20">
-        <section className="flex flex-col items-start gap-4">
-          <Text variant="h1" as="h1">
-            Your notes, tasks and days in one place
-          </Text>
-          <Text variant="body" as="p" tone="muted" className="max-w-prose">
-            Nix is a personal life-OS for people who run their life in one tool. Capture a thought,
-            plan the week and review the day, on the desktop or on your phone.
-          </Text>
-          <div className="flex flex-wrap items-center gap-3">
-            {demo ? (
-              <Button
-                variant="primary"
-                onClick={() => {
-                  globalThis.location.assign('/demo');
-                }}
-              >
-                Try the demo
-                <Icon icon={ArrowRight} size="sm" />
-              </Button>
-            ) : null}
-            <Button variant={demo ? 'secondary' : 'primary'} onClick={onSignIn} disabled={isBusy}>
-              {isBusy ? 'Redirecting…' : 'Sign in'}
-            </Button>
-          </div>
-          {demo ? (
-            <Text variant="caption" as="p" tone="muted">
-              The demo runs in your browser on sample data. Nothing you do there is sent or saved.
+      <main>
+        <section id="top" className={`${PAGE} pt-14 pb-16 sm:pt-22`}>
+          <div className="flex max-w-3xl flex-col gap-6">
+            <Kicker>Self-hosted · open source · MIT</Kicker>
+            <Text variant="h1" as="h1" className={`${HERO} text-balance`}>
+              Notes, tasks, habits and money in one tree you run yourself.
             </Text>
-          ) : null}
+            <Text variant="body" as="p" tone="muted" className={`${LEAD} max-w-2xl text-pretty`}>
+              Nix is an open-source alternative to Notion and Obsidian. Capture, plan and review
+              your day in one place, on desktop or phone, and take your data with you whenever you
+              like.
+            </Text>
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              {demo ? (
+                <a href="/demo" className={PRIMARY}>
+                  Open the live demo
+                </a>
+              ) : null}
+              <a href={REPOSITORY} className={SECONDARY}>
+                View on GitHub
+              </a>
+            </div>
+          </div>
+          <div className="mt-14">
+            <ViewGallery />
+          </div>
         </section>
 
-        <section aria-labelledby="landing-features">
-          <Text variant="h2" as="h2" id="landing-features" className="mb-4">
-            What it does
-          </Text>
-          <ul className="grid gap-6 sm:grid-cols-2">
-            {FEATURES.map((feature) => (
-              <li key={feature.title} className="flex flex-col gap-1">
-                <Text variant="h4" as="h3">
-                  {feature.title}
-                </Text>
-                <Text variant="bodySmall" as="p" tone="muted">
-                  {feature.detail}
-                </Text>
-              </li>
-            ))}
-          </ul>
+        <section id="views" className={`border-t ${RULE}`}>
+          <div className={`${PAGE} flex flex-col gap-12 py-20`}>
+            <div className="flex max-w-2xl flex-col gap-3">
+              <Kicker>One tree, many views</Kicker>
+              <Text variant="h2" as="h2" className={`${SECTION_HEAD} text-balance`}>
+                Keep the content. Change how you look at it.
+              </Text>
+              <Text variant="body" as="p" tone="muted" className="text-lg text-pretty">
+                A note, canvas or spreadsheet is separate from how its children are shown. The same
+                items can be a list, a board, a calendar, a timeline, a gallery, a chart, a habit
+                tracker or a finance ledger.
+              </Text>
+            </div>
+            <div className="grid gap-8 md:grid-cols-3">
+              {[
+                {
+                  src: '/landing/calendar.jpg',
+                  alt: 'Calendar view in Nix',
+                  title: 'Calendar',
+                  detail: 'Google and Outlook calendars sync both ways, with a visible log.',
+                },
+                {
+                  src: '/landing/habits.png',
+                  alt: 'Habit tracker view in Nix',
+                  title: 'Habits',
+                  detail: 'Due tasks and habits arrive as quiet push notifications.',
+                },
+                {
+                  src: '/landing/note.jpg',
+                  alt: 'A rich note open in Nix',
+                  title: 'Notes',
+                  detail:
+                    'Real-time editing with presence, version history and password-locked subtrees.',
+                },
+              ].map((figure) => (
+                <figure key={figure.title} className="m-0 flex flex-col gap-3">
+                  <Shot src={figure.src} alt={figure.alt} />
+                  <figcaption>
+                    <Text variant="h4" as="h3" className="font-bold">
+                      {figure.title}
+                    </Text>
+                    <Text variant="bodySmall" as="p" tone="muted" className="mt-1">
+                      {figure.detail}
+                    </Text>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
         </section>
-      </div>
-    </main>
+
+        <section id="companion" className={`border-y ${RULE} bg-surface`}>
+          <div className={`${PAGE} grid items-center gap-12 py-20 md:grid-cols-5`}>
+            <div className="flex min-w-0 flex-col gap-4 md:col-span-2">
+              <Kicker>Companion</Kicker>
+              <Text variant="h2" as="h2" className={`${SECTION_HEAD} text-balance`}>
+                Ask for structure. Review it before it runs.
+              </Text>
+              <Text variant="body" as="p" tone="muted" className="text-lg text-pretty">
+                The companion builds structure on request, and every plan is previewed before
+                anything changes. For your own tools, <code className="font-mono">nixctl</code> is a
+                JSON CLI and <code className="font-mono">nixctl mcp</code> exposes the workspace to
+                AI tools.
+              </Text>
+            </div>
+            <div className="min-w-0 md:col-span-3">
+              <Shot src="/landing/companion.png" alt="Companion chat in Nix" large />
+            </div>
+          </div>
+        </section>
+
+        <section id="own-it">
+          <div className={`${PAGE} flex flex-col gap-12 py-20`}>
+            <div className="flex max-w-2xl flex-col gap-3">
+              <Kicker>Own it</Kicker>
+              <Text variant="h2" as="h2" className={`${SECTION_HEAD} text-balance`}>
+                Runs on your machine. Leaves whenever you do.
+              </Text>
+            </div>
+            <div className="grid items-start gap-12 md:grid-cols-2">
+              <div className={`grid min-w-0 border-t ${RULE} sm:grid-cols-2`}>
+                <Point title="No lock-in">
+                  Lossless .nix archives, plus PDF, DOCX and Markdown export. Markdown, DOCX, PDF
+                  and Obsidian import.
+                </Point>
+                <Point title="Safe by construction">
+                  Permissions are enforced by Postgres row-level security. The web app, CLI and MCP
+                  server share one authorisation path.
+                </Point>
+                <Point title="Publish a subtree">
+                  Turn part of your tree into a static site. The live demo and docs are one.
+                </Point>
+                <Point title="An HTTP API">
+                  The same workspace is a REST API, with a published OpenAPI contract.
+                </Point>
+              </div>
+              <div className="min-w-0">
+                <Shot src="/landing/dark-theme.jpg" alt="Nix in its dark theme" large />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className={`border-t ${RULE}`}>
+          <div className={`${PAGE} flex flex-wrap items-center justify-between gap-6 py-18`}>
+            <Text variant="h2" as="h2" className="max-w-xl font-bold text-balance">
+              {demo ? 'See it before you install it.' : 'Already running Nix here?'}
+            </Text>
+            {demo ? (
+              <a href="/demo" className={PRIMARY}>
+                Open the live demo
+              </a>
+            ) : (
+              signIn
+            )}
+          </div>
+        </section>
+      </main>
+
+      <footer className={`border-t ${RULE}`}>
+        <div className={`${PAGE} flex flex-wrap justify-between gap-x-6 gap-y-2 py-6`}>
+          <Text variant="bodySmall" as="p" tone="muted" className="flex min-h-11 items-center">
+            Nix is MIT licensed.
+          </Text>
+          <nav aria-label="Project" className="flex flex-wrap gap-x-6 gap-y-2 text-base">
+            <a
+              href={REPOSITORY}
+              className="flex min-h-11 items-center text-accent-text underline underline-offset-2"
+            >
+              Source
+            </a>
+            <a
+              href={`${REPOSITORY}/releases/latest`}
+              className="flex min-h-11 items-center text-accent-text underline underline-offset-2"
+            >
+              Releases
+            </a>
+            <a
+              href={DOCS}
+              className="flex min-h-11 items-center text-accent-text underline underline-offset-2"
+            >
+              Docs
+            </a>
+          </nav>
+        </div>
+      </footer>
+    </div>
   );
 }

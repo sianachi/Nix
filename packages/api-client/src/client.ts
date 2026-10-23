@@ -57,6 +57,8 @@ export interface NixClientConfig {
   readonly defaultHeaders?: Readonly<Record<string, string>> | undefined;
   readonly telemetry?: NixTelemetry | undefined;
   readonly cache?: ServerCacheOptions | undefined;
+  /** Answers requests in place of the global fetch; the web demo serves an in-memory workspace. */
+  readonly fetch?: typeof fetch | undefined;
 }
 
 export interface CallOptions {
@@ -153,6 +155,7 @@ export function createNixClient(config: NixClientConfig): NixClient {
         baseUrl: config.baseUrl,
         timeoutMs: config.timeoutMs,
         defaultHeaders: config.defaultHeaders,
+        fetch: config.fetch,
       }),
       { tokens: config.tokens, coordinator },
     ),
@@ -276,7 +279,7 @@ export function createNixClient(config: NixClientConfig): NixClient {
       const body = JSON.stringify(request.body);
       return sendAuthenticated(
         (authorization) =>
-          fetch(url, {
+          (config.fetch ?? fetch)(url, {
             method: 'POST',
             // Bearer tokens only, as the transport: no ambient cookies.
             credentials: 'omit',
