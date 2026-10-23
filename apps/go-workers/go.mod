@@ -1,15 +1,13 @@
 module github.com/sianachi/Nix/apps/go-workers
 
-go 1.26
+go 1.26.0
 
 require (
-	codeberg.org/go-pdf/fpdf v0.11.1
-	github.com/rabbitmq/amqp091-go v1.14.0
+	codeberg.org/go-pdf/fpdf v0.12.0
+	github.com/rabbitmq/amqp091-go v1.16.0
 	github.com/tetratelabs/wazero v1.12.0
-	golang.org/x/image v0.40.0
-	golang.org/x/sys v0.44.0
+	golang.org/x/image v0.47.0
+	golang.org/x/sys v0.49.0
 )
 
-require (
-	golang.org/x/text v0.37.0 // indirect
-)
+require golang.org/x/text v0.43.0 // indirect
