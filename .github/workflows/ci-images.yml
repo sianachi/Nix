@@ -195,7 +195,7 @@ jobs:
           digest='${{ steps.build.outputs.digest }}'
           touch "$RUNNER_TEMP/digests/${digest#sha256:}"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.name }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
