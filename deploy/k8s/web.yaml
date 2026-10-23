@@ -35,6 +35,11 @@ spec:
               value: "${POD_CIDR}"
             - name: NIX_CLIENT_IP_HEADER
               value: "${CLIENT_IP_HEADER}"
+            # Served as /web-config.json by the Caddyfile; deploy/k8s/deploy.sh defaults both to false.
+            - name: NIX_WEB_LANDING
+              value: "${NIX_WEB_LANDING}"
+            - name: NIX_WEB_DEMO
+              value: "${NIX_WEB_DEMO}"
           volumeMounts:
             - { name: caddyfile, mountPath: /etc/caddy, readOnly: true }
             - { name: caddy-data, mountPath: /data }

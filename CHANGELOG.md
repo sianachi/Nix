@@ -3,6 +3,16 @@
 All notable changes to Nix are recorded here. The format follows Keep a Changelog and the project
 follows semantic versioning (`0.x` pre-1.0).
 
+## Unreleased
+
+### Added
+
+- An optional landing page for signed-out visitors at `/`, and an optional `/demo` that lets
+  anyone try the board, list, calendar, timeline, spreadsheet, gallery, checklist and matrix
+  views on sample data kept in the browser, with no account and no server calls. Both are off by
+  default; on Kubernetes set `NIX_WEB_LANDING=true` and `NIX_WEB_DEMO=true` before
+  `deploy/k8s/deploy.sh`.
+
 ## 0.3.1 - 2026-10-21
 
 ### Added

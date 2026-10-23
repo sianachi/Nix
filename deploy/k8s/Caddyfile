@@ -66,6 +66,14 @@
 		reverse_proxy nix-collab:8100
 	}
 
+	# The web app's per-install front-door switches (apps/web/src/lib/web-config.ts). Answered here,
+	# not by Core, so the demo never reaches the API. Values come from deploy/k8s/web.yaml.
+	handle /web-config.json {
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond `{"landing":{$NIX_WEB_LANDING:false},"demo":{$NIX_WEB_DEMO:false}}` 200
+	}
+
 	handle {
 		try_files {path} /index.html
 		file_server

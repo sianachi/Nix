@@ -1,9 +1,11 @@
 import { Button, Text } from '@nix/ui';
 import { type ReactNode } from 'react';
-import { Outlet } from 'react-router';
+import { Outlet, useLocation } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
 import { useSessionStore, type Unreachable } from '../auth/session-store';
+import { useWebConfig } from '../lib/web-config';
+import { LandingPage } from '../pages/landing-page';
 import { LoginPage } from '../pages/login-page';
 import { OfflineNotesPage } from '../offline/offline-notes-page';
 import { useNetworkOnline } from '../offline/use-network-online';
@@ -29,6 +31,8 @@ export function RequireSession(): ReactNode {
   const profile = useSessionStore((state) => state.profile);
   const online = useNetworkOnline();
   const { signIn, isConfigured } = useAuth();
+  const { landing, demo } = useWebConfig();
+  const { pathname } = useLocation();
 
   if (
     profile !== null &&
@@ -67,6 +71,19 @@ export function RequireSession(): ReactNode {
           Restoring session…
         </Text>
       </main>
+    );
+  }
+
+  // The public front door, where an install turns it on: only at the bare root, so a deep link
+  // still lands on sign-in and then where it was going, and never over a reason sign-in must show.
+  if (landing && status === 'anonymous' && error === null && pathname === '/') {
+    return (
+      <LandingPage
+        onSignIn={() => {
+          void signIn();
+        }}
+        demo={demo}
+      />
     );
   }
 
