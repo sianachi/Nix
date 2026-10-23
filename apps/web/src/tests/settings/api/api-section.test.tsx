@@ -28,8 +28,10 @@ describe('Settings > API', () => {
   it('shows the token exchange and a User-Agent', async () => {
     renderAt(<App />, '/settings?tab=api');
     const section = await screen.findByRole('region', { name: 'API' });
-    expect(within(section).getByText(/\/public\/v1\/auth\/token/)).toBeVisible();
-    expect(within(section).getByText(/nix-api-example\/1\.0/)).toBeVisible();
+    const example = within(section).getByText(/curl -sS/);
+    expect(example).toHaveTextContent('/public/v1/auth/token');
+    expect(example).toHaveTextContent('nix-api-example/1.0');
+    expect(example).toBeVisible();
     expect(within(section).getByText(/default Python and urllib user agents/)).toBeVisible();
     expect(within(section).getByRole('link', { name: 'Access tokens' })).toBeVisible();
     expect(within(section).getByRole('link', { name: 'Nix documentation' })).toHaveAttribute(
