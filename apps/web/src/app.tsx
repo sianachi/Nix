@@ -46,6 +46,16 @@ const TokensPage = lazy(async () => {
 });
 
 /**
+ * The server-free demo (lib/web-config.ts), which main.tsx mounts as its own root outside <App />.
+ * Exported from here so the entry keeps its one dynamic import and the demo stays out of every
+ * install's startup cache.
+ */
+export const DemoRoot = lazy(async () => {
+  const module = await import('./demo/demo-page');
+  return { default: module.DemoPage };
+});
+
+/**
  * The route tree and the crash barrier that wraps it.
  *
  * react-router is used in declarative mode: routes are JSX, and there are no
