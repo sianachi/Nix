@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Security problem? Do not file it here. See SECURITY.md.
+        A security problem goes to a [private advisory](https://github.com/sianachi/nixsites/security/advisories/new), not a public issue.
   - type: textarea
     id: what-happened
     attributes:
@@ -31,24 +31,40 @@ body:
   - type: input
     id: version
     attributes:
-      label: Version or commit
-      description: A release tag such as v0.3.0, or the commit SHA.
+      label: Nix version or image tag
+      description: A release tag such as v0.3.1, or the image tag (the full commit SHA) from ghcr.io/sianachi/nix.
+      placeholder: v0.3.1
     validations:
       required: true
   - type: dropdown
-    id: environment
+    id: install-method
     attributes:
-      label: Where it runs
+      label: Install method
+      description: How this copy of Nix is installed.
       options:
-        - Local development (pnpm dev)
         - Docker Compose
         - Kubernetes
+        - Demo site
+        - Local development
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Browser or client
+      description: Where you saw the problem.
+      options:
+        - Web
+        - nixctl
+        - MCP
+        - REST API
         - Other
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Logs or screenshots
-      description: Remove tokens, passwords, hostnames and personal data before you paste.
-      render: text
+      label: Logs
+      description: Paste the relevant log output. Remove tokens, secrets, hostnames and personal data first.
+      render: shell

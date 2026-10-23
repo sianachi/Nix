@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Ask a question
+    url: https://github.com/sianachi/nixsites/discussions/categories/q-a
+    about: Questions and how-to help belong in GitHub Discussions, under Q&A.
   - name: Report a security vulnerability
     url: https://github.com/sianachi/nixsites/security/advisories/new
     about: Report security problems privately. Do not open a public issue.
