@@ -34,6 +34,10 @@ updates:
     groups:
       docker-minor-patch:
         update-types: [minor, patch]
+    # Node majors include odd, non-LTS releases; the next LTS is moved to by hand.
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /

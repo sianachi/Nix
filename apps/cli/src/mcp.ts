@@ -143,7 +143,7 @@ export async function createWorkspaceMcpServer(
   options: WorkspaceMcpOptions = {},
 ): Promise<McpServer> {
   const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
-  const server = new McpServer({ name: 'nixctl', version: '0.3.1' });
+  const server = new McpServer({ name: 'nixctl', version: '0.4.0' });
   const resolver = options.resolve ?? resolveSession;
   const session = lazy(() => resolver(options.profileName, options.sessionDeps ?? {}));
 

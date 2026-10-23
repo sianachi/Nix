@@ -3,7 +3,7 @@
 All notable changes to Nix are recorded here. The format follows Keep a Changelog and the project
 follows semantic versioning (`0.x` pre-1.0).
 
-## Unreleased
+## 0.4.0 - 2026-10-23
 
 ### Added
 
@@ -50,6 +50,9 @@ follows semantic versioning (`0.x` pre-1.0).
 - A Kubernetes install can turn remote MCP off with `NIX_MCP_ENABLED=false` on
   `deploy/k8s/deploy.sh`. The `/mcp` route and its service are removed, and Settings no longer
   shows an MCP endpoint. It stays on by default.
+- The backend runs on the .NET 10.0.13 servicing release (ASP.NET Core, Entity Framework Core and
+  JWT bearer authentication), and the Go workers take minor updates to their PDF, image and
+  RabbitMQ libraries.
 
 ### Fixed
 

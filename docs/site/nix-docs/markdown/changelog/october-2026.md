@@ -2,6 +2,30 @@
 
 # October 2026
 
+## Version 0.4.0
+
+### Site style choices
+
+- Pick a site's typeface (rounded Nunito Sans, book serif Literata or Atkinson Hyperlegible Next), the mark before headings and cards (square, diamond or none) and its spacing (compact, comfortable or airy), in the site settings or with `nixctl site update`. Every font is self-hosted.
+- Code blocks have a Copy button, and a section's `#` link copies the link to that section. In search, the arrow keys move through the results and Enter opens the first one.
+- On phones, docs pages fold "On this page" above the text and the site navigation sits on one scrolling row. Every page ends with "Back to top".
+- Links take the site's accent colour, adjusted until it reads clearly on both themes. List views show each page's first properties beside its title, and charts label their columns and fit phone screens.
+- A blog home page no longer repeats what the top navigation already links.
+
+### Note bodies over the API
+
+- Read, replace or append a note body as Markdown at `/api/v1/items/{itemId}/body` with a personal access token. An editor that already has the note open sees the change, and appending leaves the existing text in place.
+
+### Landing page and demo
+
+- An install can show a landing page to signed-out visitors and offer a demo that tries the board, list, calendar, timeline, spreadsheet, gallery, checklist and matrix views on sample data in the browser, with no account. Both are off unless the install turns them on.
+
+### Self-hosting
+
+- A Kubernetes install can turn remote MCP off with `NIX_MCP_ENABLED=false`.
+- A Compose release now starts the remote MCP service when its profile is on.
+- The one-line install lists what it needs, including about 8 GB of memory for Docker, stops if a tool is missing and warns when Docker has less memory.
+
 ## Version 0.3.1
 
 ### One-line install
