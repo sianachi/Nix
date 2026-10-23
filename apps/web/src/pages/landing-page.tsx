@@ -25,8 +25,8 @@ const PRIMARY = `${BUTTON} bg-accent-fill text-background hover:bg-accent-fill-h
 const SECONDARY = `${BUTTON} border ${RULE} text-foreground hover:bg-surface`;
 const NAV_LINK = 'flex min-h-11 items-center text-muted no-underline hover:text-foreground';
 // The design's display sizes sit between the scale's steps; the phone keeps the scale's 40px and 28px.
-const HERO = 'text-3xl leading-tight font-bold sm:text-[56px] sm:leading-[1.05]'; // design-token-exempt: the design's 56px display hero
-const SECTION_HEAD = 'text-2xl leading-tight font-bold sm:text-[36px] sm:leading-[1.1]'; // design-token-exempt: the design's 36px section heads
+const HERO = 'leading-tight font-bold sm:text-[56px] sm:leading-[1.05]'; // design-token-exempt: the design's 56px display hero
+const SECTION_HEAD = 'leading-tight font-bold sm:text-[36px] sm:leading-[1.1]'; // design-token-exempt: the design's 36px section heads
 const LEAD = 'text-lg sm:text-[19px] sm:leading-normal'; // design-token-exempt: the design's 19px lead
 
 function Kicker({ children }: { readonly children: ReactNode }): ReactNode {
