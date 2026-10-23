@@ -36,6 +36,9 @@ export const siteSettingsSchema = z.object({
   // Absent from a Core that predates them.
   noindex: z.boolean().default(false),
   author: z.string().nullable().default(null),
+  headingMark: z.enum(['square', 'diamond', 'none']).default('square'),
+  typeface: z.enum(['rounded', 'serif', 'legible']).default('rounded'),
+  spacing: z.enum(['compact', 'comfortable', 'airy']).default('comfortable'),
 });
 
 export const siteDatedCollectionSchema = z.object({

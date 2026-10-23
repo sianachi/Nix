@@ -5567,6 +5567,12 @@ export interface components {
       /** @default false */
       noindex: boolean;
       author?: null | string;
+      /** @default square */
+      headingMark: string;
+      /** @default rounded */
+      typeface: string;
+      /** @default comfortable */
+      spacing: string;
     };
     StructuredItemResponse: {
       item: components['schemas']['ItemResponse'];

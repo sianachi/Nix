@@ -19,6 +19,26 @@ const MODES: readonly { value: SiteRepublishMode; label: string }[] = [
   { value: 'on_release', label: 'With each Nix release' },
 ];
 
+type Look = Site['settings'];
+
+const MARKS: readonly { value: Look['headingMark']; label: string }[] = [
+  { value: 'square', label: 'Square' },
+  { value: 'diamond', label: 'Diamond' },
+  { value: 'none', label: 'None' },
+];
+
+const TYPEFACES: readonly { value: Look['typeface']; label: string }[] = [
+  { value: 'rounded', label: 'Rounded: Nunito Sans' },
+  { value: 'serif', label: 'Book serif: Literata' },
+  { value: 'legible', label: 'Hyperlegible: Atkinson Hyperlegible Next' },
+];
+
+const SPACINGS: readonly { value: Look['spacing']; label: string }[] = [
+  { value: 'compact', label: 'Compact' },
+  { value: 'comfortable', label: 'Comfortable' },
+  { value: 'airy', label: 'Airy' },
+];
+
 const SETTLE_TIMES: readonly { seconds: number; label: string }[] = [
   { seconds: 60, label: '1 minute' },
   { seconds: 300, label: '5 minutes' },
@@ -107,6 +127,9 @@ interface SettingsDraft {
   readonly name: string;
   readonly description: string;
   readonly accent: string;
+  readonly headingMark: Look['headingMark'];
+  readonly typeface: Look['typeface'];
+  readonly spacing: Look['spacing'];
   readonly layout: SiteLayout;
   readonly navigation: string;
   readonly footerText: string;
@@ -122,6 +145,9 @@ function draftOf(site: Site): SettingsDraft {
     name: site.settings.name,
     description: site.settings.description,
     accent: site.settings.accent,
+    headingMark: site.settings.headingMark,
+    typeface: site.settings.typeface,
+    spacing: site.settings.spacing,
     layout: site.layout,
     navigation: formatNavigation(site.settings.navigation),
     footerText: site.settings.footerText,
@@ -188,6 +214,9 @@ export function SiteSettingsForm({
             name: draft.name.trim(),
             description: draft.description.trim(),
             accent: draft.accent,
+            headingMark: draft.headingMark,
+            typeface: draft.typeface,
+            spacing: draft.spacing,
             navigation: parseNavigation(draft.navigation),
             footerText: draft.footerText,
             builtWithNix: draft.builtWithNix,
@@ -279,6 +308,63 @@ export function SiteSettingsForm({
                 edit({ accent: event.currentTarget.value });
               }}
             />
+          )}
+        </Field>
+        <Field label="Typeface">
+          {(control) => (
+            <Select
+              {...control}
+              value={draft.typeface}
+              onChange={(event) => {
+                const value = TYPEFACES.find((face) => face.value === event.currentTarget.value);
+                if (value !== undefined) edit({ typeface: value.value });
+              }}
+            >
+              {TYPEFACES.map((face) => (
+                <option key={face.value} value={face.value}>
+                  {face.label}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field
+          label="Heading mark"
+          hint="The shape before section headings, cards and the site name."
+        >
+          {(control) => (
+            <Select
+              {...control}
+              value={draft.headingMark}
+              onChange={(event) => {
+                const value = MARKS.find((mark) => mark.value === event.currentTarget.value);
+                if (value !== undefined) edit({ headingMark: value.value });
+              }}
+            >
+              {MARKS.map((mark) => (
+                <option key={mark.value} value={mark.value}>
+                  {mark.label}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field label="Spacing">
+          {(control) => (
+            <Select
+              {...control}
+              value={draft.spacing}
+              onChange={(event) => {
+                const value = SPACINGS.find((space) => space.value === event.currentTarget.value);
+                if (value !== undefined) edit({ spacing: value.value });
+              }}
+            >
+              {SPACINGS.map((space) => (
+                <option key={space.value} value={space.value}>
+                  {space.label}
+                </option>
+              ))}
+            </Select>
           )}
         </Field>
         <Field

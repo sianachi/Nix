@@ -18,6 +18,9 @@ public sealed record SiteNavLinkDto(string Label, string Path);
 /// <param name="Language">The language tag.</param>
 /// <param name="Noindex">Whether search engines are asked to leave the whole site out. Absent means false.</param>
 /// <param name="Author">The person who writes the site, for structured data; null for none.</param>
+/// <param name="HeadingMark">The shape before headings and cards: <c>square</c>, <c>diamond</c> or <c>none</c>. Absent means square.</param>
+/// <param name="Typeface">The type family: <c>rounded</c>, <c>serif</c> or <c>legible</c>. Absent means rounded.</param>
+/// <param name="Spacing">The vertical rhythm: <c>compact</c>, <c>comfortable</c> or <c>airy</c>. Absent means comfortable.</param>
 public sealed record SiteSettingsDto(
     string Name,
     string Description,
@@ -27,7 +30,10 @@ public sealed record SiteSettingsDto(
     bool BuiltWithNix,
     string Language,
     bool Noindex = false,
-    string? Author = null);
+    string? Author = null,
+    string HeadingMark = "square",
+    string Typeface = "rounded",
+    string Spacing = "comfortable");
 
 /// <summary>A collection whose children are dated posts, with the properties the blog layout reads.</summary>
 /// <param name="ItemId">The collection item.</param>

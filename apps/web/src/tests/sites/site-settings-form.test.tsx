@@ -61,6 +61,27 @@ describe('the site settings form', () => {
     );
   });
 
+  it('saves the typeface, heading mark and spacing with the rest of the settings', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(() => Promise.resolve(null));
+    render(<SiteSettingsForm site={site()} onSave={onSave} />);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: /^typeface/i }), 'serif');
+    await user.selectOptions(screen.getByRole('combobox', { name: /^heading mark/i }), 'diamond');
+    await user.selectOptions(screen.getByRole('combobox', { name: /^spacing/i }), 'airy');
+    await user.click(screen.getByRole('button', { name: /save settings/i }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          typeface: 'serif',
+          headingMark: 'diamond',
+          spacing: 'airy',
+        }) as unknown,
+      }),
+    );
+  });
+
   it('checks navigation lines', () => {
     expect(navigationProblem('Home /\n\nGuide /guide/')).toBeNull();
     expect(navigationProblem('Home /\nAbout')).toBe(
