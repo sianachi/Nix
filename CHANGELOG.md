@@ -39,9 +39,14 @@ follows semantic versioning (`0.x` pre-1.0).
 - Links on published sites take the site's accent colour, adjusted until it reads at 4.5:1 on
   both themes. Dates, tags and other metadata use the site's own typeface when it is the serif
   or Atkinson.
+- A Kubernetes install can turn remote MCP off with `NIX_MCP_ENABLED=false` on
+  `deploy/k8s/deploy.sh`. The `/mcp` route and its service are removed, and Settings no longer
+  shows an MCP endpoint. It stays on by default.
 
 ### Fixed
 
+- A Compose release now pulls and restarts the remote MCP service when the `mcp` profile is on.
+  Before, turning the profile on never started it.
 - The one-line install lists Docker with the Compose plugin, `curl`, `openssl`, `jq` and about
   8 GB of memory for Docker before the command. `deploy/install.sh` stops if one of those tools
   is missing, and warns when Docker has less than about 8 GB.
