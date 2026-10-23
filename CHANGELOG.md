@@ -7,11 +7,57 @@ follows semantic versioning (`0.x` pre-1.0).
 
 ### Added
 
+**Note bodies over the API**
+
+- A note body can be read, replaced, or appended as Markdown at
+  `GET`, `PUT`, and `POST /api/v1/items/{itemId}/body`. Exchange a personal access token at
+  `POST /public/v1/auth/token` and send the returned session as a bearer token. Reading needs
+  the read scope and writing needs the write scope. The write is a Yjs update, so an editor
+  that already has the note open sees it. Appending adds blocks and leaves the existing rich
+  text in place. A canvas or a spreadsheet is refused.
+
+**Site style choices**
+
+- A site can pick its typeface (rounded Nunito Sans, book serif Literata, or Atkinson
+  Hyperlegible Next), the mark before headings and cards (square, diamond or none) and its
+  spacing (compact, comfortable or airy), in the site settings form or with
+  `nixctl site update --typeface --heading-mark --spacing`. Every font is self-hosted.
+- Published sites have a Copy button on every code block, and a section's `#` link copies the
+  link to that section. On touch screens the section links always show. In search, the arrow
+  keys move through the results and Enter opens the first one.
+- On phones, docs pages fold "On this page" above the text, and the site navigation sits on one
+  scrolling row under the site name. Every page footer has "Back to top".
+- List views on published sites show each page's first properties, such as its status, beside
+  its title.
+- Published charts label every column when there are six or fewer, cut long labels to fit, set
+  larger text on phones, and draw a single series in the site's accent.
+- A blog home page no longer repeats under "Pages" what the top navigation already links, and no
+  longer captions a collection "N pages".
+
+**Landing page and demo**
+
 - An optional landing page for signed-out visitors at `/`, and an optional `/demo` that lets
   anyone try the board, list, calendar, timeline, spreadsheet, gallery, checklist and matrix
   views on sample data kept in the browser, with no account and no server calls. Both are off by
   default; on Kubernetes set `NIX_WEB_LANDING=true` and `NIX_WEB_DEMO=true` before
   `deploy/k8s/deploy.sh`.
+
+### Changed
+
+- Links on published sites take the site's accent colour, adjusted until it reads at 4.5:1 on
+  both themes. Dates, tags and other metadata use the site's own typeface when it is the serif
+  or Atkinson.
+- A Kubernetes install can turn remote MCP off with `NIX_MCP_ENABLED=false` on
+  `deploy/k8s/deploy.sh`. The `/mcp` route and its service are removed, and Settings no longer
+  shows an MCP endpoint. It stays on by default.
+
+### Fixed
+
+- A Compose release now pulls and restarts the remote MCP service when the `mcp` profile is on.
+  Before, turning the profile on never started it.
+- The one-line install lists Docker with the Compose plugin, `curl`, `openssl`, `jq` and about
+  8 GB of memory for Docker before the command. `deploy/install.sh` stops if one of those tools
+  is missing, and warns when Docker has less than about 8 GB.
 
 ## 0.3.1 - 2026-10-21
 

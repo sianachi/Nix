@@ -71,4 +71,28 @@ public static class ItemErrors
     /// <summary>The workspace does not exist or is not visible.</summary>
     public static NixError WorkspaceNotFound(string detail) =>
         new("workspaces.not_found", detail);
+
+    /// <summary>The caller can see the item and may not change its body.</summary>
+    public static NixError BodyReadOnly(string detail) => new(ItemEndpoints.BodyReadOnlyCode, detail);
+
+    /// <summary>The Markdown is not a note this build can store.</summary>
+    public static NixError MarkdownInvalid(string detail) => new(ItemEndpoints.MarkdownInvalidCode, detail);
+
+    /// <summary>The Markdown is longer than the body route accepts.</summary>
+    public static NixError MarkdownTooLarge(string detail) => new(ItemEndpoints.MarkdownTooLargeCode, detail);
+
+    /// <summary>The item's body is a kind Markdown cannot carry.</summary>
+    public static NixError BodyNotProse(string detail) => new(ItemEndpoints.BodyNotProseCode, detail);
+
+    /// <summary>The collaboration service could not apply or return the body.</summary>
+    public static NixError BodyUnavailable(string detail) => new(ItemEndpoints.BodyUnavailableCode, detail);
+
+    /// <summary>The merged note would exceed a document ceiling.</summary>
+    public static NixError BodyTooLarge(string detail) => new(ItemEndpoints.BodyTooLargeCode, detail);
+
+    /// <summary>The document has taken more updates than the collaboration window allows.</summary>
+    public static NixError BodyRateLimited(string detail) => new(ItemEndpoints.BodyRateLimitedCode, detail);
+
+    /// <summary>The body could not be written because of the document's schema pin.</summary>
+    public static NixError BodyConflict(string detail) => new(ItemEndpoints.BodyConflictCode, detail);
 }

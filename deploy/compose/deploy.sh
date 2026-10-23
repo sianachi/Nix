@@ -39,12 +39,16 @@ if missing:
   false) ;;
   *) echo 'NIX_BOOTSTRAP_IDENTITY must be true or false' >&2; exit 2 ;;
 esac
-# Sites (ADR-0063) roll with the release when the env file enables them: COMPOSE_PROFILES=sites
-# (visible only without --profile flags) or NIX_SITES_DOMAIN. Otherwise they are left alone.
-sites_services=()
+# Sites (ADR-0063) and remote MCP roll with the release when the env file enables them:
+# COMPOSE_PROFILES=sites,mcp (visible only without --profile flags), or NIX_SITES_DOMAIN for
+# sites. Otherwise they are left alone.
+optional_services=()
 active_services=$("${compose[@]}" config --services)
 if [ -n "$sites_domain" ] || grep -qx nix-sites-worker <<< "$active_services"; then
-  sites_services=(nix-sites-worker nix-sites-serve)
+  optional_services=(nix-sites-worker nix-sites-serve)
+fi
+if grep -qx nix-mcp <<< "$active_services"; then
+  optional_services+=(nix-mcp)
 fi
 export NIX_SMOKE_ORIGIN
 # Smoke checks run from the release-tools image at the release tag; the host needs no Node.
@@ -61,7 +65,7 @@ smoke() {
 smoke --preflight
 # Fetch release images before writers stop, so the maintenance window excludes the download.
 # Host-built images (NIX_IMAGE_REGISTRY=localhost/nix) must already exist locally.
-release_services=(nix-migrate nix-api nix-collab-migrate nix-collab nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-web ${sites_services[@]+"${sites_services[@]}"})
+release_services=(nix-migrate nix-api nix-collab-migrate nix-collab nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-web ${optional_services[@]+"${optional_services[@]}"})
 while IFS= read -r image; do
   case "$image" in
     localhost/*) docker image inspect "$image" >/dev/null ;;
@@ -84,7 +88,7 @@ done
 # migrations run. RabbitMQ mounts its configuration from the release checkout, so every release
 # recreates it; with publishers and consumers stopped, that restart cannot interrupt a delivery
 # (queues are durable and messages persistent). Failure leaves writers stopped for inspection.
-"${compose[@]}" stop nix-web ${sites_services[@]+"${sites_services[@]}"} nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-collab nix-api
+"${compose[@]}" stop nix-web ${optional_services[@]+"${optional_services[@]}"} nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-collab nix-api
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres rabbitmq nix-versitygw
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-storage-init
 # The BackupRuns migration grants to the nix_backup role, which migrations cannot create. Create
@@ -98,6 +102,6 @@ fi
 "${compose[@]}" run --rm --no-deps nix-api-init
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-collab-migrate
 "${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-api nix-collab
-"${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker ${sites_services[@]+"${sites_services[@]}"} nix-web cloudflared
+"${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker ${optional_services[@]+"${optional_services[@]}"} nix-web cloudflared
 smoke
 echo 'Compose release passed import/export verification. Complete browser checks in the runbook.'

@@ -20,6 +20,11 @@ material and live in `docs/agent-guides/`.
   `scripts/changed-path-checks.sh` and report anything that cannot run.
 - Query or stress a running Nix instance through `nixctl` or MCP. If neither can
   express the need, close that tooling gap in the same session.
+- Every user-facing change adds an entry under `## Unreleased` in `CHANGELOG.md`, in Added,
+  Changed, Deprecated, Removed, Fixed or Security. Start an entry with `**Breaking:**` when an
+  upgrade needs a step or a script using `/api/v1`, `nixctl` or MCP stops working, and say the
+  step. Never set a version by hand: `scripts/release-version.sh` with no argument picks it from
+  those sections. The definition is the Versioning section of `docs/release/release-process.md`.
 - No emojis in code, comments, tests, docs, logs, UI copy, or commit messages.
 - Do not commit local standards or Markdown unless the owner explicitly asks.
   Stage explicit paths only; never use `git add .`, `git add -A`, or `git commit -a`.

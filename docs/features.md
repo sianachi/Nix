@@ -104,7 +104,9 @@ The full list of what Nix does today, moved out of the README. Behaviour is defi
 - Permission-filtered access backed by Postgres row-level security; roles live in the database, not
   in tokens.
 - Personal access tokens with independent `read`, `write` and `admin` scopes and a required expiry
-  of 1 to 365 days, for `nixctl`, MCP and scripts.
+  of 1 to 365 days, for `nixctl`, MCP and scripts. After exchanging a token, a script can read,
+  replace, or append a note's Markdown at `GET`, `PUT`, and `POST /api/v1/items/{itemId}/body`.
+  The write is the same Yjs update an open editor applies, so live collaborators see it.
 - Export of documents and subtrees to lossless `.nix`, PDF, DOCX and Markdown, with declared losses.
   Views, forms, sheets and canvases export as readable static content.
 - Editable Markdown, TXT, DOCX and PDF imports, `.nix` archive import, and a one-time Obsidian

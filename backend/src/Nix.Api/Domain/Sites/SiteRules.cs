@@ -276,6 +276,9 @@ public sealed record SiteNavLink(string Label, string Path);
 /// <param name="Language">The language tag, for the <c>lang</c> attribute.</param>
 /// <param name="Noindex">Whether search engines are asked to leave the whole site out.</param>
 /// <param name="Author">The person who writes the site, for structured data; null for none.</param>
+/// <param name="HeadingMark">The shape before headings and cards: <c>square</c>, <c>diamond</c> or <c>none</c>.</param>
+/// <param name="Typeface">The type family: <c>rounded</c>, <c>serif</c> or <c>legible</c>.</param>
+/// <param name="Spacing">The vertical rhythm: <c>compact</c>, <c>comfortable</c> or <c>airy</c>.</param>
 public sealed record SiteSettings(
     string Name,
     string Description,
@@ -285,8 +288,15 @@ public sealed record SiteSettings(
     bool BuiltWithNix,
     string Language,
     bool Noindex = false,
-    string? Author = null)
+    string? Author = null,
+    string HeadingMark = "square",
+    string Typeface = "rounded",
+    string Spacing = "comfortable")
 {
+    private static readonly string[] HeadingMarks = ["square", "diamond", "none"];
+    private static readonly string[] Typefaces = ["rounded", "serif", "legible"];
+    private static readonly string[] Spacings = ["compact", "comfortable", "airy"];
+
     /// <summary>The accent a new site starts with.</summary>
     public const string DefaultAccent = "#2f5fd0";
 
@@ -328,6 +338,21 @@ public sealed record SiteSettings(
         if (Author is not null && (string.IsNullOrWhiteSpace(Author) || Author.Length > 120 || HasControl(Author)))
         {
             return "The author may be at most 120 characters.";
+        }
+
+        if (!HeadingMarks.Contains(HeadingMark))
+        {
+            return "The heading mark must be square, diamond or none.";
+        }
+
+        if (!Typefaces.Contains(Typeface))
+        {
+            return "The typeface must be rounded, serif or legible.";
+        }
+
+        if (!Spacings.Contains(Spacing))
+        {
+            return "The spacing must be compact, comfortable or airy.";
         }
 
         if (Navigation is null || Navigation.Count > 20)

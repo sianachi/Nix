@@ -702,4 +702,22 @@ if grep -Fq 'cloudflare-only.yaml' "$KUBECTL_LOG"; then
   echo 'Deployment applied the Cloudflare origin lock on a generic cluster.' >&2
   exit 1
 fi
+# Remote MCP is on by default: its own Ingress routes /mcp and Core advertises the endpoint.
+: > "$KUBECTL_LOG"; : > "$RENDERED_ALL"
+run_deploy
+grep -Fq 'apply-stdin:nix-mcp,nix-mcp,nix-mcp' "$KUBECTL_LOG"
+grep -A1 -F 'name: Nix__Mcp__PublicUrl' "$RENDERED_API" | grep -Fq 'value: "https://nix.example.test/mcp"'
+# NIX_MCP_ENABLED=false removes it and Core advertises nothing.
+: > "$KUBECTL_LOG"; : > "$RENDERED_ALL"
+NIX_MCP_ENABLED=false run_deploy
+grep -Fq 'delete:-n nix delete ingress/nix-mcp service/nix-mcp deployment/nix-mcp --ignore-not-found' "$KUBECTL_LOG"
+grep -A1 -F 'name: Nix__Mcp__PublicUrl' "$RENDERED_API" | grep -Fq 'value: ""'
+if grep -Fq 'nix-mcp' "$RENDERED_ALL"; then
+  echo 'Deployment applied remote MCP with NIX_MCP_ENABLED=false.' >&2
+  exit 1
+fi
+if NIX_MCP_ENABLED=yes run_deploy 2>/dev/null; then
+  echo 'Deployment accepted an invalid NIX_MCP_ENABLED.' >&2
+  exit 1
+fi
 echo "deployment render-order self-test passed"

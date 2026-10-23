@@ -4,7 +4,8 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
-bash -n deploy/compose/*.sh deploy/docker/build-and-push.sh deploy/k8s/deploy.sh
+bash -n deploy/compose/*.sh deploy/docker/build-and-push.sh deploy/k8s/deploy.sh deploy/install.sh deploy/install.test.sh
+bash deploy/install.test.sh
 node --check deploy/compose/smoke.mjs
 bash deploy/compose/release.test.sh
 # Validate real Compose interpolation, without printing credentials.
@@ -173,7 +174,7 @@ elif 'config' in args and '--format' in args:
  c['services']['nix-api']['environment']['Nix__Sites__Domain']=os.environ.get('SITES_DOMAIN','')
  print(json.dumps(c))
 elif args[-2:]==['config','--services']:
- print('nix-api\nnix-sites-worker\nnix-sites-serve' if os.environ.get('SITES_PROFILE') else 'nix-api')
+ print('nix-api\nnix-sites-worker\nnix-sites-serve' if os.environ.get('SITES_PROFILE') else 'nix-mcp\nnix-api' if os.environ.get('MCP_PROFILE') else 'nix-api')
 elif 'config' in args and '--images' in args:
  print('localhost/nix/api:test\nghcr.io/sianachi/nix/worker:test')
 elif 'run' in args and args[-1]=='nix-migrate' and os.environ.get('FAIL_MIGRATION'):
@@ -232,7 +233,7 @@ assert not any(' stop ' in call and 'nix-indexer' in call for call in calls)
 assert not any(' up ' in call and 'nix-opensearch' in call for call in calls)
 assert all(':/config/nixctl/config.json:ro' in calls[i] for i in smokes)
 # Sites are not enabled in the example env, so the rollout leaves them alone.
-assert not any(s in call.split() for call in calls for s in ('nix-sites-worker', 'nix-sites-serve'))
+assert not any(s in call.split() for call in calls for s in ('nix-sites-worker', 'nix-sites-serve', 'nix-mcp'))
 PYCODE
 # Enabled by profile or by domain, sites are pre-pulled, stopped with the writers and rolled with --wait.
 for enable in SITES_PROFILE=1 SITES_DOMAIN=sites.example.test; do
@@ -249,6 +250,18 @@ for service in ['nix-sites-worker', 'nix-sites-serve']:
 assert '--wait' in roll.split()
 PYCODE
 done
+# With the mcp profile on, nix-mcp is pulled, stopped and rolled with the release, sites still left alone.
+: > "$DOCKER_TEST_LOG"
+MCP_PROFILE=1 PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-mcp"
+python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
+import sys
+calls=open(sys.argv[1]).read().splitlines()
+pull=next(s for s in calls if '--images' in s)
+stop=next(s for s in calls if ' stop nix-web ' in s)
+roll=next(s for s in calls if ' up ' in s and s.endswith(' nix-web cloudflared'))
+assert all('nix-mcp' in s.split() for s in (pull, stop, roll))
+assert not any('nix-sites-worker' in call.split() for call in calls)
+PYCODE
 # The drift preview must run before the first `up` can recreate a service.
 python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
 import sys

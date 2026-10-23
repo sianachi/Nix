@@ -39,6 +39,8 @@ in the terminal and render in Nix. No sign-in is needed for offline reading.
 The source command emits exact UTF-8 bytes, including original line endings. Original Markdown paths
 in comments identify native reference notes; they no longer imply a loose Markdown file exists.
 
+The public HTTP API guide, generated reference, and OpenAPI document published with the docs site snapshot are in [docs/site/nix-docs/markdown/api/index.md](site/nix-docs/markdown/api/index.md).
+
 [AGENTS.md](../AGENTS.md), its five focused [contributor guides](agent-guides/), the root bootstrap
 [README](../README.md) and offline [release](../deploy/README.md)/[backup](../deploy/backup/production.md)
 procedures remain plaintext because tools and recovery must work before Nix is available.

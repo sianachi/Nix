@@ -36,6 +36,9 @@
 #
 # NIX_SITES_REQUIRE_OPERATOR_APPROVAL (default true) holds a site's first publish for an operator.
 #
+# NIX_MCP_ENABLED (default true) serves remote MCP at /mcp (deploy/k8s/mcp.yaml); false removes it
+# and Core stops advertising the endpoint.
+#
 # POD_CIDR defaults to k3s's stock Flannel range (10.42.0.0/16) - confirm yours with:
 #   kubectl -n kube-system get configmap -o yaml | grep -i cluster-cidr
 set -euo pipefail
@@ -58,6 +61,11 @@ case "$NIX_TEMPLATE_BOOT_ENABLED" in
   true) require_template_boot_config ;;
   false) ;;
   *) echo "NIX_TEMPLATE_BOOT_ENABLED must be true or false" >&2; exit 1 ;;
+esac
+case "${NIX_MCP_ENABLED:-true}" in
+  true) export MCP_PUBLIC_URL="$PUBLIC_ORIGIN/mcp" ;;
+  false) export MCP_PUBLIC_URL="" ;;
+  *) echo "NIX_MCP_ENABLED must be true or false" >&2; exit 1 ;;
 esac
 NIX_BOOTSTRAP_IDENTITY="${NIX_BOOTSTRAP_IDENTITY:-false}"
 case "$NIX_BOOTSTRAP_IDENTITY" in
@@ -108,7 +116,7 @@ esac
 SITES_FOREIGN_LABEL_SUFFIX="${SITES_FOREIGN_LABEL_SUFFIX--home}"
 export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN SITES_REQUIRE_OPERATOR_APPROVAL SITES_FOREIGN_LABEL_SUFFIX BACKUP_OFFSITE
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${SITES_FOREIGN_LABEL_SUFFIX} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${BACKUP_OFFSITE} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET} ${INGRESS_CLASS} ${INGRESS_MIDDLEWARES} ${STORAGE_CLASS} ${STORAGE_CLASS_RETAIN} ${AUTH_PORT} ${AUTH_SECURE} ${ZITADEL_TLS_MODE} ${INGRESS_SSL_REDIRECT} ${PUBLIC_ORIGIN} ${TLS_HOSTS} ${CLIENT_IP_HEADER} ${NIX_WEB_LANDING} ${NIX_WEB_DEMO}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${SITES_FOREIGN_LABEL_SUFFIX} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${BACKUP_OFFSITE} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET} ${INGRESS_CLASS} ${INGRESS_MIDDLEWARES} ${STORAGE_CLASS} ${STORAGE_CLASS_RETAIN} ${AUTH_PORT} ${AUTH_SECURE} ${ZITADEL_TLS_MODE} ${INGRESS_SSL_REDIRECT} ${PUBLIC_ORIGIN} ${MCP_PUBLIC_URL} ${TLS_HOSTS} ${CLIENT_IP_HEADER} ${NIX_WEB_LANDING} ${NIX_WEB_DEMO}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -277,7 +285,11 @@ render deploy/k8s/collab.yaml | kubectl apply -f -
 render deploy/k8s/worker.yaml | kubectl apply -f -
 render deploy/k8s/web.yaml | kubectl apply -f -
 render deploy/k8s/sites.yaml | kubectl apply -f -
-render deploy/k8s/mcp.yaml | kubectl apply -f -
+if [ -n "$MCP_PUBLIC_URL" ]; then
+  render deploy/k8s/mcp.yaml | kubectl apply -f -
+else
+  kubectl -n nix delete ingress/nix-mcp service/nix-mcp deployment/nix-mcp --ignore-not-found
+fi
 # The broker restarted above and the Go workers' consumers do not reconnect; an unchanged template
 # would keep the cut-off pods, so restart them the way Compose restarts its writers.
 kubectl -n nix rollout restart deployment/nix-worker deployment/nix-sites-worker

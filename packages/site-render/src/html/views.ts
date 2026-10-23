@@ -4,7 +4,7 @@ import type { LossSink, ViewSnapshot } from '@nix/export';
 import { chatTranscript, renderView } from '@nix/view-render';
 
 import { coverOf, formatDate, isoDay, type SiteModel, type SiteNode } from '../site-model.js';
-import { cardFacts, subtitleOf } from '../theme/facts.js';
+import { cardFacts, rowFacts, subtitleOf } from '../theme/facts.js';
 import { escapeHtml } from './escape.js';
 
 /**
@@ -27,11 +27,11 @@ export function defaultView(node: SiteNode): ViewSnapshot | null {
   return views.views.find((view) => view.id === views.default) ?? views.views[0] ?? null;
 }
 
-function titleList(children: readonly SiteNode[]): string {
+function titleList(model: SiteModel, children: readonly SiteNode[]): string {
   return `<ul class="nix-index">${children
     .map(
       (child) =>
-        `<li><a href="${escapeHtml(child.page.path)}"><span class="nix-index-title">${escapeHtml(child.page.title)}</span>${
+        `<li><a href="${escapeHtml(child.page.path)}"><span class="nix-index-title">${escapeHtml(child.page.title)}</span>${rowFacts(model, child)}${
           child.page.publishedAt === null
             ? ''
             : `<time datetime="${isoDay(child.page.publishedAt)}">${formatDate(child.page.publishedAt)}</time>`
@@ -54,9 +54,9 @@ function gallery(model: SiteModel, view: ViewSnapshot, children: readonly SiteNo
     .join('')}</ul>`;
 }
 
-function chart(node: SiteNode, view: ViewSnapshot, loss: LossSink): string {
+function chart(model: SiteModel, node: SiteNode, view: ViewSnapshot, loss: LossSink): string {
   // The chart counts the children; the list under it is how a reader reaches them.
-  const pages = node.children.length === 0 ? '' : titleList(node.children);
+  const pages = node.children.length === 0 ? '' : titleList(model, node.children);
   const data = node.page.chart;
   if (data === null) {
     loss.note(
@@ -86,7 +86,12 @@ function chart(node: SiteNode, view: ViewSnapshot, loss: LossSink): string {
   return `<figure class="nix-chart-figure"><figcaption>${escapeHtml(view.name)}</figcaption>${legend}${drawn.svg}${notes}${table}</figure>${pages}`;
 }
 
-function board(node: SiteNode, view: ViewSnapshot, children: readonly SiteNode[]): string {
+function board(
+  model: SiteModel,
+  node: SiteNode,
+  view: ViewSnapshot,
+  children: readonly SiteNode[],
+): string {
   const drawn = renderView({
     view,
     rows: children.map((child) => ({
@@ -99,7 +104,7 @@ function board(node: SiteNode, view: ViewSnapshot, children: readonly SiteNode[]
     // Drawn in print colours on a paper-coloured panel; narrower than the column so its text scales up.
     width: 600,
   });
-  return `<figure class="nix-board"><figcaption>${escapeHtml(view.name)}</figcaption><div class="nix-board-paper" role="img" aria-label="${escapeHtml(`${view.name}: ${children.map((child) => child.page.title).join(', ')}`)}">${drawn.svg}</div>${titleList(children)}</figure>`;
+  return `<figure class="nix-board"><figcaption>${escapeHtml(view.name)}</figcaption><div class="nix-board-paper" role="img" aria-label="${escapeHtml(`${view.name}: ${children.map((child) => child.page.title).join(', ')}`)}">${drawn.svg}</div>${titleList(model, children)}</figure>`;
 }
 
 function chat(children: readonly SiteNode[]): string {
@@ -126,15 +131,15 @@ export function renderViewHtml(model: SiteModel, node: SiteNode, loss: LossSink)
     case 'chat':
       return chat(children);
     case 'list':
-      return children.length === 0 ? '' : titleList(children);
+      return children.length === 0 ? '' : titleList(model, children);
     case 'gallery':
       return children.length === 0 ? '' : gallery(model, view, children);
     case 'board':
-      return board(node, view, children);
+      return board(model, node, view, children);
     case 'chart':
-      return chart(node, view, loss);
+      return chart(model, node, view, loss);
     default:
       loss.note('views-as-image', `A ${view.kind} view was published as a list of its pages.`);
-      return children.length === 0 ? '' : titleList(children);
+      return children.length === 0 ? '' : titleList(model, children);
   }
 }

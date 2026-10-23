@@ -35,11 +35,12 @@ dotnet test backend/tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj  # 
 ```
 
 For an API contract change, regenerate OpenAPI explicitly, then regenerate the
-typed client:
+typed client and the public API reference:
 
 ```
 dotnet build backend/src/Nix.Api/Nix.Api.csproj -p:NixGenerateOpenApiContract=true
 pnpm --filter @nix/api-client generate
+node scripts/generate-api-docs.mjs
 ```
 
 Migrations: `dotnet run --project backend/src/Nix.Migrator` with

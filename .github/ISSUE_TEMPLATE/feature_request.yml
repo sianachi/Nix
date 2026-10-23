@@ -1,19 +1,23 @@
 name: Feature request
-description: Suggest a change or addition.
+description: Suggest a change or addition to Nix.
 labels: ['enhancement']
 body:
+  - type: markdown
+    attributes:
+      value: |
+        A question belongs in [Discussions](https://github.com/sianachi/nixsites/discussions/categories/q-a).
   - type: textarea
     id: problem
     attributes:
       label: Problem
-      description: What are you trying to do, and what stops you?
+      description: What you are trying to do, and what stops you.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
       label: Proposal
-      description: What should Nix do?
+      description: What Nix should do.
     validations:
       required: true
   - type: textarea

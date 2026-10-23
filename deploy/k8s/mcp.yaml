@@ -1,6 +1,6 @@
 # Remote MCP: the nixctl tool contract over Streamable HTTP at /mcp, served by the release-tools
 # image. Every request carries its own personal access token; the pod holds no credential and Core
-# authorizes each call. Routed by the /mcp path in ingress.yaml.
+# authorizes each call. deploy.sh applies this file unless NIX_MCP_ENABLED=false, which deletes it.
 apiVersion: v1
 kind: Service
 metadata: { name: nix-mcp, namespace: nix }
@@ -40,3 +40,27 @@ spec:
           volumeMounts: [{ name: tmp, mountPath: /tmp }]
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
       volumes: [{ name: tmp, emptyDir: { sizeLimit: 16Mi } }]
+---
+# Its own Ingress so turning MCP off removes the route; an exact path wins over the app's prefix
+# in ingress.yaml.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nix-mcp
+  namespace: nix
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: "${INGRESS_MIDDLEWARES}"
+    nginx.ingress.kubernetes.io/ssl-redirect: "${INGRESS_SSL_REDIRECT}"
+spec:
+  ingressClassName: ${INGRESS_CLASS}
+  tls:
+    - hosts: ${TLS_HOSTS}
+      secretName: nix-tls
+  rules:
+    - host: "${DOMAIN}"
+      http:
+        paths:
+          - path: /mcp
+            pathType: Exact
+            backend:
+              service: { name: nix-mcp, port: { number: 8500 } }

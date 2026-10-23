@@ -24,6 +24,22 @@ describe('renderChartSvg', () => {
     ]);
   });
 
+  it('labels every column of a short chart, centred, and cuts a label to its room', () => {
+    const bucket = (value: string) => ({ value, children: 1, total: null, cells: [] });
+    const drawn = renderChartSvg(
+      aChart({
+        buckets: ['Growing', 'Resting', 'Available', 'A very long waiting list'].map(bucket),
+      }),
+      options,
+    );
+    const axis = [
+      ...drawn.svg.matchAll(/text-anchor="(\w+)" class="nix-chart-text nix-chart-axis">([^<]*)</g),
+    ]
+      .filter((match) => match[1] === 'middle')
+      .map((match) => match[2]);
+    expect(axis).toEqual(['Growing', 'Resting', 'Available', 'A very long…']);
+  });
+
   it('escapes labels from the data', () => {
     const drawn = renderChartSvg(
       aChart({ buckets: [{ value: '<script>', children: 1, total: null, cells: [] }] }),
