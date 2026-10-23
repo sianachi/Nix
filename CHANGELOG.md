@@ -40,6 +40,12 @@ follows semantic versioning (`0.x` pre-1.0).
   both themes. Dates, tags and other metadata use the site's own typeface when it is the serif
   or Atkinson.
 
+### Fixed
+
+- The one-line install lists Docker with the Compose plugin, `curl`, `openssl`, `jq` and about
+  8 GB of memory for Docker before the command. `deploy/install.sh` stops if one of those tools
+  is missing, and warns when Docker has less than about 8 GB.
+
 ## 0.3.1 - 2026-10-21
 
 ### Added

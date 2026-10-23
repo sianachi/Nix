@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One line installs or upgrades Nix. With no argument it is a try-out on this machine at
-# http://nix.localhost, which needs only Docker (Chrome and Firefox resolve .localhost names
-# themselves; Safari needs them in /etc/hosts):
+# http://nix.localhost. It needs Docker with the Compose plugin, curl, openssl, jq, and about
+# 8 GB of memory for Docker (Chrome and Firefox resolve .localhost names themselves; Safari
+# needs them in /etc/hosts):
 #
 #   curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash
 #
@@ -43,6 +44,54 @@ ingress_class= ingress_service= storage_class= pod_cidr= tls_cert= tls_key= clus
 usage='usage: install.sh [--version <tag|sha>] [--dir <path>] [--kubernetes ...] [origin]'
 die() { printf 'install: %s\n' "$*" >&2; exit 2; }
 say() { printf '\ninstall: %s\n' "$*"; }
+warn() { printf 'install: warning: %s\n' "$*" >&2; }
+
+# Names every missing tool in one message. Docker and Compose are the default target;
+# --kubernetes uses kubectl and envsubst instead, and does not require Docker.
+require_tools() {
+  local missing=() tool list mem min_bytes mb whole frac
+  for tool in curl openssl jq; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+  done
+  case "$target" in
+    compose)
+      if ! command -v docker >/dev/null 2>&1; then
+        missing+=("docker")
+      elif ! docker compose version >/dev/null 2>&1; then
+        missing+=("Docker Compose plugin (docker compose)")
+      fi
+      ;;
+    kubernetes)
+      command -v kubectl >/dev/null 2>&1 || missing+=("kubectl")
+      command -v envsubst >/dev/null 2>&1 || missing+=("envsubst (gettext)")
+      ;;
+  esac
+  if [ "${#missing[@]}" -gt 0 ]; then
+    list=$(printf '%s, ' "${missing[@]}")
+    list=${list%, }
+    die "missing $list"
+  fi
+  [ "$target" = compose ] || return 0
+  if ! mem=$(docker info --format '{{.MemTotal}}' 2>/dev/null); then
+    die "cannot reach the Docker daemon. Start Docker and run this again."
+  fi
+  mem=${mem//[[:space:]]/}
+  # Bytes. Warn below 7 GiB: an 8 GB Docker Desktop VM reports a little under 8 GiB,
+  # and the common miss is a 2-4 GB default.
+  min_bytes=$((7 * 1024 * 1024 * 1024))
+  case "$mem" in
+    ''|*[!0-9]*)
+      warn "could not read how much memory Docker has. Nix wants about 8 GB."
+      return 0
+      ;;
+  esac
+  if [ "$mem" -lt "$min_bytes" ]; then
+    mb=$(( mem / 1024 / 1024 ))
+    whole=$(( mb / 1024 ))
+    frac=$(( (mb % 1024) * 10 / 1024 ))
+    warn "Docker has ${whole}.${frac} GiB available. Give it about 8 GB, or the stack thrashes."
+  fi
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -61,6 +110,7 @@ while [ $# -gt 0 ]; do
     *) [ -z "$origin" ] || die "$usage"; origin=$1; shift ;;
   esac
 done
+require_tools
 origin=${origin:-http://nix.localhost}
 
 # ── Origin ─────────────────────────────────────────────────────────────────────
@@ -82,15 +132,6 @@ host_header="$auth_host"
 case "$auth_port" in 80|443) ;; *) host_header="$auth_host:$auth_port" ;; esac
 # Web Push wants a mailto: or https: contact; an http try-out origin is neither.
 vapid_subject="mailto:admin@$host"
-
-# ── Tools ──────────────────────────────────────────────────────────────────────
-for tool in curl openssl jq; do
-  command -v "$tool" >/dev/null || die "$tool is required"
-done
-case "$target" in
-  compose) docker compose version >/dev/null 2>&1 || die 'Docker with the compose plugin is required' ;;
-  kubernetes) command -v kubectl >/dev/null || die 'kubectl is required'; command -v envsubst >/dev/null || die 'envsubst (gettext) is required' ;;
-esac
 
 # ── Release source ─────────────────────────────────────────────────────────────
 if [ -z "$version" ]; then
