@@ -200,6 +200,14 @@ export function factsBlock(model: SiteModel, node: SiteNode): string {
     : `<dl class="nix-facts">${facts.map((entry) => `<div><dt>${escapeHtml(entry.label)}</dt><dd>${entry.html}</dd></div>`).join('')}</dl>`;
 }
 
+/** At most `limit` fact values for a list row, each named for screen readers. */
+export function rowFacts(model: SiteModel, node: SiteNode, limit = 2): string {
+  const facts = factsOf(model, node).slice(0, limit);
+  return facts.length === 0
+    ? ''
+    : `<span class="nix-index-facts">${facts.map((entry) => `<span><span class="sr-only">${escapeHtml(entry.label)}: </span>${entry.cardHtml}</span>`).join('')}</span>`;
+}
+
 /** At most `limit` facts for a card, without links, since the card is one. */
 export function cardFacts(model: SiteModel, node: SiteNode, limit = 3): string {
   const facts = factsOf(model, node).slice(0, limit);

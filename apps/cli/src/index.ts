@@ -2786,6 +2786,9 @@ export function buildProgram(): Command {
     .option('--noindex', 'hide the site from search engines (robots.txt and meta robots)')
     .option('--no-noindex', 'let search engines index the site again')
     .option('--author <name>', 'who writes the site, for search engines; "" clears it')
+    .option('--typeface <face>', 'rounded (Nunito Sans), serif (Literata) or legible (Atkinson)')
+    .option('--heading-mark <mark>', 'square, diamond or none')
+    .option('--spacing <spacing>', 'compact, comfortable or airy')
     .option('--layout <layout>', 'docs or blog')
     .option(
       '--mode <mode>',

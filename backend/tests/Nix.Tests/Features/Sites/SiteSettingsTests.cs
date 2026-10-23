@@ -70,6 +70,22 @@ public sealed class SiteSettingsTests
             WebJson);
         Assert.False(stored!.Noindex);
         Assert.Null(stored.Author);
+        Assert.Equal("square", stored.HeadingMark);
+        Assert.Equal("rounded", stored.Typeface);
+        Assert.Equal("comfortable", stored.Spacing);
+    }
+
+    [Fact]
+    public void Style_choices_are_kept_and_unknown_ones_refused()
+    {
+        var chosen = SiteViews.CheckSettings(new SiteSettingsDto(
+            "Docs", "d", "#2f5fd0", [], "f", true, "en", HeadingMark: "diamond", Typeface: "serif", Spacing: "airy"));
+        Assert.True(chosen.IsSuccess);
+        Assert.Equal(("diamond", "serif", "airy"), (chosen.Value.HeadingMark, chosen.Value.Typeface, chosen.Value.Spacing));
+
+        Assert.True(SiteViews.CheckSettings(new SiteSettingsDto("Docs", "d", "#2f5fd0", [], "f", true, "en", HeadingMark: "star")).IsFailure);
+        Assert.True(SiteViews.CheckSettings(new SiteSettingsDto("Docs", "d", "#2f5fd0", [], "f", true, "en", Typeface: "comic")).IsFailure);
+        Assert.True(SiteViews.CheckSettings(new SiteSettingsDto("Docs", "d", "#2f5fd0", [], "f", true, "en", Spacing: "huge")).IsFailure);
     }
 
     [Fact]

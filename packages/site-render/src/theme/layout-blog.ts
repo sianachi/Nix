@@ -27,8 +27,8 @@ import { factsBlock, subtitleOf } from './facts.js';
 
 const FEATURED_ENTRIES = 5;
 
-function sectionHead(node: SiteNode, caption: string, id: string): string {
-  return `<div class="nix-section-head"><h2 id="${id}">${glyph()}<a href="${escapeHtml(node.page.path)}">${escapeHtml(node.page.title)}</a></h2><p>${escapeHtml(caption)}</p></div>`;
+function sectionHead(node: SiteNode, caption: string | null, id: string): string {
+  return `<div class="nix-section-head"><h2 id="${id}">${glyph()}<a href="${escapeHtml(node.page.path)}">${escapeHtml(node.page.title)}</a></h2>${caption === null ? '' : `<p>${escapeHtml(caption)}</p>`}</div>`;
 }
 
 function home(model: SiteModel): string {
@@ -41,10 +41,13 @@ function home(model: SiteModel): string {
         const entries = entriesOf(child);
         return `<section class="nix-section" aria-labelledby="${id}">${sectionHead(child, plural(entries.length, 'post'), id)}${postList(entries.slice(0, FEATURED_ENTRIES))}</section>`;
       }
-      return `<section class="nix-section" aria-labelledby="${id}">${sectionHead(child, plural(child.children.length, 'page'), id)}${cards(model, child, child.children)}</section>`;
+      return `<section class="nix-section" aria-labelledby="${id}">${sectionHead(child, null, id)}${cards(model, child, child.children)}</section>`;
     })
     .join('');
-  const pages = root.children.filter((child) => child.children.length === 0);
+  const inNavigation = new Set(model.manifest.settings.navigation.map((link) => link.path));
+  const pages = root.children.filter(
+    (child) => child.children.length === 0 && !inNavigation.has(child.page.path),
+  );
   const more =
     pages.length === 0
       ? ''

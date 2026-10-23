@@ -20,7 +20,7 @@ import { buildSearchIndex } from './search.js';
 import type { SiteModel, SiteNode } from './site-model.js';
 import { renderRobots, renderSitemap } from './sitemap.js';
 import { CLIENT_JS } from './theme/client.js';
-import { THEME_FONTS, themeCss } from './theme/css.js';
+import { themeCss, themeFonts, type Typeface } from './theme/css.js';
 import { renderBlogPages } from './theme/layout-blog.js';
 import { renderDocsPages } from './theme/layout-docs.js';
 import { renderShell } from './theme/shell.js';
@@ -40,7 +40,7 @@ import {
  * files are content-addressed. That is what lets a rebuild of an unchanged site upload nothing
  * new and lets the golden tests compare output byte for byte.
  *
- * Pure apart from reading the theme's font files from `@fontsource/nunito-sans`.
+ * Pure apart from reading the chosen typeface's font files from its `@fontsource` package.
  */
 
 /**
@@ -82,16 +82,23 @@ export interface RenderedSite {
 const encoder = new TextEncoder();
 const require = createRequire(import.meta.url);
 
-let fontCache: readonly { readonly file: string; readonly bytes: Uint8Array }[] | null = null;
+const fontCache = new Map<
+  Typeface,
+  readonly { readonly file: string; readonly bytes: Uint8Array }[]
+>();
 
-function fonts(): readonly { readonly file: string; readonly bytes: Uint8Array }[] {
-  fontCache ??= THEME_FONTS.map((font) => ({
-    file: font.file,
-    bytes: new Uint8Array(
-      readFileSync(require.resolve(`@fontsource/nunito-sans/files/${font.file}`)),
-    ),
-  }));
-  return fontCache;
+function fonts(
+  typeface: Typeface,
+): readonly { readonly file: string; readonly bytes: Uint8Array }[] {
+  let cached = fontCache.get(typeface);
+  if (cached === undefined) {
+    cached = themeFonts(typeface).map((font) => ({
+      file: font.file,
+      bytes: new Uint8Array(readFileSync(require.resolve(`${font.package}/files/${font.file}`))),
+    }));
+    fontCache.set(typeface, cached);
+  }
+  return cached;
 }
 
 function sha256(bytes: Uint8Array | string): string {
@@ -200,9 +207,13 @@ export function renderSite(input: RenderSiteInput): RenderedSite {
     input.assets.get(fileItemId)?.sourceSha256 === sourceSha256 ? asset(fileItemId) : null;
 
   // Theme files, addressed by their content so a changed theme never meets a cached old one.
-  const css = themeCss(manifest.settings.accent);
+  const css = themeCss(manifest.settings);
   const themeHash = sha256(
-    [css, CLIENT_JS, ...fonts().map((font) => `${font.file}:${sha256(font.bytes)}`)].join('\n'),
+    [
+      css,
+      CLIENT_JS,
+      ...fonts(manifest.settings.typeface).map((font) => `${font.file}:${sha256(font.bytes)}`),
+    ].join('\n'),
   ).slice(0, 16);
   const themeDir = `_nix/theme/${themeHash}/`;
 
@@ -361,7 +372,7 @@ export function renderSite(input: RenderSiteInput): RenderedSite {
 
   add(`${themeDir}site.css`, 'text/css; charset=utf-8', css);
   add(`${themeDir}site.js`, 'text/javascript; charset=utf-8', CLIENT_JS);
-  for (const font of fonts()) {
+  for (const font of fonts(manifest.settings.typeface)) {
     add(`${themeDir}fonts/${font.file}`, 'font/woff2', font.bytes);
   }
 

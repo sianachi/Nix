@@ -73,6 +73,7 @@ export interface ChartRenderOptions {
 const GUTTER = 44;
 const TOP = 8;
 const AXIS = 28;
+const EVERY_LABEL = 6;
 
 export function escapeXml(value: string): string {
   return value
@@ -131,11 +132,24 @@ function frame(input: {
     .join('');
   const count = input.labels.length;
   const band = CHART_WIDTH / Math.max(1, count);
-  const axis = axisTickIndexes(count)
+  // Up to EVERY_LABEL columns each carry their label, centred; more show the first, middle and
+  // last. Labels are cut to fit at the largest size a page sets them (18 units, a glyph about 11
+  // wide), so they never run into each other; the table under the chart has them whole.
+  const every = count <= EVERY_LABEL;
+  const room = Math.max(3, Math.floor((every ? band : CHART_WIDTH / 3) / 11));
+  const fit = (label: string) =>
+    label.length <= room ? label : `${label.slice(0, room - 1).trimEnd()}…`;
+  const axis = (every ? input.labels.map((_, index) => index) : axisTickIndexes(count))
     .map((index, position, all) => {
-      const anchor = position === 0 ? 'start' : position === all.length - 1 ? 'end' : 'middle';
+      const anchor = every
+        ? 'middle'
+        : position === 0
+          ? 'start'
+          : position === all.length - 1
+            ? 'end'
+            : 'middle';
       const x = anchor === 'start' ? 0 : anchor === 'end' ? CHART_WIDTH : index * band + band / 2;
-      return `<text x="${num(GUTTER + x)}" y="${String(TOP + CHART_HEIGHT + 20)}" text-anchor="${anchor}" class="nix-chart-text">${escapeXml(input.labels[index] ?? '')}</text>`;
+      return `<text x="${num(GUTTER + x)}" y="${String(TOP + CHART_HEIGHT + 20)}" text-anchor="${anchor}" class="nix-chart-text nix-chart-axis">${escapeXml(fit(input.labels[index] ?? ''))}</text>`;
     })
     .join('');
   return {
