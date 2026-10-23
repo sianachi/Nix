@@ -10,7 +10,7 @@ Everything in Nix is an item. A note, a project, a reading list and a budget are
 - **Plan.** Due dates, recurring tasks, reminders with quiet hours, automations and two-way sync with Google Calendar and Microsoft Outlook.
 - **Draw and calculate.** Canvas bodies for diagrams and whiteboards, spreadsheet bodies with A1 formulas.
 - **Work offline.** Install Nix as an app, download your notes, edit them without a connection and let them sync when you are back.
-- **Script it.** `nixctl` gives you the workspace from a terminal, with JSON output and an MCP server for agent tools.
+- **Script it.** `nixctl` gives you the workspace from a terminal, with JSON output and an MCP server for agent tools. The [HTTP API](api/index.md) is the same workspace for your own programs.
 - **Leave whenever you like.** Export a page or a whole subtree as a lossless `.nix` archive, Markdown, PDF or Word, with any losses reported before you export.
 - **Publish.** Turn any page tree into a static website. This site is one.
 

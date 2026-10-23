@@ -10,6 +10,7 @@ import { AccessTokensSection } from '../settings/access-tokens/access-tokens-sec
 import { AdministratorsSection } from '../settings/administrators/administrators-section';
 import { SiteApprovalsSection } from '../settings/site-approvals/site-approvals-section';
 import { BackupsSection } from '../settings/backups/backups-section';
+import { ApiSection } from '../settings/api/api-section';
 import { McpSection } from '../settings/mcp/mcp-section';
 import { CalendarsSection } from '../settings/calendars/calendars-section';
 import { DailyNotesSection } from '../settings/daily-notes/daily-notes-section';
@@ -51,6 +52,7 @@ const settingsSections: readonly { id: SettingsTab; label: string; group: Group;
   { id: 'workspace', label: 'Workspace', group: 'Workspace' },
   { id: 'access-tokens', label: 'Access tokens', group: 'Workspace' },
   { id: 'mcp', label: 'MCP', group: 'Workspace' },
+  { id: 'api', label: 'API', group: 'Workspace' },
   {
     id: 'site-approvals',
     label: 'Site approvals',
@@ -86,6 +88,8 @@ function SectionBody(props: { readonly id: SettingsTab }): ReactElement | null {
       return <AccessTokensSection />;
     case 'mcp':
       return <McpSection />;
+    case 'api':
+      return <ApiSection />;
     case 'backups':
       return <BackupsSection />;
     case 'site-approvals':

@@ -77,6 +77,7 @@ has_sensitive_backend=false
 has_workflow_script=false
 has_compose=false
 has_catalog=false
+has_api_docs=false
 has_rabbitmq=false
 frontend_packages=()
 prettier_paths=()
@@ -111,8 +112,11 @@ for path in "${paths[@]}"; do
     deploy/rabbitmq/*) has_rabbitmq=true ;;
     deploy/compose/*|deploy/compose.prod*|deploy/Caddyfile.prod|deploy/docker/*|deploy/k8s/deploy*|.github/workflows/ci-deploy.yml) has_compose=true ;;
     backend/openapi/*)
-      has_openapi=true; has_backend=true; has_frontend=true; has_frontend_sources=true
+      has_openapi=true; has_backend=true; has_frontend=true; has_frontend_sources=true; has_api_docs=true
       add_frontend_package '@nix/api-client'
+      ;;
+    scripts/generate-api-docs.mjs|scripts/api-docs/*|docs/site/nix-docs/generated/*|docs/site/nix-docs/markdown/api/*)
+      has_api_docs=true
       ;;
     package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.base.json|eslint.config.js|.prettierrc|.prettierignore)
       has_shared_frontend_config=true; has_frontend=true
@@ -186,6 +190,11 @@ if [ "$has_openapi" = true ]; then
   emit 'dotnet build backend/src/Nix.Api/Nix.Api.csproj -p:NixGenerateOpenApiContract=true'
   emit 'pnpm --filter @nix/api-client generate'
   emit 'git diff --exit-code -- backend/openapi packages/api-client/src/generated'
+fi
+
+if [ "$has_api_docs" = true ]; then
+  emit 'node --test scripts/api-docs/policy.test.mjs scripts/api-docs/facts.test.mjs'
+  emit 'node scripts/generate-api-docs.mjs --check'
 fi
 
 if [ "$has_catalog" = true ]; then

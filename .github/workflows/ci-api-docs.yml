@@ -1,0 +1,46 @@
+# The public API reference is generated from backend/openapi/nix-api.json.
+# ci-backend.yml proves that document matches the endpoints. This job proves
+# the published reference, error-code list, and spec copy match the document.
+name: CI API docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/openapi/**'
+      - 'scripts/generate-api-docs.mjs'
+      - 'scripts/api-docs/**'
+      - 'docs/site/nix-docs/generated/**'
+      - 'docs/site/nix-docs/markdown/api/**'
+      - '.github/workflows/ci-api-docs.yml'
+  pull_request:
+    paths:
+      - 'backend/openapi/**'
+      - 'scripts/generate-api-docs.mjs'
+      - 'scripts/api-docs/**'
+      - 'docs/site/nix-docs/generated/**'
+      - 'docs/site/nix-docs/markdown/api/**'
+      - '.github/workflows/ci-api-docs.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  api-reference:
+    name: API reference is current
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # The scripts need only Node; without this, setup-node caches the pnpm store package.json names.
+          package-manager-cache: false
+
+      - name: API reference matches the OpenAPI document
+        run: |
+          node --test scripts/api-docs/policy.test.mjs scripts/api-docs/facts.test.mjs
+          node scripts/generate-api-docs.mjs --check

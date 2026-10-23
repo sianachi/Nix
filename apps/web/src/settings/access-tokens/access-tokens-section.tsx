@@ -1,5 +1,6 @@
 import { Button, Dialog, Table, Tag, Text } from '@nix/ui';
 import { useState, type ReactElement, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router';
 
 import { ErrorPanel } from '../../components/states/status-panels';
 import { SettingsSection } from '../shared/settings-section';
@@ -37,6 +38,7 @@ function statusTag(status: TokenStatus): ReactNode {
 }
 
 export function AccessTokensSection(): ReactElement {
+  const { pathname } = useLocation();
   const { status, tokens, error, reload, create, revoke } = useAccessTokens();
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -164,6 +166,11 @@ export function AccessTokensSection(): ReactElement {
           audit of what has been able to act as your account.
         </Text>
       </details>
+      <Text variant="note">
+        <Link to={`${pathname}?tab=api`} className="text-accent-text">
+          Call the HTTP API with a token
+        </Link>
+      </Text>
 
       {status === 'error' ? (
         <ErrorPanel
