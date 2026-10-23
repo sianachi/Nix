@@ -1,8 +1,9 @@
 /**
  * A note's body, read and written as Markdown.
  *
- * **The body is not in Core's REST API - it lives in the collaboration service as a Yjs update
- * log** - so this is the one place the CLI speaks that service's protocol. Reading catches up the
+ * The body lives in the collaboration service as a Yjs update log. Core exposes the same read,
+ * replace and append as `GET`, `PUT` and `POST /api/v1/items/{id}/body`; this module still speaks
+ * the update log directly so a CLI write does not depend on that route. Reading catches up the
  * log into a `Y.Doc`, materialises the `default` prose fragment to ProseMirror JSON, and renders it
  * with `@nix/markdown`. Writing does the reverse and then some: it catches up to the current state,
  * applies the new document to the fragment as a *minimal* change (the same `updateYFragment` the web
