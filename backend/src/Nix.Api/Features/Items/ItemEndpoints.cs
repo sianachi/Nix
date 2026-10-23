@@ -60,6 +60,30 @@ internal static class ItemEndpoints
     /// <summary>Stable code for editing an item that mirrors a source the caller may not edit.</summary>
     internal const string ReadOnlyCode = "items.read_only";
 
+    /// <summary>Stable code for a body the caller can read and may not change.</summary>
+    internal const string BodyReadOnlyCode = "items.body_read_only";
+
+    /// <summary>Stable code for Markdown that is not a valid note.</summary>
+    internal const string MarkdownInvalidCode = "items.markdown_invalid";
+
+    /// <summary>Stable code for Markdown over the character ceiling.</summary>
+    internal const string MarkdownTooLargeCode = "items.markdown_too_large";
+
+    /// <summary>Stable code for a canvas or spreadsheet, which Markdown cannot carry.</summary>
+    internal const string BodyNotProseCode = "items.body_not_prose";
+
+    /// <summary>Stable code for a collaboration service that could not answer.</summary>
+    internal const string BodyUnavailableCode = "items.body_unavailable";
+
+    /// <summary>Stable code for a note that would exceed a document ceiling.</summary>
+    internal const string BodyTooLargeCode = "items.body_too_large";
+
+    /// <summary>Stable code for the collaboration update window.</summary>
+    internal const string BodyRateLimitedCode = "items.body_rate_limited";
+
+    /// <summary>Stable code for a body write the document's schema pin refused.</summary>
+    internal const string BodyConflictCode = "items.body_conflict";
+
     /// <summary>
     /// Registers the items feature's routes on <paramref name="endpoints"/>.
     /// </summary>
@@ -202,6 +226,72 @@ internal static class ItemEndpoints
             .ProducesProblem(StatusCodes.Status423Locked)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
+        items.MapGet("/{itemId:guid}/body", ReadItemBodyEndpoint.Handle)
+            .WithName("GetItemBody")
+            .WithSummary("Read a note body as Markdown")
+            .WithDescription(
+                "Returns the item's prose body as Markdown, plus the losses Markdown could not "
+                + "carry. An item nobody has edited yet is an empty string, not an error. Exchange "
+                + "a personal access token at POST /public/v1/auth/token and send that session as "
+                + "a bearer token; reading needs the read scope. Fails with 'items.not_found' (404) "
+                + "when the item is not visible, 'items.locked' (423) when its body is locked, "
+                + "'items.body_not_prose' (422) for a canvas or spreadsheet, and "
+                + "'items.body_unavailable' (503) when the body service cannot answer.")
+            .Produces<ItemBodyResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status423Locked)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+        items.MapPut("/{itemId:guid}/body", ReplaceItemBodyEndpoint.Handle)
+            .WithName("ReplaceItemBody")
+            .WithSummary("Replace a note body with Markdown")
+            .WithDescription(
+                "Replaces the prose body with the Markdown in { \"markdown\": \"...\" }, at most "
+                + "200,000 characters. An empty string clears the note. The write is a minimal Yjs "
+                + "update, the same diff nixctl note write applies, so a collaborator who has the "
+                + "note open sees it. Exchange a personal access token at POST /public/v1/auth/token "
+                + "and send that session as a bearer token; this route needs the write scope. "
+                + "Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' "
+                + "(423) when its body is locked, 'items.body_read_only' (403) when the caller can "
+                + "read but not write, 'items.body_not_prose' (422) for a canvas or spreadsheet, "
+                + "'items.markdown_invalid' (422) when the Markdown is not a note, and "
+                + "'items.markdown_too_large' (413) past the character ceiling.")
+            .Produces<ItemBodyWriteResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status423Locked)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .WithRequestBodyLimit(ItemBodyLimits.RequestBytes)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        items.MapPost("/{itemId:guid}/body", AppendItemBodyEndpoint.Handle)
+            .WithName("AppendItemBody")
+            .WithSummary("Append Markdown to a note body")
+            .WithDescription(
+                "Appends the Markdown in { \"markdown\": \"...\" } as new blocks at the end of the "
+                + "note, at most 200,000 characters. Existing blocks are not reserialised, so marks "
+                + "Markdown cannot carry stay, and a collaborator who has the note open sees the "
+                + "new blocks. Authentication and the failure codes match replacing the body. An "
+                + "empty append is 'items.markdown_invalid' (422).")
+            .Produces<ItemBodyWriteResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status423Locked)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .WithRequestBodyLimit(ItemBodyLimits.RequestBytes)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
         return endpoints;
     }
 
@@ -221,10 +311,16 @@ internal static class ItemEndpoints
         {
             CycleCode or LifecycleConflictCode or SiblingNotInDestinationCode
                 or DeleteProtectedCode or ChildrenProtectedCode or ProtectionManagedCode or ReadOnlyCode
+                or BodyConflictCode
                 or "items.transfer_conflict" or "items.idempotency_conflict" =>
                 StatusCodes.Status409Conflict,
             "items.invalid_idempotency_key" => StatusCodes.Status400BadRequest,
             LockedCode => StatusCodes.Status423Locked,
+            BodyReadOnlyCode => StatusCodes.Status403Forbidden,
+            MarkdownInvalidCode or BodyNotProseCode => StatusCodes.Status422UnprocessableEntity,
+            MarkdownTooLargeCode or BodyTooLargeCode => StatusCodes.Status413PayloadTooLarge,
+            BodyUnavailableCode => StatusCodes.Status503ServiceUnavailable,
+            BodyRateLimitedCode => StatusCodes.Status429TooManyRequests,
             _ => StatusCodes.Status404NotFound,
         };
 

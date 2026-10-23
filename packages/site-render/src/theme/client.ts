@@ -1,5 +1,6 @@
 /**
- * The theme's only script: the light and dark toggle, and search over `/_nix/search.json`.
+ * The theme's only script: the light and dark toggle, copy buttons on code blocks and section
+ * links, and search over `/_nix/search.json`.
  *
  * Pure enhancement. Pages read and navigate without it; the toggle and the search box are
  * `hidden` in the markup and this script reveals them. It is loaded from the site's own origin
@@ -35,6 +36,42 @@ export const CLIENT_JS = String.raw`(function () {
         root.setAttribute('data-theme', next);
         try { localStorage.setItem(KEY, next); } catch (e) { /* private mode: the choice lasts this page */ }
         label();
+      });
+    }
+
+    // Copy buttons on code blocks and section links. The clipboard needs a secure context; without
+    // it nothing is added and the page reads as before.
+    if (navigator.clipboard && window.isSecureContext) {
+      var said = document.createElement('p');
+      said.className = 'sr-only';
+      said.setAttribute('aria-live', 'polite');
+      document.body.appendChild(said);
+      var copy = function (text, shown, done) {
+        navigator.clipboard.writeText(text).then(function () {
+          var was = shown.textContent;
+          shown.textContent = done;
+          said.textContent = done;
+          setTimeout(function () { shown.textContent = was; said.textContent = ''; }, 1600);
+        }, function () { said.textContent = 'Copying is not allowed here.'; });
+      };
+      Array.prototype.forEach.call(document.querySelectorAll('pre.nix-code'), function (pre) {
+        var wrap = document.createElement('div');
+        wrap.className = 'nix-code-wrap';
+        pre.parentNode.insertBefore(wrap, pre);
+        wrap.appendChild(pre);
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'nix-copy';
+        button.textContent = 'Copy';
+        button.addEventListener('click', function () {
+          copy((pre.querySelector('code') || pre).textContent, button, 'Copied');
+        });
+        wrap.appendChild(button);
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.nix-anchor'), function (anchor) {
+        anchor.addEventListener('click', function () {
+          copy(location.origin + location.pathname + anchor.getAttribute('href'), anchor, 'Link copied');
+        });
       });
     }
 
@@ -109,6 +146,22 @@ export const CLIENT_JS = String.raw`(function () {
     }
     input.addEventListener('input', render);
     input.addEventListener('focus', load);
+    // Arrow keys walk the results; Enter in the box opens the first one.
+    box.addEventListener('keydown', function (event) {
+      var links = Array.prototype.slice.call(list.querySelectorAll('a'));
+      if (panel.hidden || !links.length) return;
+      var at = links.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        (links[at + 1] || links[links.length - 1]).focus();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        (at > 0 ? links[at - 1] : input).focus();
+      } else if (event.key === 'Enter' && event.target === input) {
+        event.preventDefault();
+        links[0].click();
+      }
+    });
     box.addEventListener('keydown', function (event) {
       if (event.key === 'Escape') { input.value = ''; panel.hidden = true; input.focus(); }
     });

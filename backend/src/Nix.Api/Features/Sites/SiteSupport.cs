@@ -426,7 +426,10 @@ public sealed class SiteViews(ISiteStore sites, IPermissionResolver permissions,
             dto.BuiltWithNix,
             dto.Language,
             dto.Noindex,
-            string.IsNullOrWhiteSpace(dto.Author) ? null : dto.Author.Trim());
+            string.IsNullOrWhiteSpace(dto.Author) ? null : dto.Author.Trim(),
+            dto.HeadingMark ?? "square",
+            dto.Typeface ?? "rounded",
+            dto.Spacing ?? "comfortable");
         return settings.Validate() is { } refusal
             ? Result.Failure<SiteSettingsDto>(SiteErrors.Invalid(refusal))
             : Result.Success(new SiteSettingsDto(
@@ -438,6 +441,9 @@ public sealed class SiteViews(ISiteStore sites, IPermissionResolver permissions,
                 settings.BuiltWithNix,
                 settings.Language,
                 settings.Noindex,
-                settings.Author));
+                settings.Author,
+                settings.HeadingMark,
+                settings.Typeface,
+                settings.Spacing));
     }
 }

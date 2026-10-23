@@ -42,17 +42,32 @@ function sideTree(model: SiteModel, current: SiteNode): string {
   return `<ul class="nix-tree nix-side-tree">${model.root.children.map(branch).join('')}</ul>`;
 }
 
-function toc(node: SiteNode): string {
+function tocLinks(node: SiteNode): string {
   const headings = (node.prose?.headings ?? []).filter((heading) => heading.level <= 3);
   if (headings.length < 2) {
     return '';
   }
-  return `<nav class="nix-toc" aria-labelledby="nix-toc-title"><h2 id="nix-toc-title">On this page</h2><ul>${headings
+  return `<ul>${headings
     .map(
       (heading) =>
         `<li class="nix-toc-${String(heading.level)}"><a href="#${heading.id}">${escapeHtml(heading.text)}</a></li>`,
     )
-    .join('')}</ul></nav>`;
+    .join('')}</ul>`;
+}
+
+function toc(node: SiteNode): string {
+  const links = tocLinks(node);
+  return links === ''
+    ? ''
+    : `<nav class="nix-toc" aria-labelledby="nix-toc-title"><h2 id="nix-toc-title">On this page</h2>${links}</nav>`;
+}
+
+/** The contents list folded above the text, for screens too narrow for the side column. */
+function tocFolded(node: SiteNode): string {
+  const links = tocLinks(node);
+  return links === ''
+    ? ''
+    : `<details class="nix-toc-folded"><summary>On this page</summary><nav aria-label="On this page">${links}</nav></details>`;
 }
 
 /** Reading order: the tree in manifest order, root excluded, entries newest first under their collection. */
@@ -130,7 +145,7 @@ function page(model: SiteModel, node: SiteNode, order: readonly SiteNode[]): str
 
   const subtitle = entry ? null : subtitleOf(node);
   const facts = entry ? '' : factsBlock(model, node);
-  const article = `<article class="nix-docs-article">${crumbs(node, model.manifest.settings.name)}<h1 class="nix-title">${escapeHtml(node.page.title)}</h1>${subtitle === null ? '' : `<p class="nix-lead">${escapeHtml(subtitle)}</p>`}${meta}${facts}<div class="nix-prose">${node.prose?.html ?? ''}</div>${below}${pager(order[index - 1] ?? null, order[index + 1] ?? null)}</article>`;
+  const article = `<article class="nix-docs-article">${crumbs(node, model.manifest.settings.name)}<h1 class="nix-title">${escapeHtml(node.page.title)}</h1>${subtitle === null ? '' : `<p class="nix-lead">${escapeHtml(subtitle)}</p>`}${meta}${facts}${tocFolded(node)}<div class="nix-prose">${node.prose?.html ?? ''}</div>${below}${pager(order[index - 1] ?? null, order[index + 1] ?? null)}</article>`;
   const body = frame(model, node, article, toc(node));
 
   return renderShell(model, {

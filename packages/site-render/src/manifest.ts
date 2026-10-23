@@ -46,6 +46,12 @@ const manifestSchema = z.object({
     noindex: z.boolean().default(false),
     /** The person who writes the site, for structured data; empty or absent for none. */
     author: z.string().max(200).nullish(),
+    /** The shape drawn before headings, cards and the brand. */
+    headingMark: z.enum(['square', 'diamond', 'none']).default('square'),
+    /** The type family for headings and body. */
+    typeface: z.enum(['rounded', 'serif', 'legible']).default('rounded'),
+    /** The vertical rhythm: space between blocks, sections and rows. */
+    spacing: z.enum(['compact', 'comfortable', 'airy']).default('comfortable'),
   }),
   canonicalOrigin: z.string().regex(/^https?:\/\/[^/\s]+$/),
   builtAt: z.iso.datetime({ offset: true }),
