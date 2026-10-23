@@ -126,6 +126,17 @@ export function useAuth(): AuthContextValue {
   return value;
 }
 
+/** Supplies a fixed session to the server-free demo, which mounts the app without a sign-in. */
+export function AuthOverrideProvider({
+  value,
+  children,
+}: {
+  readonly value: AuthContextValue;
+  readonly children: ReactNode;
+}): ReactNode {
+  return <AuthContext value={value}>{children}</AuthContext>;
+}
+
 export interface AuthProviderProps {
   readonly children: ReactNode;
 }

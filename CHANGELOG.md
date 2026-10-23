@@ -3,6 +3,18 @@
 All notable changes to Nix are recorded here. The format follows Keep a Changelog and the project
 follows semantic versioning (`0.x` pre-1.0).
 
+## Unreleased
+
+### Changed
+
+- The optional landing page follows the new design: a hero gallery with a screenshot of every view
+  (note, board, list, calendar, timeline, spreadsheet, gallery, checklist, matrix, outline, chart,
+  form, habit tracker and companion), a light and dark theme switch, and sections on views, the
+  companion and owning your data.
+- The optional `/demo` now runs the full Nix interface over a sample workspace held in the
+  browser: the sidebar, notes, every view, structured items, My Day and the calendar. Nothing is
+  sent to the server and a reload starts over; finances need a real server.
+
 ## 0.4.0 - 2026-10-23
 
 ### Added

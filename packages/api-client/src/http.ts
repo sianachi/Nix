@@ -62,6 +62,8 @@ export interface HttpTransportOptions {
   /** Whole-request budget. Defaults to 15 seconds. */
   readonly timeoutMs?: number | undefined;
   readonly defaultHeaders?: Readonly<Record<string, string>> | undefined;
+  /** Answers requests in place of the global fetch, for a client that must not reach a server. */
+  readonly fetch?: typeof fetch | undefined;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -130,7 +132,10 @@ export function createHttpTransport(options: HttpTransportOptions): HttpTranspor
     // Passing the URL and init to fetch avoids an unnecessary Request clone. It also preserves the
     // host's AbortSignal implementation instead of asking a second realm to validate it, which
     // matters for embedded hosts and jsdom without changing browser behaviour.
-    env: { Request: null as never },
+    env: {
+      Request: null as never,
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    },
     timeout: timeoutMs,
     // Bearer tokens only; the client never relies on ambient cookies.
     withCredentials: false,

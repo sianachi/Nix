@@ -36,9 +36,9 @@ describe('the session gate', () => {
     );
 
     expect(
-      screen.getByRole('heading', { level: 1, name: /your notes, tasks and days/i }),
+      screen.getByRole('heading', { level: 1, name: /notes, tasks, habits and money/i }),
     ).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Try the demo' })).toBeVisible();
+    expect(screen.getAllByRole('link', { name: 'Open the live demo' })[0]).toBeVisible();
   });
 
   it('keeps sign-in on a deep link, and offers no demo when only the landing page is on', () => {
@@ -59,9 +59,9 @@ describe('the session gate', () => {
       </WebConfigContext>,
     );
     expect(
-      screen.getByRole('heading', { level: 1, name: /your notes, tasks and days/i }),
+      screen.getByRole('heading', { level: 1, name: /notes, tasks, habits and money/i }),
     ).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Try the demo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open the live demo' })).not.toBeInTheDocument();
   });
 
   it('says the app is offline, not signed out, when Core cannot be reached', async () => {

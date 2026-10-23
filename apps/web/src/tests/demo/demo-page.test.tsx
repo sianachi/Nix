@@ -1,27 +1,105 @@
+import 'fake-indexeddb/auto';
+import { createNixClient, items, structure, views, workspaces } from '@nix/api-client';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DEMO_VIEWS, DemoPage } from '../../demo/demo-page';
+import { createDemoFetch, DEMO_WORKSPACE, PRODUCT_LAUNCH } from '../../demo/demo-core';
+import { DemoPage, prepareDemo } from '../../demo/demo-page';
 
-/** The demo draws every offered view from sample data in the tab and never asks the server. */
-describe('the demo page', () => {
+const client = () =>
+  createNixClient({
+    baseUrl: 'https://demo.test',
+    tokens: {
+      getAccessToken: () => Promise.resolve('demo'),
+      refreshAccessToken: () => Promise.resolve('demo'),
+    },
+    fetch: createDemoFetch(),
+  });
+
+const titlesUnder = async (
+  nix: ReturnType<typeof client>,
+  parentId?: string,
+): Promise<string[]> => {
+  const titles: string[] = [];
+  for await (const item of nix.paginate(items.listItems(DEMO_WORKSPACE, { parentId })))
+    titles.push(item.title);
+  return titles;
+};
+
+/** The demo's Core answers the real API client from memory, and the app never reaches a server. */
+describe('the demo', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('opens every view over the sample data without a single request', async () => {
+  it('serves a workspace whose writes stick until the tab reloads', async () => {
+    const nix = client();
+
+    expect((await nix.query(workspaces.workspaceById(DEMO_WORKSPACE))).name).toBe(
+      'Northwind Studio',
+    );
+    expect(await titlesUnder(nix)).toEqual(['Product launch', 'Priorities', 'Launch brief']);
+
+    const created = await nix.execute(
+      items.createItem(DEMO_WORKSPACE, {
+        type: 'note',
+        title: 'QA pass',
+        parentId: PRODUCT_LAUNCH,
+        properties: { status: 'To do' },
+      }),
+    );
+    expect(created.properties).toEqual({ status: 'To do' });
+    expect(await titlesUnder(nix, PRODUCT_LAUNCH)).toContain('QA pass');
+
+    await nix.execute(items.deleteItem(DEMO_WORKSPACE, created.id));
+    expect(await titlesUnder(nix, PRODUCT_LAUNCH)).not.toContain('QA pass');
+    await nix.execute(items.restoreItem(DEMO_WORKSPACE, created.id));
+    expect(await titlesUnder(nix, PRODUCT_LAUNCH)).toContain('QA pass');
+
+    const board = await nix.execute(
+      items.createStructuredItem(DEMO_WORKSPACE, {
+        type: 'note',
+        title: 'Reading list',
+        parentId: null,
+        schema: {
+          properties: [
+            {
+              key: 'stage',
+              label: 'Stage',
+              type: 'select',
+              options: ['Next', 'Done'],
+              required: false,
+            },
+            // The wizard sends null choices for a field without any; Core stores an empty list.
+            { key: 'notes', label: 'Notes', type: 'text', options: null, required: false },
+          ],
+          inherit: true,
+        },
+        views: {
+          views: [{ id: 'board', name: 'Board', kind: 'board', groupBy: 'stage' }],
+          default: 'board',
+        },
+        publishInteractiveFormViewId: null,
+      } as Parameters<typeof items.createStructuredItem>[1]),
+    );
+    expect(await titlesUnder(nix)).toContain('Reading list');
+    expect((await nix.query(views.containerViews(board.item.id))).default).toBe('board');
+    const schema = await nix.query(structure.effectiveSchema(board.item.id));
+    expect(schema.properties.map((property) => property.options)).toEqual([['Next', 'Done'], []]);
+
+    // A fresh Core is a reload: the sample data again, without the visitor's edits.
+    expect(await titlesUnder(client(), PRODUCT_LAUNCH)).not.toContain('QA pass');
+  });
+
+  it('opens on the sample board without a single network request', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('The demo must not reach the network'));
     vi.stubGlobal('fetch', fetch);
-    const user = userEvent.setup();
 
+    await prepareDemo();
     render(<DemoPage />);
 
-    expect(screen.getByRole('heading', { level: 1, name: 'This week' })).toBeVisible();
-    for (const view of DEMO_VIEWS) {
-      await user.click(screen.getByRole('button', { name: view.name }));
-      expect(await screen.findAllByText('Plan the week')).not.toHaveLength(0);
-    }
+    expect(await screen.findByText('Press kit', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getAllByText('Product launch').length).toBeGreaterThan(0);
     expect(fetch).not.toHaveBeenCalled();
   });
 });
