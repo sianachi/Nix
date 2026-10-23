@@ -19,6 +19,7 @@ calendar and numbers in one item tree, on a laptop and on a phone. Everything st
 - **No lock-in.** Lossless `.nix` archives, plus PDF, DOCX and Markdown export; Markdown, DOCX, PDF
   and Obsidian import.
 - **Scriptable.** `nixctl` is a JSON CLI, and `nixctl mcp` exposes the workspace to AI tools.
+- **HTTP API.** The same workspace is a REST API. Create a personal access token, exchange it at `POST /public/v1/auth/token`, and call `/api/v1`. The guide is [the API guide](docs/site/nix-docs/markdown/api/index.md). The contract is [backend/openapi/nix-api.json](backend/openapi/nix-api.json).
 - **Publish a subtree** as a static site. This documentation is one: <https://nix.nixsites.com>.
 
 The full list is in [docs/features.md](docs/features.md).
@@ -128,6 +129,10 @@ backend/         Core API (ASP.NET) and the migrator
 packages/        Shared libraries
 deploy/          Compose manifests, images, seed and backup scripts
 ```
+
+## API
+
+The REST API is a way to use Nix, with the web app, `nixctl`, and MCP. [The API guide](docs/site/nix-docs/markdown/api/index.md) covers tokens, the first request in curl, Python, and TypeScript, resources, errors, and limits. The browsable reference generated from the OpenAPI document is [docs/site/nix-docs/generated/reference.html](docs/site/nix-docs/generated/reference.html). The same text is on the [docs site](https://nix.nixsites.com) once that guide is published there.
 
 ## Contributing
 

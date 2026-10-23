@@ -37,6 +37,10 @@ assert_contains "$backend_output" 'Required review: security'
 
 contract_output=$("$planner" backend/openapi/nix-api.json)
 assert_contains "$contract_output" 'pnpm --filter @nix/api-client generate'
+assert_contains "$contract_output" 'node scripts/generate-api-docs.mjs --check'
+
+api_docs_output=$("$planner" docs/site/nix-docs/markdown/api/index.md)
+assert_contains "$api_docs_output" 'node --test scripts/api-docs/policy.test.mjs scripts/api-docs/facts.test.mjs'
 
 worker_output=$("$planner" apps/go-workers/internal/runtime/runtime.go)
 assert_contains "$worker_output" 'go test -race ./...'

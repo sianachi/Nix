@@ -1,5 +1,6 @@
 import { Button, Dialog, Text } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
+import { Link, useLocation } from 'react-router';
 
 import { ErrorPanel } from '../../components/states/status-panels';
 import { useCapabilities } from '../../session/capabilities-context';
@@ -21,6 +22,7 @@ export const MCP_TOKEN_PREFIX = 'mcp:';
  * Nothing here grants more than the token's scopes; Core checks every call.
  */
 export function McpSection(): ReactElement {
+  const { pathname } = useLocation();
   const { mcpUrl } = useCapabilities();
   const { status, tokens, error, reload, create, revoke } = useAccessTokens();
   const [createOpen, setCreateOpen] = useState(false);
@@ -55,7 +57,11 @@ export function McpSection(): ReactElement {
         <Text variant="note" tone="muted">
           Works with Claude Code, Claude Desktop, Cursor and other clients through the Model Context
           Protocol. Core checks every call the same way it checks you; nothing a client sends can
-          widen what the token allows.
+          widen what the token allows. Programs that are not MCP clients use the{' '}
+          <Link to={`${pathname}?tab=api`} className="text-accent-text">
+            HTTP API
+          </Link>
+          .
         </Text>
       </details>
 

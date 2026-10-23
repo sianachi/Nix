@@ -93,12 +93,23 @@ for entry in "${sites[@]}"; do
   fi
 
   # Build into a scratch dir and swap, so stale files go and a failure keeps the old tree.
+  # markdown/api is the public HTTP API guide, generated from the OpenAPI
+  # contract and committed beside the snapshot. The workspace does not author
+  # it, so an export that has no API section keeps the committed tree.
+  api_keep=""
+  if [ -d "$out/markdown/api" ]; then
+    api_keep=$(mktemp -d)
+    cp -a "$out/markdown/api" "$api_keep/api"
+  fi
   tmp=$(mktemp -d "$out/.markdown.XXXXXX")
-  trap 'rm -rf "$tmp"' EXIT
+  trap 'rm -rf "$tmp" ${api_keep:+"$api_keep"}' EXIT
   export_tree "$ws" "$root" "$title" "$tmp" true
   rm -rf "$out/markdown"
   mv "$tmp/$(slug "$title")" "$out/markdown"
-  rm -rf "$tmp"
+  if [ -n "$api_keep" ] && [ ! -e "$out/markdown/api" ]; then
+    mv "$api_keep/api" "$out/markdown/api"
+  fi
+  rm -rf "$tmp" ${api_keep:+"$api_keep"}
   trap - EXIT
 
   printf '%-10s %s (%s), %s Markdown files (%s)\n' "$name" "$out/$name.nix" \

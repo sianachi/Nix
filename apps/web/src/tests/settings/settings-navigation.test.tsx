@@ -88,6 +88,7 @@ describe('reaching the settings screen', () => {
       'Workspace',
       'Access tokens',
       'MCP',
+      'API',
     ]);
   });
 

@@ -16,6 +16,7 @@ export const SettingsTabSchema = z.enum([
   'integrations',
   'access-tokens',
   'mcp',
+  'api',
   'backups',
   'site-approvals',
   'administrators',
