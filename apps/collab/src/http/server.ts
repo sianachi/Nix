@@ -12,6 +12,7 @@ import { registerConversationBodyRoutes } from './routes/conversation-bodies.ts'
 import { registerExportRoutes } from './routes/exports.ts';
 import { registerHistoryRoutes } from './routes/history.ts';
 import { registerInternalImportRoutes } from './routes/internal-imports.ts';
+import { registerMarkdownRoutes } from './routes/markdown.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
 import { registerUpdateRoutes } from './routes/updates.ts';
 
@@ -108,6 +109,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
   registerConversationBodyRoutes(app, routes);
   registerExportRoutes(app, routes);
   registerUpdateRoutes(app, routes);
+  registerMarkdownRoutes(app, routes);
   registerHistoryRoutes(app, routes);
 
   return app;

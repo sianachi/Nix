@@ -1,8 +1,8 @@
 /**
  * `nixctl note read` / `nixctl note write`: a note's body, as Markdown.
  *
- * The body is the one thing not in Core's REST API - it lives in the collaboration service - so
- * these two commands are the CLI's reason for speaking that protocol. Reading prints the Markdown
+ * The body lives in the collaboration service. Core exposes the same operations at
+ * `/api/v1/items/{id}/body`; these commands speak the update log directly. Reading prints the Markdown
  * (and, on stdout-as-a-terminal, just the text; piped, a JSON envelope carrying the losses so a
  * script can see what Markdown could not hold). Writing takes Markdown on stdin or from a file and
  * replaces the body with it, as a minimal change Yjs merges rather than a clobber.

@@ -22,4 +22,10 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(UpdateItemRequest))]
 [JsonSerializable(typeof(MoveItemRequest))]
 [JsonSerializable(typeof(SetItemProtectionRequest))]
+[JsonSerializable(typeof(ItemBodyResponse))]
+[JsonSerializable(typeof(ItemBodyWriteResponse))]
+[JsonSerializable(typeof(ItemBodyLoss))]
+[JsonSerializable(typeof(ItemBodyMarkdownChanges))]
+[JsonSerializable(typeof(IReadOnlyList<ItemBodyLoss>))]
+[JsonSerializable(typeof(WriteItemBodyRequest))]
 internal sealed partial class ItemsJsonContext : JsonSerializerContext;

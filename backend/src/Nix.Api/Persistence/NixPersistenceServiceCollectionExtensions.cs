@@ -412,6 +412,15 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<ListItemMoveWorkspaces, Result<ItemMoveWorkspacePage>>, ListItemMoveWorkspacesHandler>();
         services.AddScoped<ICommandHandler<RestoreItem, Item>, RestoreItemHandler>();
         services.AddScoped<IQueryHandler<GetItem, Result<Item>>, GetItemHandler>();
+        services.AddHttpClient<ItemBodyClient>(static client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        }).ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+        });
+        services.AddScoped<IQueryHandler<ReadItemBody, Result<ItemBodyResponse>>, ItemBodyHandlers>();
+        services.AddScoped<ICommandHandler<WriteItemBody, ItemBodyWriteResponse>, ItemBodyHandlers>();
         services.AddScoped<IQueryHandler<ListItems, Result<IReadOnlyList<Item>>>, ListItemsHandler>();
         services.AddScoped<IQueryHandler<ListTrash, Result<IReadOnlyList<Item>>>, ListTrashHandler>();
         services.AddScoped<ICommandHandler<PurgeItem, ItemId>, PurgeItemHandler>();
