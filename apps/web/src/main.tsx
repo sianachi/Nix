@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 
@@ -23,24 +23,23 @@ const rootContainer: HTMLElement = rootElement;
 registerServiceWorker();
 
 async function mountApplication(): Promise<void> {
-  const pendingConfig = loadWebConfig();
+  // Excalidraw reads its global asset path while its module is evaluated. Loading the application
+  // only after initializeExcalidrawAssets() keeps its fonts on this origin instead of capturing the
+  // package's public-CDN fallback before the first statement in this entry point can run.
+  const [config, { App, DemoRoot }] = await Promise.all([loadWebConfig(), import('./app')]);
 
   // The demo is its own root, outside <App />: no auth provider, no API client, so it never asks
   // Core for anything.
-  if (globalThis.location.pathname === '/demo' && (await pendingConfig).demo) {
-    const { DemoPage } = await import('./demo/demo-page');
+  if (config.demo && globalThis.location.pathname === '/demo') {
     createRoot(rootContainer).render(
       <StrictMode>
-        <DemoPage />
+        <Suspense fallback={null}>
+          <DemoRoot />
+        </Suspense>
       </StrictMode>,
     );
     return;
   }
-
-  // Excalidraw reads its global asset path while its module is evaluated. Loading the application
-  // only after initializeExcalidrawAssets() keeps its fonts on this origin instead of capturing the
-  // package's public-CDN fallback before the first statement in this entry point can run.
-  const [config, { App }] = await Promise.all([pendingConfig, import('./app')]);
 
   createRoot(rootContainer).render(
     <StrictMode>
