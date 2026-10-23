@@ -34,6 +34,14 @@ follows semantic versioning (`0.x` pre-1.0).
 - A blog home page no longer repeats under "Pages" what the top navigation already links, and no
   longer captions a collection "N pages".
 
+**Landing page and demo**
+
+- An optional landing page for signed-out visitors at `/`, and an optional `/demo` that lets
+  anyone try the board, list, calendar, timeline, spreadsheet, gallery, checklist and matrix
+  views on sample data kept in the browser, with no account and no server calls. Both are off by
+  default; on Kubernetes set `NIX_WEB_LANDING=true` and `NIX_WEB_DEMO=true` before
+  `deploy/k8s/deploy.sh`.
+
 ### Changed
 
 - Links on published sites take the site's accent colour, adjusted until it reads at 4.5:1 on

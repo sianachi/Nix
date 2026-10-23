@@ -2,9 +2,21 @@ name: CI Compose deployment
 on:
   push:
     branches: [main]
-    paths: ['deploy/**', 'scripts/changed-path-checks*', 'scripts/release-version*', '.github/workflows/ci-deploy.yml']
+    paths:
+      [
+        'deploy/**',
+        'scripts/changed-path-checks*',
+        'scripts/release-version*',
+        '.github/workflows/ci-deploy.yml',
+      ]
   pull_request:
-    paths: ['deploy/**', 'scripts/changed-path-checks*', 'scripts/release-version*', '.github/workflows/ci-deploy.yml']
+    paths:
+      [
+        'deploy/**',
+        'scripts/changed-path-checks*',
+        'scripts/release-version*',
+        '.github/workflows/ci-deploy.yml',
+      ]
 permissions:
   contents: read
 jobs:

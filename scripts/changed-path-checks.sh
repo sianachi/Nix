@@ -127,7 +127,7 @@ for path in "${paths[@]}"; do
     scripts/check-byte-array-markers.sh|scripts/check-no-controllers.sh|scripts/check-layering.sh|scripts/check-root-is-unambiguous.sh)
       has_backend_guard=true; has_backend=true
       ;;
-    scripts/changed-path-checks.sh|scripts/changed-path-checks.test.sh|scripts/validate-changed.sh|scripts/validate-changed.test.sh|scripts/new-goal-worktree.sh)
+    scripts/changed-path-checks.sh|scripts/changed-path-checks.test.sh|scripts/validate-changed.sh|scripts/validate-changed.test.sh|scripts/new-goal-worktree.sh|scripts/rebuild-stale-packages.sh|scripts/rebuild-stale-packages.test.sh|scripts/release-version.sh|scripts/release-version.test.sh|scripts/dev-db-drift.sh|lefthook.yml)
       has_workflow_script=true
       ;;
     packages/structure-spec/*|apps/go-workers/internal/companion/catalog/*)
@@ -230,8 +230,8 @@ if [ "$format" = human ] && [ "$has_backend_guard" = true ]; then
   echo '  Note: backend guard edits trigger backend CI; inspect its workflow before changing scope.'
 fi
 if [ "$has_workflow_script" = true ]; then
-  emit 'bash -n scripts/changed-path-checks.sh scripts/changed-path-checks.test.sh scripts/validate-changed.sh scripts/validate-changed.test.sh scripts/new-goal-worktree.sh'
-  emit './scripts/changed-path-checks.test.sh && ./scripts/validate-changed.test.sh'
+  emit 'bash -n scripts/changed-path-checks.sh scripts/changed-path-checks.test.sh scripts/validate-changed.sh scripts/validate-changed.test.sh scripts/new-goal-worktree.sh scripts/rebuild-stale-packages.sh scripts/release-version.sh scripts/dev-db-drift.sh'
+  emit './scripts/changed-path-checks.test.sh && ./scripts/validate-changed.test.sh && ./scripts/rebuild-stale-packages.test.sh && ./scripts/release-version.test.sh'
 fi
 
 if [ "$format" = human ]; then

@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { useSessionStore } from '../../auth/session-store';
+import { WebConfigContext } from '../../lib/web-config';
 import { stubCoreApi } from '../api-stub';
 import { renderAt } from '../render-with-router';
 import { App } from '../../app';
@@ -23,6 +24,44 @@ describe('the session gate', () => {
     expect(screen.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
     expect(screen.getByRole('button', { name: /continue with sso/i })).toBeEnabled();
     expect(screen.queryByRole('textbox', { name: /organisation/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the landing page at the root when the install turns it on', () => {
+    useSessionStore.setState({ status: 'anonymous', profile: null, error: null });
+
+    renderAt(
+      <WebConfigContext value={{ landing: true, demo: true }}>
+        <App />
+      </WebConfigContext>,
+    );
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: /your notes, tasks and days/i }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Try the demo' })).toBeVisible();
+  });
+
+  it('keeps sign-in on a deep link, and offers no demo when only the landing page is on', () => {
+    useSessionStore.setState({ status: 'anonymous', profile: null, error: null });
+
+    const { unmount } = renderAt(
+      <WebConfigContext value={{ landing: true, demo: false }}>
+        <App />
+      </WebConfigContext>,
+      '/w/00000000-0000-4000-8000-000000000001',
+    );
+    expect(screen.getByRole('heading', { level: 1, name: /sign in/i })).toBeVisible();
+    unmount();
+
+    renderAt(
+      <WebConfigContext value={{ landing: true, demo: false }}>
+        <App />
+      </WebConfigContext>,
+    );
+    expect(
+      screen.getByRole('heading', { level: 1, name: /your notes, tasks and days/i }),
+    ).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Try the demo' })).not.toBeInTheDocument();
   });
 
   it('says the app is offline, not signed out, when Core cannot be reached', async () => {
