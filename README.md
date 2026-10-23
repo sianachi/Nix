@@ -75,8 +75,12 @@ publishing above.
 
 ## Run it for real
 
-Docker, with at least 8 GB of memory, is enough to try it. Read
-[deploy/install.sh](deploy/install.sh) before you pipe it to a shell.
+Read [deploy/install.sh](deploy/install.sh) before you pipe it to a shell. It needs Docker with
+the Compose plugin, `curl`, `openssl`, `jq`, and about 8 GB of memory for Docker. The stack runs
+Postgres, RabbitMQ, an object store, the identity provider and eight Nix services (API,
+collaboration, web, and the import, export, plugin, calendar and notification workers). A default
+Docker Desktop VM is often 2 to 4 GB, and a smaller limit thrashes. The script stops if a tool is
+missing, and warns when Docker has less than about 8 GB.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash
@@ -93,10 +97,6 @@ curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/insta
 ```
 
 Point `nix.example.org` and `auth.nix.example.org` at the machine and leave ports 80 and 443 free.
-Docker with the Compose plugin, `curl`, `openssl` and `jq` must be installed. Give Docker at least
-8 GB of memory: the stack runs Postgres, RabbitMQ, an object store, the identity provider and eight
-Nix services (API, collaboration, web, and the import, export, plugin, calendar and notification
-workers), and a smaller Docker VM thrashes.
 
 The script writes every secret into `~/nix/nix.env` and prints an administrator sign-in. Back that
 file up with the Docker volumes (`nix-*`); it cannot be regenerated.

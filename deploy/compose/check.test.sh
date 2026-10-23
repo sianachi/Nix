@@ -4,7 +4,8 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
-bash -n deploy/compose/*.sh deploy/docker/build-and-push.sh deploy/k8s/deploy.sh
+bash -n deploy/compose/*.sh deploy/docker/build-and-push.sh deploy/k8s/deploy.sh deploy/install.sh deploy/install.test.sh
+bash deploy/install.test.sh
 node --check deploy/compose/smoke.mjs
 bash deploy/compose/release.test.sh
 # Validate real Compose interpolation, without printing credentials.

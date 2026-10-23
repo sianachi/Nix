@@ -1,13 +1,16 @@
 # Install Nix
 
-The short path is in the [README](../README.md#run-it-for-real): one line, Docker, and at least
-8 GB of memory for Docker. Read [deploy/install.sh](../deploy/install.sh) before you run it. This
-page is the rest of that install: what the script does, the flags, upgrades, Kubernetes and image
-tags.
+The short path is in the [README](../README.md#run-it-for-real). Read
+[deploy/install.sh](../deploy/install.sh) before you run it. This page is the rest of that install:
+what the script does, the flags, upgrades, Kubernetes and image tags.
 
 ## Try it on your machine
 
-All it needs is Docker:
+Needs Docker with the Compose plugin, `curl`, `openssl`, `jq`, and about 8 GB of memory for
+Docker. The stack runs Postgres, RabbitMQ, an object store, the identity provider and eight Nix
+services (API, collaboration, web, and the import, export, plugin, calendar and notification
+workers). A default Docker Desktop VM is often 2 to 4 GB, and a smaller limit thrashes. The script
+stops if a tool is missing, and warns when Docker has less than about 8 GB.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/install.sh | bash
@@ -27,10 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/sianachi/nixsites/main/deploy/insta
 ```
 
 **Before you run it:** point `nix.example.org` and `auth.nix.example.org` at the machine and leave
-ports 80 and 443 free. Docker with the Compose plugin, `curl`, `openssl` and `jq` must be installed.
-Give Docker at least 8 GB of memory: the stack runs Postgres, RabbitMQ, an object store, the
-identity provider and eight Nix services (API, collaboration, web, and the import, export, plugin,
-calendar and notification workers), and a smaller Docker VM thrashes.
+ports 80 and 443 free. The tools and the 8 GB of Docker memory are the same as the try-out above.
 
 ## What it does
 
