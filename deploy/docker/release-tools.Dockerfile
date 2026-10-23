@@ -10,7 +10,7 @@
 #
 # nixctl reads $XDG_CONFIG_HOME/nixctl/config.json, so the host profile file is mounted
 # read-only at /config/nixctl/config.json.
-FROM node:22-slim AS deps
+FROM node:25-slim AS deps
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 RUN corepack enable
 WORKDIR /repo
@@ -25,7 +25,7 @@ COPY apps/collab/package.json apps/collab/
 # Installs the workspace and runs the root "prepare", which builds the packages nixctl imports.
 RUN pnpm install --frozen-lockfile
 
-FROM node:22-slim AS release-tools
+FROM node:25-slim AS release-tools
 # smoke.mjs runs verify-artifact.py (python3), which uses pdftotext for the PDF content check.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends poppler-utils python3 ca-certificates \
