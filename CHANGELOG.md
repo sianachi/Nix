@@ -5,6 +5,15 @@ follows semantic versioning (`0.x` pre-1.0).
 
 ## Unreleased
 
+### Added
+
+- A note body can be read, replaced, or appended as Markdown at
+  `GET`, `PUT`, and `POST /api/v1/items/{itemId}/body`. Exchange a personal access token at
+  `POST /public/v1/auth/token` and send the returned session as a bearer token. Reading needs
+  the read scope and writing needs the write scope. The write is a Yjs update, so an editor
+  that already has the note open sees it. Appending adds blocks and leaves the existing rich
+  text in place. A canvas or a spreadsheet is refused.
+
 ### Fixed
 
 - The one-line install lists Docker with the Compose plugin, `curl`, `openssl`, `jq` and about

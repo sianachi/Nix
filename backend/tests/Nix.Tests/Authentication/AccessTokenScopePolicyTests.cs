@@ -129,6 +129,11 @@ public sealed class AccessTokenScopePolicyTests
 
         // Writes: content and structure, but never who-sees-what.
         ["UpdateItem"] = Requirement.Write,
+        // The note body is the document. Reading it is a read. Replacing or appending it is a
+        // write, the same scope as renaming the item. A read-only token must not change prose.
+        ["GetItemBody"] = Requirement.Read,
+        ["ReplaceItemBody"] = Requirement.Write,
+        ["AppendItemBody"] = Requirement.Write,
         ["DeleteItem"] = Requirement.Write,
         ["SetItemProtection"] = Requirement.Write,
         ["PurgeItem"] = Requirement.Write,
