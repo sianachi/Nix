@@ -34,12 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # setup-node caches pnpm on its own when package.json names it, so pnpm must exist first.
-      - uses: pnpm/action-setup@v5
-
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # The scripts need only Node; without this, setup-node caches the pnpm store package.json names.
+          package-manager-cache: false
 
       - name: API reference matches the OpenAPI document
         run: |
