@@ -2796,6 +2796,353 @@
         }
       }
     },
+    "/api/v1/items/{itemId}/body": {
+      "get": {
+        "tags": [
+          "Items"
+        ],
+        "summary": "Read a note body as Markdown",
+        "description": "Returns the item's prose body as Markdown, plus the losses Markdown could not carry. An item nobody has edited yet is an empty string, not an error. Exchange a personal access token at POST /public/v1/auth/token and send that session as a bearer token; reading needs the read scope. Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_not_prose' (422) for a canvas or spreadsheet, and 'items.body_unavailable' (503) when the body service cannot answer.",
+        "operationId": "GetItemBody",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemBodyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Items"
+        ],
+        "summary": "Replace a note body with Markdown",
+        "description": "Replaces the prose body with the Markdown in { \"markdown\": \"...\" }, at most 200,000 characters. An empty string clears the note. The write is a minimal Yjs update, the same diff nixctl note write applies, so a collaborator who has the note open sees it. Exchange a personal access token at POST /public/v1/auth/token and send that session as a bearer token; this route needs the write scope. Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_read_only' (403) when the caller can read but not write, 'items.body_not_prose' (422) for a canvas or spreadsheet, 'items.markdown_invalid' (422) when the Markdown is not a note, and 'items.markdown_too_large' (413) past the character ceiling.",
+        "operationId": "ReplaceItemBody",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/WriteItemBodyRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemBodyWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Items"
+        ],
+        "summary": "Append Markdown to a note body",
+        "description": "Appends the Markdown in { \"markdown\": \"...\" } as new blocks at the end of the note, at most 200,000 characters. Existing blocks are not reserialised, so marks Markdown cannot carry stay, and a collaborator who has the note open sees the new blocks. Authentication and the failure codes match replacing the body. An empty append is 'items.markdown_invalid' (422).",
+        "operationId": "AppendItemBody",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/WriteItemBodyRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemBodyWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/files/uploads": {
       "post": {
         "tags": [
@@ -17790,6 +18137,133 @@
           }
         }
       },
+      "ItemBodyLoss": {
+        "required": [
+          "kind",
+          "detail"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "ItemBodyMarkdownChanges": {
+        "required": [
+          "unresolvedWikiLinks",
+          "unresolvedObsidianEmbeds",
+          "unresolvedLocalImages",
+          "unsupportedImageAddresses",
+          "inlineImagesFlattened"
+        ],
+        "type": "object",
+        "properties": {
+          "unresolvedWikiLinks": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unresolvedObsidianEmbeds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unresolvedLocalImages": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unsupportedImageAddresses": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "inlineImagesFlattened": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ItemBodyResponse": {
+        "required": [
+          "markdown",
+          "schemaVersion",
+          "empty",
+          "losses"
+        ],
+        "type": "object",
+        "properties": {
+          "markdown": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "losses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemBodyLoss"
+            }
+          }
+        }
+      },
+      "ItemBodyWriteResponse": {
+        "required": [
+          "id",
+          "seq",
+          "updateBytes",
+          "markdownChanges"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seq": {
+            "type": "string"
+          },
+          "updateBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "markdownChanges": {
+            "$ref": "#/components/schemas/ItemBodyMarkdownChanges"
+          }
+        }
+      },
       "ItemLockPasswordRequest": {
         "required": [
           "password"
@@ -21799,6 +22273,18 @@
               "null",
               "string"
             ]
+          },
+          "headingMark": {
+            "type": "string",
+            "default": "square"
+          },
+          "typeface": {
+            "type": "string",
+            "default": "rounded"
+          },
+          "spacing": {
+            "type": "string",
+            "default": "comfortable"
           }
         }
       },
@@ -24956,6 +25442,20 @@
               "string"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "WriteItemBodyRequest": {
+        "required": [
+          "markdown"
+        ],
+        "type": "object",
+        "properties": {
+          "markdown": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       }

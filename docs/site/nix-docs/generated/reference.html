@@ -1251,6 +1251,42 @@
 
 <p>Responses: <code>204</code>, <code>404</code>, <code>409</code>, <code>501</code>.</p>
 </article>
+<article id="getitembody" data-search="get /api/v1/items/{itemid}/body getitembody read a note body as markdown returns the item's prose body as markdown, plus the losses markdown could not carry. an item nobody has edited yet is an empty string, not an error. exchange a personal access token at post /public/v1/auth/token and send that session as a bearer token; reading needs the read scope. fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_not_prose' (422) for a canvas or spreadsheet, and 'items.body_unavailable' (503) when the body service cannot answer. items">
+<h3><span class="verb">GET</span> <code>/api/v1/items/{itemId}/body</code></h3>
+<p>Read a note body as Markdown</p>
+<p class="id">Operation id: <code>GetItemBody</code></p>
+<p><strong>Can.</strong> Read the resource named in the summary.</p>
+<p><strong>Cannot.</strong> Create, update, or delete stored data. It does not read or replace a note, canvas, or spreadsheet body.</p>
+<p><strong>Token.</strong> Requires a personal access token with the read scope, or an interactive session. A scope never grants more than the person who minted the token can already do, and read, write, and admin are independent.</p>
+<p>Returns the item's prose body as Markdown, plus the losses Markdown could not carry. An item nobody has edited yet is an empty string, not an error. Exchange a personal access token at POST /public/v1/auth/token and send that session as a bearer token; reading needs the read scope. Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_not_prose' (422) for a canvas or spreadsheet, and 'items.body_unavailable' (503) when the body service cannot answer.</p>
+<ul><li><code>itemId</code> in path (required, string (uuid))</li></ul>
+
+<p>Responses: <code>200</code>, <code>404</code>, <code>422</code>, <code>423</code>, <code>503</code>.</p>
+</article>
+<article id="appenditembody" data-search="post /api/v1/items/{itemid}/body appenditembody append markdown to a note body appends the markdown in { &quot;markdown&quot;: &quot;...&quot; } as new blocks at the end of the note, at most 200,000 characters. existing blocks are not reserialised, so marks markdown cannot carry stay, and a collaborator who has the note open sees the new blocks. authentication and the failure codes match replacing the body. an empty append is 'items.markdown_invalid' (422). items">
+<h3><span class="verb">POST</span> <code>/api/v1/items/{itemId}/body</code></h3>
+<p>Append Markdown to a note body</p>
+<p class="id">Operation id: <code>AppendItemBody</code></p>
+<p><strong>Can.</strong> Write what the summary names.</p>
+<p><strong>Cannot.</strong> Replace a note, canvas, or spreadsheet body. Moving an item, sharing it, and editing its body are separate operations, and no REST route edits a note body yet.</p>
+<p><strong>Token.</strong> Requires a personal access token with the write scope, or an interactive session. Holding write does not imply read.</p>
+<p>Appends the Markdown in { &quot;markdown&quot;: &quot;...&quot; } as new blocks at the end of the note, at most 200,000 characters. Existing blocks are not reserialised, so marks Markdown cannot carry stay, and a collaborator who has the note open sees the new blocks. Authentication and the failure codes match replacing the body. An empty append is 'items.markdown_invalid' (422).</p>
+<ul><li><code>itemId</code> in path (required, string (uuid))</li></ul>
+<p>Request body: <code>one of several shapes</code>.</p>
+<p>Responses: <code>200</code>, <code>400</code>, <code>403</code>, <code>404</code>, <code>409</code>, <code>413</code>, <code>422</code>, <code>423</code>, <code>429</code>, <code>503</code>.</p>
+</article>
+<article id="replaceitembody" data-search="put /api/v1/items/{itemid}/body replaceitembody replace a note body with markdown replaces the prose body with the markdown in { &quot;markdown&quot;: &quot;...&quot; }, at most 200,000 characters. an empty string clears the note. the write is a minimal yjs update, the same diff nixctl note write applies, so a collaborator who has the note open sees it. exchange a personal access token at post /public/v1/auth/token and send that session as a bearer token; this route needs the write scope. fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_read_only' (403) when the caller can read but not write, 'items.body_not_prose' (422) for a canvas or spreadsheet, 'items.markdown_invalid' (422) when the markdown is not a note, and 'items.markdown_too_large' (413) past the character ceiling. items">
+<h3><span class="verb">PUT</span> <code>/api/v1/items/{itemId}/body</code></h3>
+<p>Replace a note body with Markdown</p>
+<p class="id">Operation id: <code>ReplaceItemBody</code></p>
+<p><strong>Can.</strong> Write what the summary names.</p>
+<p><strong>Cannot.</strong> Replace a note, canvas, or spreadsheet body. Moving an item, sharing it, and editing its body are separate operations, and no REST route edits a note body yet.</p>
+<p><strong>Token.</strong> Requires a personal access token with the write scope, or an interactive session. Holding write does not imply read.</p>
+<p>Replaces the prose body with the Markdown in { &quot;markdown&quot;: &quot;...&quot; }, at most 200,000 characters. An empty string clears the note. The write is a minimal Yjs update, the same diff nixctl note write applies, so a collaborator who has the note open sees it. Exchange a personal access token at POST /public/v1/auth/token and send that session as a bearer token; this route needs the write scope. Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_read_only' (403) when the caller can read but not write, 'items.body_not_prose' (422) for a canvas or spreadsheet, 'items.markdown_invalid' (422) when the Markdown is not a note, and 'items.markdown_too_large' (413) past the character ceiling.</p>
+<ul><li><code>itemId</code> in path (required, string (uuid))</li></ul>
+<p>Request body: <code>one of several shapes</code>.</p>
+<p>Responses: <code>200</code>, <code>400</code>, <code>403</code>, <code>404</code>, <code>409</code>, <code>413</code>, <code>422</code>, <code>423</code>, <code>429</code>, <code>503</code>.</p>
+</article>
 <article id="moveitem" data-search="post /api/v1/items/{itemid}/move moveitem move an item to a new parent reparents the item and maintains the closure table. fails with 'items.move_would_create_cycle' when the destination is the item itself or one of its own descendants, and with 'items.parent_not_found' when the destination is not visible. fails with 'items.locked' (423) when a lock the caller has not opened covers the item or the destination. items">
 <h3><span class="verb">POST</span> <code>/api/v1/items/{itemId}/move</code></h3>
 <p>Move an item to a new parent</p>

@@ -34,6 +34,19 @@ Clients branch on `code` in the problem body. The codes named inside operation d
 
 - GET /api/v1/health/checks/{name}
 
+### `items.body_not_prose`
+
+- GET /api/v1/items/{itemId}/body
+- PUT /api/v1/items/{itemId}/body
+
+### `items.body_read_only`
+
+- PUT /api/v1/items/{itemId}/body
+
+### `items.body_unavailable`
+
+- GET /api/v1/items/{itemId}/body
+
 ### `items.children_protected`
 
 - POST /api/v1/workspaces/{workspaceId}/items
@@ -52,11 +65,22 @@ Clients branch on `code` in the problem body. The codes named inside operation d
 
 ### `items.locked`
 
+- GET /api/v1/items/{itemId}/body
 - GET /api/v1/items/{itemId}/chart
 - GET /api/v1/items/{itemId}/query
 - GET /api/v1/workspaces/{workspaceId}/items
 - POST /api/v1/items/{itemId}/move
 - POST /api/v1/workspaces/{workspaceId}/query
+- PUT /api/v1/items/{itemId}/body
+
+### `items.markdown_invalid`
+
+- POST /api/v1/items/{itemId}/body
+- PUT /api/v1/items/{itemId}/body
+
+### `items.markdown_too_large`
+
+- PUT /api/v1/items/{itemId}/body
 
 ### `items.move_would_create_cycle`
 
@@ -65,7 +89,9 @@ Clients branch on `code` in the problem body. The codes named inside operation d
 ### `items.not_found`
 
 - GET /api/v1/items/{itemId}
+- GET /api/v1/items/{itemId}/body
 - POST /api/v1/workspaces/{workspaceId}/query
+- PUT /api/v1/items/{itemId}/body
 
 ### `items.parent_not_found`
 
@@ -269,6 +295,9 @@ Every remaining stable code constant and `NixError` literal in the API project. 
 - `chart.view_not_found`
 - `finance.reserved_property`
 - `identity.principal_not_found`
+- `items.body_conflict`
+- `items.body_rate_limited`
+- `items.body_too_large`
 - `items.invalid_idempotency_key`
 - `items.read_only`
 - `items.sibling_not_in_destination`

@@ -2162,6 +2162,76 @@ Parameters:
 
 Responses: `204`, `404`, `409`, `501`.
 
+### GET /api/v1/items/{itemId}/body
+
+<a id="getitembody"></a>
+
+Read a note body as Markdown
+
+Operation id: `GetItemBody`.
+
+**Can.** Read the resource named in the summary.
+
+**Cannot.** Create, update, or delete stored data. It does not read or replace a note, canvas, or spreadsheet body.
+
+**Token.** Requires a personal access token with the read scope, or an interactive session. A scope never grants more than the person who minted the token can already do, and read, write, and admin are independent.
+
+Returns the item's prose body as Markdown, plus the losses Markdown could not carry. An item nobody has edited yet is an empty string, not an error. Exchange a personal access token at POST /public/v1/auth/token and send that session as a bearer token; reading needs the read scope. Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_not_prose' (422) for a canvas or spreadsheet, and 'items.body_unavailable' (503) when the body service cannot answer.
+
+Parameters:
+
+- `itemId` in path (required, string (uuid))
+
+Responses: `200`, `404`, `422`, `423`, `503`.
+
+### POST /api/v1/items/{itemId}/body
+
+<a id="appenditembody"></a>
+
+Append Markdown to a note body
+
+Operation id: `AppendItemBody`.
+
+**Can.** Write what the summary names.
+
+**Cannot.** Replace a note, canvas, or spreadsheet body. Moving an item, sharing it, and editing its body are separate operations, and no REST route edits a note body yet.
+
+**Token.** Requires a personal access token with the write scope, or an interactive session. Holding write does not imply read.
+
+Appends the Markdown in { "markdown": "..." } as new blocks at the end of the note, at most 200,000 characters. Existing blocks are not reserialised, so marks Markdown cannot carry stay, and a collaborator who has the note open sees the new blocks. Authentication and the failure codes match replacing the body. An empty append is 'items.markdown_invalid' (422).
+
+Parameters:
+
+- `itemId` in path (required, string (uuid))
+
+Request body: `one of several shapes`.
+
+Responses: `200`, `400`, `403`, `404`, `409`, `413`, `422`, `423`, `429`, `503`.
+
+### PUT /api/v1/items/{itemId}/body
+
+<a id="replaceitembody"></a>
+
+Replace a note body with Markdown
+
+Operation id: `ReplaceItemBody`.
+
+**Can.** Write what the summary names.
+
+**Cannot.** Replace a note, canvas, or spreadsheet body. Moving an item, sharing it, and editing its body are separate operations, and no REST route edits a note body yet.
+
+**Token.** Requires a personal access token with the write scope, or an interactive session. Holding write does not imply read.
+
+Replaces the prose body with the Markdown in { "markdown": "..." }, at most 200,000 characters. An empty string clears the note. The write is a minimal Yjs update, the same diff nixctl note write applies, so a collaborator who has the note open sees it. Exchange a personal access token at POST /public/v1/auth/token and send that session as a bearer token; this route needs the write scope. Fails with 'items.not_found' (404) when the item is not visible, 'items.locked' (423) when its body is locked, 'items.body_read_only' (403) when the caller can read but not write, 'items.body_not_prose' (422) for a canvas or spreadsheet, 'items.markdown_invalid' (422) when the Markdown is not a note, and 'items.markdown_too_large' (413) past the character ceiling.
+
+Parameters:
+
+- `itemId` in path (required, string (uuid))
+
+Request body: `one of several shapes`.
+
+Responses: `200`, `400`, `403`, `404`, `409`, `413`, `422`, `423`, `429`, `503`.
+
 ### POST /api/v1/items/{itemId}/move
 
 <a id="moveitem"></a>
